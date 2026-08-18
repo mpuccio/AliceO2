@@ -83,9 +83,9 @@ class NeverDecodedDecoder final : public ClusterDecoder
  public:
   explicit NeverDecodedDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt&, BoundedPatternCursor&, const TopologyDictionary*,
-    gsl::span<const LayerId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+    uint32_t, bool) const override
   {
     return {};
   }
@@ -95,56 +95,38 @@ class NeverDecodedDecoder final : public ClusterDecoder
 };
 
 // Stage-B normalized-CA-measurements slice: computeLayerCells() now reads
-// TrackerTraits::mLayerSurfaceMeasurements, resolved once per initialiseTimeFrame()
-// from the TimeFrame's already-loaded normalized frame. Candidate fixtures
+// the TimeFrame's source-indexed SurfaceMeasurements. Candidate fixtures
 // therefore load their three clusters through the real loadNormalizedSource()
 // path -- backfilling both the normalized frame and every legacy
 // compatibility structure (unsorted clusters, TrackingFrameInfo, external
 // indices, ROF boundaries) together, in lockstep -- rather than poking legacy
 // structures directly. This decoder returns exactly the caller-supplied
 // SurfaceMeasurement for a given detector-local layer (encoded as the
-// synthetic CompClusterExt's chipID/sensorID), verbatim except for the
-// surface/sensor/cluster/sourceROF identity fields loadSources() itself
-// validates against its own call parameters.
+// synthetic CompClusterExt's chipID/sensorID) as decoded geometry facts.
 class FixedMeasurementDecoder final : public ClusterDecoder
 {
  public:
   struct MeasurementPair {
-    GlobalMeasurement global{};
-    SurfaceMeasurement local{};
+    DecodedCluster decoded{};
   };
 
   FixedMeasurementDecoder(o2::detectors::DetID::ID detector, SurfaceKind kind) : mDetector(detector), mKind(kind) {}
 
   void setMeasurement(int layer, const MeasurementPair& measurement) { mByLayer[layer] = measurement; }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor&,
     const TopologyDictionary*,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool) const override
   {
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int layer = cluster.getSensorID();
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mKind;
     const auto it = mByLayer.find(layer);
     BOOST_REQUIRE(it != mByLayer.end());
-    auto measurement = it->second;
-    measurement.global.surface = layerToSurface[layer];
-    measurement.global.sensor = DetectorSensorId{static_cast<uint32_t>(mDetector), static_cast<uint32_t>(layer)};
-    measurement.global.cluster = ClusterRef{source, externalIndex};
-    measurement.global.sourceROF = sourceROF;
-    result.global = measurement.global;
-    result.measurement = measurement.local;
+    result.decoded = it->second.decoded;
+    result.decoded.layer = layer;
     return result;
   }
 
@@ -205,9 +187,14 @@ std::array<NominalSurfaceMaterial, 3> toMaterial(const std::array<float, 3>& xOv
 
 // Same construction as testTrackletFinding.cxx's helpers -- plain
 // input-struct builders, not a reimplementation of any fit formula.
-MeasurementLocator makeGlobalCluster(float x, float y, float z, int id = 0)
+GlobalMeasurement makeGlobalCluster(float x, float y, float z, int id = 0)
 {
-  return MeasurementLocator{x, y, z, id};
+  GlobalMeasurement measurement{};
+  measurement.position = {x, y, z};
+  measurement.radius = std::hypot(x, y);
+  measurement.phi = std::atan2(y, x);
+  measurement.clusterId = static_cast<uint32_t>(id);
+  return measurement;
 }
 
 struct TestLocalMeasurement {
@@ -232,42 +219,24 @@ TestLocalMeasurement makeDiskHit(float z, float x, float y, float sigma2X = 1.e-
 // testCellFinding.cxx: the single SurfaceMeasurement now
 // standing in for the retired {Cluster, TrackingFrameInfo} pair at each
 // candidate position.
-FixedMeasurementDecoder::MeasurementPair barrelMeasurementFor(const MeasurementLocator& cluster, const TestLocalMeasurement& hit)
+FixedMeasurementDecoder::MeasurementPair barrelMeasurementFor(const GlobalMeasurement& cluster, const TestLocalMeasurement& hit)
 {
   FixedMeasurementDecoder::MeasurementPair measurement{};
-  measurement.global.position = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  measurement.global.radius = std::hypot(cluster.xCoordinate, cluster.yCoordinate);
-  const float sine = std::sin(hit.alphaTrackingFrame);
-  const float cosine = std::cos(hit.alphaTrackingFrame);
-  const float varianceU = hit.covarianceTrackingFrame[0];
-  const float covarianceUV = hit.covarianceTrackingFrame[1];
-  measurement.global.covariance = {sine * sine * varianceU,
-                                   -sine * cosine * varianceU,
-                                   -sine * covarianceUV,
-                                   cosine * cosine * varianceU,
-                                   cosine * covarianceUV,
-                                   hit.covarianceTrackingFrame[2]};
-  measurement.local.frame.q = hit.xTrackingFrame;
-  measurement.local.frame.frameAngle = hit.alphaTrackingFrame;
-  measurement.local.frame.u = hit.positionTrackingFrame[0];
-  measurement.local.frame.v = hit.positionTrackingFrame[1];
-  measurement.local.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.local.covariance.uv = hit.covarianceTrackingFrame[1];
-  measurement.local.covariance.vv = hit.covarianceTrackingFrame[2];
+  measurement.decoded.global = {cluster.x, cluster.y, cluster.z};
+  measurement.decoded.cylinderFrame = {hit.xTrackingFrame, hit.positionTrackingFrame[0],
+                                       hit.positionTrackingFrame[1], hit.alphaTrackingFrame};
+  measurement.decoded.rowColumnCovariance = {hit.covarianceTrackingFrame[0],
+                                             hit.covarianceTrackingFrame[1],
+                                             hit.covarianceTrackingFrame[2]};
   return measurement;
 }
 
-FixedMeasurementDecoder::MeasurementPair diskMeasurementFor(const MeasurementLocator& cluster, const TestLocalMeasurement& hit)
+FixedMeasurementDecoder::MeasurementPair diskMeasurementFor(const GlobalMeasurement& cluster, const TestLocalMeasurement& hit)
 {
   FixedMeasurementDecoder::MeasurementPair measurement{};
-  measurement.global.position = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  measurement.global.radius = std::hypot(cluster.xCoordinate, cluster.yCoordinate);
-  measurement.global.covariance = {hit.covarianceTrackingFrame[0], 0.f, 0.f,
-                                   hit.covarianceTrackingFrame[2], 0.f, 0.f};
-  measurement.local.frame = {cluster.zCoordinate, cluster.xCoordinate, cluster.yCoordinate, 0.f};
-  measurement.local.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.local.covariance.uv = 0.f;
-  measurement.local.covariance.vv = hit.covarianceTrackingFrame[2];
+  measurement.decoded.global = {cluster.x, cluster.y, cluster.z};
+  measurement.decoded.rowColumnCovariance = {hit.covarianceTrackingFrame[0], 0.f,
+                                             hit.covarianceTrackingFrame[2]};
   return measurement;
 }
 
@@ -400,7 +369,7 @@ TraversalWorkspaceView prepare(Rig<NLayers>& rig)
 // call also populates).
 template <int NLayers>
 void loadCandidateClusters(Rig<NLayers>& rig,
-                           const std::array<MeasurementLocator, 3>& clusters,
+                           const std::array<GlobalMeasurement, 3>& clusters,
                            const std::array<TestLocalMeasurement, 3>& hits)
 {
   const bool isDisk = rig.kind() == SurfaceKind::Disk;
@@ -440,18 +409,14 @@ int findCellIndex(const TopologyView& topology, int inner, int middle, int outer
 }
 
 // Bypasses the real (untouched, out-of-scope-for-this-change)
-// computeLayerTracklets() phi/z/index-table cuts entirely: RebuildClusterLUT
-// is cleared (Rig's constructor), so TimeFrame::initialise() resizes
-// mClusters[layer] to match the single already-loaded unsorted cluster but
-// leaves it default-constructed (clusterId == UnusedIndex) rather than
-// sorting real content into it. This helper assigns the real sorted-cluster
-// entry at index 0 directly (matching loadCandidateClusters()'s own
-// unsorted-index-0 cluster on each layer) and injects exactly one synthetic
-// tracklet per edge of cellIndex, wired so
+// computeLayerTracklets() phi/z/index-table cuts entirely. The real loader
+// has already installed the authoritative compact globals and fitting
+// measurements; this helper only injects one tracklet per edge of cellIndex,
+// wired so
 // computeLayerCellsForKind<Tag>'s tracklet-pairing loop finds exactly one
 // candidate pair.
 template <int NLayers>
-void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array<MeasurementLocator, 3>& clusters)
+void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array<GlobalMeasurement, 3>& clusters)
 {
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
   const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(cellIndex)});
@@ -461,14 +426,16 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array
 
   for (int i = 0; i < 3; ++i) {
     BOOST_REQUIRE_EQUAL(rig.frame.getClusters()[layers[i]].size(), 1u);
-    rig.frame.getClusters()[layers[i]][0] = clusters[i];
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].x, clusters[i].x);
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].y, clusters[i].y);
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].z, clusters[i].z);
   }
 
   const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
-  const float firstPhi = std::atan2(clusters[0].yCoordinate - clusters[1].yCoordinate,
-                                    clusters[0].xCoordinate - clusters[1].xCoordinate);
-  const float secondPhi = std::atan2(clusters[1].yCoordinate - clusters[2].yCoordinate,
-                                     clusters[1].xCoordinate - clusters[2].xCoordinate);
+  const float firstPhi = std::atan2(clusters[0].y - clusters[1].y,
+                                    clusters[0].x - clusters[1].x);
+  const float secondPhi = std::atan2(clusters[1].y - clusters[2].y,
+                                     clusters[1].x - clusters[2].x);
   rig.tf->getTracklets()[cell.first.value()].push_back(Tracklet{0, 0, 0.f, firstPhi, ts});
   rig.tf->getTracklets()[cell.second.value()].push_back(Tracklet{0, 0, 0.f, secondPhi, ts});
 
@@ -491,7 +458,7 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array
 template <int NLayers, size_t N>
 void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
                                    const std::array<int, N>& layers,
-                                   const std::array<MeasurementLocator, N>& clusters,
+                                   const std::array<GlobalMeasurement, N>& clusters,
                                    const std::array<TestLocalMeasurement, N>& hits)
 {
   const bool isDisk = rig.kind() == SurfaceKind::Disk;
@@ -538,13 +505,15 @@ int findEdgeId(const TopologyView& topology, int from, int to)
 // layer's cluster across calls -- this helper touches every physical layer
 // and every edge exactly once, by construction.
 template <int NLayers, size_t N>
-void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<MeasurementLocator, N>& clusters)
+void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<GlobalMeasurement, N>& clusters)
 {
   static_assert(N >= 3, "a chain needs at least 3 layers to form one cell");
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
   for (size_t i = 0; i < N; ++i) {
     BOOST_REQUIRE_EQUAL(rig.frame.getClusters()[layers[i]].size(), 1u);
-    rig.frame.getClusters()[layers[i]][0] = clusters[i];
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].x, clusters[i].x);
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].y, clusters[i].y);
+    BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].z, clusters[i].z);
   }
 
   const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
@@ -572,9 +541,9 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by Cylinder
   rig.establishLayout();
 
-  const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                                                   makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                                                   makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+  const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                  makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                  makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
   loadCandidateClusters(rig, clusters,
                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
@@ -622,16 +591,18 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   // construction is skipped, exactly as before this change.
   BOOST_CHECK(rig.tf->getCellsLabel(cellIndex).empty());
 
-  // Oracle: independently refetch the same measurements through
-  // TrackerTraits::getLayerMeasurements() (never re-typed literals) and use
-  // the same generic seed construction contract as production.
-  const auto layerMeasurements = gsl::span<const gsl::span<const SurfaceMeasurement>>{view.workspace.layerMeasurements};
+  // Oracle: independently resolve the stable source-local cluster IDs through
+  // the TimeFrame and use the same generic seed construction contract.
   const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.workspace.layerGlobalMeasurements};
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
-  const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
-  const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
-  const auto& oracleMeasurementOuter = layerMeasurements[2][producedCell.getThirdClusterIndex()];
+  const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
+  const auto* oracleMeasurementInner = rig.frame.getSurfaceMeasurement(LayerId{0}, oracleGlobalInner.clusterId);
+  const auto* oracleMeasurementMiddle = rig.frame.getSurfaceMeasurement(LayerId{1}, oracleGlobalMiddle.clusterId);
+  const auto* oracleMeasurementOuter = rig.frame.getSurfaceMeasurement(LayerId{2}, oracleGlobalOuter.clusterId);
+  BOOST_REQUIRE(oracleMeasurementInner != nullptr);
+  BOOST_REQUIRE(oracleMeasurementMiddle != nullptr);
+  BOOST_REQUIRE(oracleMeasurementOuter != nullptr);
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
@@ -642,7 +613,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Cylinder, oracleGlobalInner, oracleGlobalMiddle, {}, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
+    SurfaceKind::Cylinder, *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -660,7 +631,7 @@ BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
     rig.params[0].LayerxX0[2] = 0.f;
     rig.establishLayout();
 
-    const std::array<MeasurementLocator, 3> clusters{
+    const std::array<GlobalMeasurement, 3> clusters{
       makeGlobalCluster(3.f, 0.100f, 0.9f),
       makeGlobalCluster(4.f, 0.150f, 1.05f),
       makeGlobalCluster(5.f, 0.201f, 1.22f)};
@@ -694,9 +665,9 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[2] = 0.02f;  // outer
   rig.establishLayout();
 
-  const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                                                   makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                                                   makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+  const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                  makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                  makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
   loadCandidateClusters(rig, clusters,
                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
                          makeDiskHit(-0.6f, 1.3f, 0.62f),
@@ -721,10 +692,16 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
     BOOST_CHECK_EQUAL(reference.clusterIndex, producedCell.getClusters()[slot]);
   }
 
-  const auto layerMeasurements = gsl::span<const gsl::span<const SurfaceMeasurement>>{view.workspace.layerMeasurements};
-  const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
-  const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
-  const auto& oracleMeasurementOuter = layerMeasurements[2][producedCell.getThirdClusterIndex()];
+  const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.workspace.layerGlobalMeasurements};
+  const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
+  const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
+  const auto* oracleMeasurementInner = rig.frame.getSurfaceMeasurement(LayerId{0}, oracleGlobalInner.clusterId);
+  const auto* oracleMeasurementMiddle = rig.frame.getSurfaceMeasurement(LayerId{1}, oracleGlobalMiddle.clusterId);
+  const auto* oracleMeasurementOuter = rig.frame.getSurfaceMeasurement(LayerId{2}, oracleGlobalOuter.clusterId);
+  BOOST_REQUIRE(oracleMeasurementInner != nullptr);
+  BOOST_REQUIRE(oracleMeasurementMiddle != nullptr);
+  BOOST_REQUIRE(oracleMeasurementOuter != nullptr);
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
@@ -736,7 +713,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Disk, {}, {}, {}, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
+    SurfaceKind::Disk, *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -761,9 +738,9 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].LayerxX0[1] = 0.005f;
     rig.establishLayout();
 
-    const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                                                     makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                                                     makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+    const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                    makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                    makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
     loadCandidateClusters(rig, clusters,
                           {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
                            makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
@@ -818,9 +795,9 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].TrackletMinPt = 0.3f;
     rig.establishLayout();
 
-    const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                                                     makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                                                     makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+    const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                    makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                    makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
     loadCandidateClusters(rig, clusters,
                           {makeDiskHit(-0.4f, 1.0f, 0.5f),
                            makeDiskHit(-0.6f, 1.3f, 0.62f),
@@ -867,9 +844,9 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.params[0].TrackletMinPt = 0.3f;
   rig.establishLayout();
 
-  const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                                                   makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                                                   makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+  const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                  makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                  makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
   loadCandidateClusters(rig, clusters,
                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
                          makeDiskHit(-0.6f, 1.3f, 0.62f),
@@ -892,7 +869,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   // Re-inject tracklets and recompute (the underlying candidate clusters/
   // measurements loaded above are untouched -- reloading them here would
-  // invalidate TrackerTraits::mLayerSurfaceMeasurements without a fresh
+  // invalidate the frame-owned source measurement lookup without a fresh
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
   // reproduce the identical chi2 through the same cache.
@@ -932,7 +909,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   constexpr std::array<float, 5> xs{3.f, 4.f, 5.f, 6.f, 7.f};
   constexpr std::array<float, 5> ys{0.0902f, 0.1603f, 0.2506f, 0.3614f, 0.4924f};
   constexpr std::array<float, 5> zs{0.90f, 1.05f, 1.20f, 1.35f, 1.50f};
-  std::array<MeasurementLocator, 5> clusters;
+  std::array<GlobalMeasurement, 5> clusters;
   std::array<TestLocalMeasurement, 5> hits;
   for (size_t i = 0; i < 5; ++i) {
     clusters[i] = makeGlobalCluster(xs[i], ys[i], zs[i], 0);
@@ -1004,7 +981,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   constexpr std::array<float, 5> xs{1.0f, 1.3f, 1.6f, 1.9f, 2.2f};
   constexpr std::array<float, 5> ys{0.50f, 0.62f, 0.74f, 0.86f, 0.98f};
   constexpr std::array<float, 5> zs{-0.40f, -0.60f, -0.80f, -1.00f, -1.20f};
-  std::array<MeasurementLocator, 5> clusters;
+  std::array<GlobalMeasurement, 5> clusters;
   std::array<TestLocalMeasurement, 5> hits;
   for (size_t i = 0; i < 5; ++i) {
     clusters[i] = makeGlobalCluster(xs[i], ys[i], zs[i], 0);
@@ -1073,7 +1050,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   rig.establishLayout();
 
   constexpr std::array<int, 3> layers{0, 2, 3};
-  const std::array<MeasurementLocator, 3> clusters{
+  const std::array<GlobalMeasurement, 3> clusters{
     makeGlobalCluster(3.f, 0.10f, 0.90f, 0),
     makeGlobalCluster(5.f, 0.20f, 1.20f, 0),
     makeGlobalCluster(6.f, 0.25f, 1.35f, 0)};
@@ -1123,9 +1100,9 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedOnCellStorageSizeMismatch)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.establishLayout();
 
-  const std::array<MeasurementLocator, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                                                   makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                                                   makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+  const std::array<GlobalMeasurement, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                  makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                  makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
   loadCandidateClusters(rig, clusters,
                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),

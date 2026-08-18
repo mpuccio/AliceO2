@@ -40,34 +40,23 @@ class FakeClusterDecoder final : public ClusterDecoder
  public:
   explicit FakeClusterDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster, BoundedPatternCursor& patterns, const TopologyDictionary* dictionary,
-    gsl::span<const LayerId> layerToSurface, ClusterSourceId source, uint32_t externalIndex,
-    uint32_t sourceROF, bool) const override
+    uint32_t, bool) const override
   {
     const auto decodedPattern = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     if (!decodedPattern.ok()) {
       result.error = decodedPattern.error;
       return result;
     }
     const auto layer = static_cast<int>(cluster.getSensorID());
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layer = layer;
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(layer), static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {10.f + layer, 1.f, 2.f, 0.1f};
     decoded.rowColumnCovariance = {decodedPattern.sig2Row, 0.f, decodedPattern.sig2Col};
     decoded.shape = decodedPattern.shape;
-    decoded.sensor = static_cast<uint32_t>(layer);
     decoded.layer = layer;
-    result = makeCylinderMeasurementDecodeResult(
-      decoded, DetectorSensorId{static_cast<uint32_t>(mDetector), decoded.sensor}, layerToSurface[layer],
-      ClusterRef{source, externalIndex}, sourceROF);
     return result;
   }
 
@@ -160,7 +149,7 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
-    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(id * 2)}).size(), 1u);
+    BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(id * 2)}).size(), 1u);
   }
   BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 }
@@ -182,7 +171,7 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{4}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{4}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 
   BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).ok());

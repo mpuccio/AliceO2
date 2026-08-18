@@ -264,7 +264,7 @@ Merge `ClockTimingPublicationView.h` into `CommonTrackOutputAdapter.h` and
 
 Make `ClusterDecoding.h` the cohesive host API by absorbing
 `ClusterDecoder.h`, `DecodedCluster.h`, and
-`SurfaceMeasurementAdapters.h`. Move `SurfaceMeasurementDecodeResult` out of
+`SurfaceMeasurementAdapters.h`. Move the host decode result out of
 `IOUtils.h` in the same dependency-untangling slice; leave legacy/general
 `IOUtils` functions pending evidence.
 

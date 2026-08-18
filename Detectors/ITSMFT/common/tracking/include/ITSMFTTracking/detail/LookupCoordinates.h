@@ -44,15 +44,15 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
                                     const GlobalMeasurement& measurement,
                                     LookupCoordinates& out) noexcept
 {
-  const float x = measurement.position.x;
-  const float y = measurement.position.y;
+  const float x = measurement.x;
+  const float y = measurement.y;
   const float r2 = x * x + y * y;
   if (!(surface.kind == SurfaceKind::Cylinder || surface.kind == SurfaceKind::Disk) ||
       !o2::gpu::GPUCommonMath::Finite(x) || !o2::gpu::GPUCommonMath::Finite(y) || !(r2 > 0.f)) {
     return false;
   }
   const float r = o2::gpu::GPUCommonMath::Sqrt(r2);
-  const float transverse = surface.kind == SurfaceKind::Cylinder ? measurement.position.z : r;
+  const float transverse = surface.kind == SurfaceKind::Cylinder ? measurement.z : r;
   if (!surface.chartRange.isValid() || !o2::gpu::GPUCommonMath::Finite(transverse) ||
       transverse < surface.chartRange.min || transverse > surface.chartRange.max) {
     return false;
@@ -62,22 +62,22 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
   const float phiX = -y * inverseR2;
   const float phiY = x * inverseR2;
   const auto& c = measurement.covariance;
-  const float varPhi = phiX * phiX * c.xx + 2.f * phiX * phiY * c.xy + phiY * phiY * c.yy;
+  const float varPhi = phiX * phiX * c[GlobalMeasurement::XX] + 2.f * phiX * phiY * c[GlobalMeasurement::XY] + phiY * phiY * c[GlobalMeasurement::YY];
   if (!o2::gpu::GPUCommonMath::Finite(varPhi)) {
     return false;
   }
   if (surface.kind == SurfaceKind::Cylinder) {
-    const float covZPhi = c.xz * phiX + c.yz * phiY;
-    if (!o2::gpu::GPUCommonMath::Finite(covZPhi) || !o2::gpu::GPUCommonMath::Finite(c.zz)) {
+    const float covZPhi = c[GlobalMeasurement::XZ] * phiX + c[GlobalMeasurement::YZ] * phiY;
+    if (!o2::gpu::GPUCommonMath::Finite(covZPhi) || !o2::gpu::GPUCommonMath::Finite(c[GlobalMeasurement::ZZ])) {
       return false;
     }
-    out = {normalizeLookupPhi(o2::gpu::GPUCommonMath::ATan2(y, x)), measurement.position.z, {c.zz, covZPhi, varPhi}};
+    out = {normalizeLookupPhi(o2::gpu::GPUCommonMath::ATan2(y, x)), measurement.z, {c[GlobalMeasurement::ZZ], covZPhi, varPhi}};
     return true;
   }
   const float radialX = x * inverseR;
   const float radialY = y * inverseR;
-  const float varR = radialX * radialX * c.xx + 2.f * radialX * radialY * c.xy + radialY * radialY * c.yy;
-  const float covRPhi = radialX * phiX * c.xx + (radialX * phiY + radialY * phiX) * c.xy + radialY * phiY * c.yy;
+  const float varR = radialX * radialX * c[GlobalMeasurement::XX] + 2.f * radialX * radialY * c[GlobalMeasurement::XY] + radialY * radialY * c[GlobalMeasurement::YY];
+  const float covRPhi = radialX * phiX * c[GlobalMeasurement::XX] + (radialX * phiY + radialY * phiX) * c[GlobalMeasurement::XY] + radialY * phiY * c[GlobalMeasurement::YY];
   if (!o2::gpu::GPUCommonMath::Finite(varR) || !o2::gpu::GPUCommonMath::Finite(covRPhi)) {
     return false;
   }

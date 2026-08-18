@@ -98,10 +98,10 @@ std::filesystem::path trackingRoot()
 }
 
 bool noopSeedRefit(const TrackSeed&,
+                   const TimeFrame&,
                    const o2::itsmft::TrackingParameters&,
                    float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
-                   gsl::span<const gsl::span<const SurfaceMeasurement>>,
                    SurfaceCatalogView,
                    gsl::span<const LayerId>,
                    TrackingCandidate&)

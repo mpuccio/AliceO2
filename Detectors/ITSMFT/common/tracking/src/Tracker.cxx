@@ -233,7 +233,6 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   auto& mDiskLayerReferenceZStorage = context.workspace.diskLayerReferenceZ;
   auto& mAttachHitConfig = context.workspace.attachHitConfig;
   auto& mLayerMaterial = context.workspace.layerMaterial;
-  auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const int iteration = context.iteration;
   // Invalidate before preflight so no failed preparation can leave a reusable
@@ -293,40 +292,31 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   // 2.6. Resolve and validate normalized measurements from orderedSurfaces
   // and the loaded TimeFrame before touching tracking state. Keep staged spans
   // local until all fallible checks succeed; failures leave the cache empty.
-  std::array<gsl::span<const SurfaceMeasurement>, MaxLayoutSurfaces> stagedLayerMeasurements{};
   std::array<gsl::span<const GlobalMeasurement>, MaxLayoutSurfaces> stagedLayerGlobalMeasurements{};
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
     const auto LayerId = orderedSurfaces[surfacePosition];
-    const auto measurements = mFrame->getSurfaceMeasurements(LayerId);
     const auto globals = mFrame->getGlobalMeasurements(LayerId);
-    if (measurements.size() != globals.size() ||
-        measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    if (globals.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
-    for (size_t i = 0; i < measurements.size(); ++i) {
+    for (size_t i = 0; i < globals.size(); ++i) {
       const auto& global = globals[i];
-      if (global.surface != LayerId || !global.cluster.isValid() ||
-          global.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+      if (!global.hasValidClusterId() || mFrame->getSurfaceMeasurement(LayerId, global.clusterId) == nullptr ||
+          global.clusterId > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
     const auto rofBoundaries = mFrame->getROFrameClusters(surfacePosition);
-    if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(measurements.size())) {
+    if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(globals.size())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
     for (size_t rof = 0; rof + 1 < rofBoundaries.size(); ++rof) {
       const int first = rofBoundaries[rof];
       const int last = rofBoundaries[rof + 1];
-      if (first < 0 || last < first || last > static_cast<int>(measurements.size())) {
+      if (first < 0 || last < first || last > static_cast<int>(globals.size())) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
-      for (int index = first; index < last; ++index) {
-        if (globals[index].sourceROF != rof) {
-          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
-        }
-      }
     }
-    stagedLayerMeasurements[surfacePosition] = measurements;
     stagedLayerGlobalMeasurements[surfacePosition] = globals;
   }
 
@@ -381,7 +371,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     if (!candidateReachableLayers[layer]) {
       continue;
     }
-    const auto measurements = stagedLayerMeasurements[layer];
+    const auto measurements = stagedLayerGlobalMeasurements[layer];
     const auto rofBoundaries = mFrame->getROFrameClusters(layer);
     const auto rofMask = mFrame->getROFViews(layer).mask;
     // Orchestration-only users may omit the mask; without it no ROF is reachable.
@@ -402,24 +392,16 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
           sorted.size() != static_cast<size_t>(last - first)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
-      std::vector<uint8_t> seen(static_cast<size_t>(last - first), uint8_t{0});
-      for (const auto& locator : sorted) {
-        const int clusterId = locator.clusterId;
-        if (clusterId < first || clusterId >= last) {
+      std::vector<uint32_t> seen;
+      seen.reserve(sorted.size());
+      for (const auto& measurement : sorted) {
+        if (!measurement.hasValidClusterId() || mFrame->getSurfaceMeasurement(orderedSurfaces[layer], measurement.clusterId) == nullptr) {
           throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
         }
-        const size_t localId = static_cast<size_t>(clusterId - first);
-        if (seen[localId] != 0) {
-          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
-        }
-        seen[localId] = 1;
-        const auto& measurement = stagedLayerGlobalMeasurements[layer][clusterId];
-        if (measurement.surface != orderedSurfaces[layer] || measurement.sourceROF != static_cast<uint32_t>(rof) || !measurement.cluster.isValid() ||
-            measurement.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
-          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
-        }
+        seen.push_back(measurement.clusterId);
       }
-      if (std::find(seen.begin(), seen.end(), uint8_t{0}) != seen.end()) {
+      std::sort(seen.begin(), seen.end());
+      if (std::adjacent_find(seen.begin(), seen.end()) != seen.end()) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
@@ -472,7 +454,6 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
   // Commit normalized measurements with the other traversal caches.
-  mLayerSurfaceMeasurements.assign(stagedLayerMeasurements.begin(), stagedLayerMeasurements.begin() + activeSurfaceCount);
   mLayerGlobalMeasurements.assign(stagedLayerGlobalMeasurements.begin(), stagedLayerGlobalMeasurements.begin() + activeSurfaceCount);
   mTraversalCacheValid = true;
 

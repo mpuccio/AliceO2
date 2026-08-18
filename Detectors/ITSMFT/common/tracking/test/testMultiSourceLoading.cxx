@@ -10,6 +10,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
 #include <vector>
 
 #include <gsl/gsl>
@@ -20,7 +21,6 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -36,23 +36,11 @@ namespace
 // Host-only test decoder (no geometry singletons): maps a chip ID to a
 // detector-local layer via an explicit table, and reuses the same pattern
 // consumption path (extractClusterData) that the production decoder uses,
-// so pattern-cursor bookkeeping is exercised identically. An optional
-// `Corruption` deliberately breaks one authoritative-identity field, to
-// prove that loadSources() itself catches a buggy host adapter rather than
-// trusting the decoder's output blindly.
+// so pattern-cursor bookkeeping is exercised identically.
 enum class Corruption {
   None,
-  WrongSurface,
-  WrongSource,
-  WrongIndex,
-  WrongSourceROF,
-  WrongSensorDetector,
-  WrongKind,
-  // These two report layerMapped=true while `layer` itself is not a usable
-  // index into layerToSurface: loadSources() must not trust layerMapped
-  // alone before indexing with `layer`.
-  LayerMappedTrueWithNegativeLayer,
-  LayerMappedTrueWithLayerOutOfRange
+  NegativeLayer,
+  LayerOutOfRange
 };
 
 class FakeClusterDecoder final : public ClusterDecoder
@@ -63,93 +51,40 @@ class FakeClusterDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
-    bool applySysErrors) const override
+    uint32_t,
+    bool) const override
   {
-    // Simulate a decoder that lies about layerMapped without ever touching
-    // the pattern cursor or geometry decode: loadSources() must catch this
-    // from layerMapped/layer alone, before indexing layerToSurface.
-    if (mCorruption == Corruption::LayerMappedTrueWithNegativeLayer) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
-      result.layerMapped = true;
-      result.layer = -1;
+    if (mCorruption == Corruption::NegativeLayer) {
+      o2::itsmft::tracking::ClusterDecodeResult result;
+      result.decoded.layer = -1;
       return result;
     }
-    if (mCorruption == Corruption::LayerMappedTrueWithLayerOutOfRange) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
-      result.layerMapped = true;
-      result.layer = static_cast<int>(layerToSurface.size());
+    if (mCorruption == Corruption::LayerOutOfRange) {
+      o2::itsmft::tracking::ClusterDecodeResult result;
+      result.decoded.layer = std::numeric_limits<int>::max();
       return result;
     }
 
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const auto sensorID = cluster.getSensorID();
     const int layer = (sensorID >= 0 && static_cast<size_t>(sensorID) < mSensorToLayer.size()) ? mSensorToLayer[sensorID] : -1;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mDisk ? SurfaceKind::Disk : SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID), static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {10.f + sensorID, 1.f, 2.f, 0.1f};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
     decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    if (mDisk) {
-      result = makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
-    } else {
-      result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
-    }
-
-    switch (mCorruption) {
-      case Corruption::WrongSurface:
-        result.global.surface = LayerId{static_cast<uint16_t>(surface.value() == 0 ? 1 : 0)};
-        break;
-      case Corruption::WrongSource:
-        result.global.cluster.source = ClusterSourceId{static_cast<uint16_t>(source.value() + 7)};
-        break;
-      case Corruption::WrongIndex:
-        result.global.cluster.index = externalIndex + 1;
-        break;
-      case Corruption::WrongSourceROF:
-        result.global.sourceROF = sourceROF + 1;
-        break;
-      case Corruption::WrongSensorDetector:
-        result.global.sensor.detector = static_cast<uint32_t>(
-          mDetector == o2::detectors::DetID::ITS ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS);
-        break;
-      case Corruption::WrongKind:
-        result.kind = (result.kind == SurfaceKind::Cylinder) ? SurfaceKind::Disk : SurfaceKind::Cylinder;
-        break;
-      case Corruption::LayerMappedTrueWithNegativeLayer:
-      case Corruption::LayerMappedTrueWithLayerOutOfRange:
-        // Handled by the early returns above, before normal decoding.
-        break;
-      case Corruption::None:
-        break;
-    }
     return result;
   }
 
@@ -168,26 +103,18 @@ class FakeClusterDecoder final : public ClusterDecoder
 class PatternContractDecoder final : public ClusterDecoder
 {
  public:
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool) const override
   {
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     if (dictionary == nullptr) {
       result.error = ClusterDecodeError::MissingDictionary;
       return result;
     }
-    if (layerToSurface.empty()) {
-      result.error = ClusterDecodeError::InvalidLayerMapping;
-      return result;
-    }
-
     ClusterShape shape{1, 1, 1};
     if (cluster.getPatternID() != 0) {
       ClusterPattern pattern;
@@ -200,19 +127,12 @@ class PatternContractDecoder final : public ClusterDecoder
                static_cast<uint16_t>(pattern.getColumnSpan())};
     }
 
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {1.f, 2.f, 3.f};
     decoded.cylinderFrame = {4.f, 5.f, 6.f, 0.f};
     decoded.rowColumnCovariance = {0.1f, 0.f, 0.2f};
     decoded.shape = shape;
-    decoded.sensor = static_cast<uint32_t>(cluster.getSensorID());
     decoded.layer = 0;
-    result.layer = 0;
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-    result = makeCylinderMeasurementDecodeResult(
-      decoded, {o2::detectors::DetID::ITS, decoded.sensor}, layerToSurface[0],
-      {source, externalIndex}, sourceROF);
     return result;
   }
 };
@@ -266,6 +186,9 @@ const TopologyDictionary& dict()
 
 const std::array<LayerId, 2> itsLayerToSurface{LayerId{0}, LayerId{1}};
 const std::array<LayerId, 2> mftLayerToSurface{LayerId{2}, LayerId{3}};
+const std::array<LayerId, 1> firstITSSurface{LayerId{0}};
+const std::array<LayerId, 1> secondITSSurface{LayerId{1}};
+const std::array<LayerId, 1> firstMFTSurface{LayerId{2}};
 
 } // namespace
 
@@ -294,16 +217,18 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   src.decoder = &decoder;
 
   TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0},
+                                  &externalIndicesBySurface);
   BOOST_REQUIRE(result.ok());
   // A success result must retain the timingDetail default: it is only ever
   // meaningful when error == TimingError.
   BOOST_CHECK(result.timingDetail == TimingBuildError::None);
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 0u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2}).size(), 0u);
+  BOOST_CHECK_EQUAL(externalIndicesBySurface[0][0], 0u);
 }
 
 BOOST_AUTO_TEST_CASE(InvalidTimingConfigurationIsReportedWithBuildErrorDetail)
@@ -368,12 +293,14 @@ BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
   src.decoder = &decoder;
 
   TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0},
+                                  &externalIndicesBySurface);
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{3}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::MFT));
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{3}).size(), 1u);
+  BOOST_CHECK_EQUAL(externalIndicesBySurface[2][0], 0u);
 }
 
 BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
@@ -416,11 +343,11 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{3}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{3}).size(), 1u);
 }
 
-BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
+BOOST_AUTO_TEST_CASE(TwoSourcesCannotOwnTheSameSurface)
 {
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
@@ -458,11 +385,8 @@ BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
 
   TimeFrame frame;
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
-  BOOST_REQUIRE(result.ok());
-
-  const auto onSurfaceZero = frame.getGlobalMeasurements(LayerId{0});
-  BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
-  BOOST_CHECK(onSurfaceZero[0].cluster.source != onSurfaceZero[1].cluster.source);
+  BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
@@ -493,7 +417,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   sources[0].rofs = rofsA;
   sources[0].dictionary = &dict();
   sources[0].labels = &labelsA;
-  sources[0].layerToSurface = itsLayerToSurface;
+  sources[0].layerToSurface = firstITSSurface;
   sources[0].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[0].decoder = &decoderA;
 
@@ -504,7 +428,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   sources[1].rofs = rofsB;
   sources[1].dictionary = &dict();
   sources[1].labels = &labelsB;
-  sources[1].layerToSurface = itsLayerToSurface;
+  sources[1].layerToSurface = secondITSSurface;
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
@@ -513,24 +437,20 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   BOOST_REQUIRE(result.ok());
 
   const auto onSurfaceZero = frame.getGlobalMeasurements(LayerId{0});
-  BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
-  for (const auto& m : onSurfaceZero) {
-    BOOST_CHECK_EQUAL(m.cluster.index, 0u);
-  }
+  BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(onSurfaceZero[0].clusterId, 0u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{1})[0].clusterId, 0u);
 
-  const ClusterRef refA{ClusterSourceId{0}, 0};
-  const ClusterRef refB{ClusterSourceId{1}, 0};
-  const auto labelSpanA = frame.getLabels(refA);
-  const auto labelSpanB = frame.getLabels(refB);
+  const auto labelSpanA = frame.getLabels(LayerId{0}, 0);
+  const auto labelSpanB = frame.getLabels(LayerId{1}, 0);
   BOOST_REQUIRE_EQUAL(labelSpanA.size(), 1u);
   BOOST_REQUIRE_EQUAL(labelSpanB.size(), 1u);
   BOOST_CHECK(labelSpanA[0] != labelSpanB[0]);
 }
 
-BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
+BOOST_AUTO_TEST_CASE(OriginalClusterIdResolvesLabelsAndCompactGlobal)
 {
-  // {ClusterSourceId, external index} is the whole identity; flags are a
-  // side channel that operator== and label lookup must ignore entirely.
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
 
@@ -558,27 +478,13 @@ BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const ClusterRef plain{ClusterSourceId{0}, 0};
-  const ClusterRef flagged{ClusterSourceId{0}, 0, 0xdead};
-  BOOST_CHECK(plain == flagged);
-  BOOST_CHECK(!(plain != flagged));
-
-  const auto labelPlain = frame.getLabels(plain);
-  const auto labelFlagged = frame.getLabels(flagged);
+  constexpr uint32_t clusterId = 0;
+  const auto labelPlain = frame.getLabels(LayerId{0}, clusterId);
   BOOST_REQUIRE_EQUAL(labelPlain.size(), 1u);
-  BOOST_REQUIRE_EQUAL(labelFlagged.size(), 1u);
-  BOOST_CHECK(labelPlain[0] == labelFlagged[0]);
 
-  // Two refs that differ only in flags but disagree on source or index are
-  // still, correctly, not the same identity.
-  BOOST_CHECK(plain != ClusterRef(ClusterSourceId{0}, 1, 0xdead));
-  BOOST_CHECK(plain != ClusterRef(ClusterSourceId{1}, 0, 0xdead));
-
-  // The measurement's own stored cluster ref -- produced by the production
-  // decode path -- must also compare equal regardless of any flags a caller
-  // later probes it with.
+  // The sorted global value carries only the stable source-local ID.
   const auto measurement = frame.getGlobalMeasurements(LayerId{0})[0];
-  BOOST_CHECK(measurement.cluster == flagged);
+  BOOST_CHECK_EQUAL(measurement.clusterId, clusterId);
 }
 
 BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
@@ -597,12 +503,12 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
     ROFRecord{{40, 0}, 1, 1, 1},
     ROFRecord{{80, 0}, 2, 2, 1}};
 
-  const std::vector<CompClusterExt> clustersB{{4, 4, CompCluster::InvalidPatternID, 1}};
+  const std::vector<CompClusterExt> clustersB{{4, 4, CompCluster::InvalidPatternID, 0}};
   const auto patternsB = makePatternBytes(clustersB.size());
   const std::vector<ROFRecord> rofsB{ROFRecord{{0, 0}, 0, 0, 1}};
 
   FakeClusterDecoder decoderA{o2::detectors::DetID::ITS, {0}, false};
-  FakeClusterDecoder decoderB{o2::detectors::DetID::ITS, {-1, 1}, false}; // sensor 1 -> layer 1
+  FakeClusterDecoder decoderB{o2::detectors::DetID::ITS, {0}, false};
 
   std::array<ClusterSourceInput, 2> sources{};
   sources[0].id = ClusterSourceId{0};
@@ -611,7 +517,7 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   sources[0].patterns = patternsA;
   sources[0].rofs = rofsA;
   sources[0].dictionary = &dict();
-  sources[0].layerToSurface = itsLayerToSurface;
+  sources[0].layerToSurface = firstITSSurface;
   sources[0].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[0].decoder = &decoderA;
 
@@ -621,7 +527,7 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   sources[1].patterns = patternsB;
   sources[1].rofs = rofsB;
   sources[1].dictionary = &dict();
-  sources[1].layerToSurface = itsLayerToSurface;
+  sources[1].layerToSurface = secondITSSurface;
   sources[1].timing = ROFTimingConfig{100, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
@@ -652,7 +558,7 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
 
   FakeClusterDecoder decoderA{o2::detectors::DetID::ITS, {0}, false};
   FakeClusterDecoder decoderB{o2::detectors::DetID::ITS, {0}, false};
-  FakeClusterDecoder decoderC{o2::detectors::DetID::ITS, {0}, false};
+  FakeClusterDecoder decoderC{o2::detectors::DetID::MFT, {0}, true};
 
   std::array<ClusterSourceInput, 3> sources{};
   sources[0].id = ClusterSourceId{0};
@@ -661,7 +567,7 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
   sources[0].patterns = patternsA;
   sources[0].rofs = rofsA;
   sources[0].dictionary = &dict();
-  sources[0].layerToSurface = itsLayerToSurface;
+  sources[0].layerToSurface = firstITSSurface;
   sources[0].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[0].decoder = &decoderA;
 
@@ -671,17 +577,17 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
   sources[1].patterns = patternsB;
   sources[1].rofs = rofsB;
   sources[1].dictionary = &dict();
-  sources[1].layerToSurface = itsLayerToSurface;
+  sources[1].layerToSurface = secondITSSurface;
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
   sources[2].id = ClusterSourceId{2};
-  sources[2].detector = o2::detectors::DetID::ITS;
+  sources[2].detector = o2::detectors::DetID::MFT;
   sources[2].clusters = clustersC;
   sources[2].patterns = patternsC;
   sources[2].rofs = rofsC;
   sources[2].dictionary = &dict();
-  sources[2].layerToSurface = itsLayerToSurface;
+  sources[2].layerToSurface = firstMFTSurface;
   sources[2].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[2].decoder = &decoderC;
 
@@ -738,7 +644,7 @@ BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
   sources[0].patterns = continuousPatterns;
   sources[0].rofs = continuousRofs;
   sources[0].dictionary = &dict();
-  sources[0].layerToSurface = itsLayerToSurface;
+  sources[0].layerToSurface = firstITSSurface;
   sources[0].timing = ROFTimingConfig{continuousRofLength, 0, 0, 0};
   sources[0].decoder = &continuousDecoder;
 
@@ -748,7 +654,7 @@ BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
   sources[1].patterns = triggeredPatterns;
   sources[1].rofs = triggeredRofs;
   sources[1].dictionary = &dict();
-  sources[1].layerToSurface = itsLayerToSurface;
+  sources[1].layerToSurface = secondITSSurface;
   sources[1].timing = ROFTimingConfig{triggeredRofLength, 0, 0, 0};
   sources[1].decoder = &triggeredDecoder;
 
@@ -785,7 +691,7 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   sources[0].patterns = patternsA;
   sources[0].rofs = rofsA;
   sources[0].dictionary = &dict();
-  sources[0].layerToSurface = itsLayerToSurface;
+  sources[0].layerToSurface = firstITSSurface;
   sources[0].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[0].decoder = &decoderA;
 
@@ -795,17 +701,21 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   sources[1].patterns = patternsB;
   sources[1].rofs = rofsB;
   sources[1].dictionary = &dict();
-  sources[1].layerToSurface = itsLayerToSurface;
+  sources[1].layerToSurface = secondITSSurface;
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
   TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
+  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0},
+                                  nullptr, &clusterSizesBySurface);
   BOOST_REQUIRE(result.ok());
 
   // Every cluster consumed exactly one 1-pixel pattern regardless of source.
-  for (const auto& m : frame.getGlobalMeasurements(LayerId{0})) {
-    BOOST_CHECK_EQUAL(m.shape.nPixels, 1u);
+  for (const auto layer : {LayerId{0}, LayerId{1}}) {
+    for (const auto& m : frame.getGlobalMeasurements(layer)) {
+      BOOST_CHECK_EQUAL(clusterSizesBySurface[layer.value()][m.clusterId], 1u);
+    }
   }
 }
 
@@ -831,11 +741,13 @@ BOOST_AUTO_TEST_CASE(CommonDictionaryPatternDoesNotConsumeExplicitBytes)
   src.decoder = &decoder;
 
   TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
+  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0},
+                                  nullptr, &clusterSizesBySurface);
   BOOST_REQUIRE(result.ok());
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].shape.nPixels, 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[1].shape.nPixels, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(clusterSizesBySurface[0][frame.getGlobalMeasurements(LayerId{0})[0].clusterId], 1u);
+  BOOST_CHECK_EQUAL(clusterSizesBySurface[0][frame.getGlobalMeasurements(LayerId{0})[1].clusterId], 1u);
 }
 
 BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
@@ -942,8 +854,7 @@ BOOST_AUTO_TEST_CASE(MissingDictionaryIsTypedBeforeProductionGeometryDecode)
   ITSGeometryClusterDecoder decoder;
   const CompClusterExt cluster{1, 1, CompCluster::InvalidPatternID, 0};
   BoundedPatternCursor patterns{onePixelPattern};
-  const std::array<LayerId, 1> mapping{LayerId{0}};
-  const auto decoded = decoder.decode(cluster, patterns, nullptr, mapping, ClusterSourceId{0}, 0, 0, false);
+  const auto decoded = decoder.decode(cluster, patterns, nullptr, 0, false);
   BOOST_CHECK(decoded.error == ClusterDecodeError::MissingDictionary);
   BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
 }
@@ -974,8 +885,8 @@ BOOST_AUTO_TEST_CASE(AbsentLabelsAreLegal)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
-  BOOST_CHECK(frame.getLabels(ClusterRef{}).empty()); // invalid ref is also legal
+  BOOST_CHECK(frame.getLabels(LayerId{0}, 0).empty());
+  BOOST_CHECK(frame.getLabels(LayerId{}, 0).empty());
 }
 
 BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
@@ -1192,43 +1103,10 @@ BOOST_AUTO_TEST_CASE(DetectorSurfaceMismatchIsRejected)
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
 }
 
-BOOST_AUTO_TEST_CASE(InconsistentDecoderMetadataIsRejected)
+BOOST_AUTO_TEST_CASE(UnsafeDecodedLayerIsRejected)
 {
-  const auto layout = makeCombinedLayout();
-  BOOST_REQUIRE(layout.valid());
-  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
-  const auto patterns = makePatternBytes(clusters.size());
-  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
-
-  const std::array<Corruption, 5> corruptions{
-    Corruption::WrongSurface, Corruption::WrongSource, Corruption::WrongIndex,
-    Corruption::WrongSourceROF, Corruption::WrongSensorDetector};
-  for (const auto corruption : corruptions) {
-    FakeClusterDecoder decoder{o2::detectors::DetID::ITS, {0}, false, corruption};
-    ClusterSourceInput src;
-    src.id = ClusterSourceId{0};
-    src.detector = o2::detectors::DetID::ITS;
-    src.clusters = clusters;
-    src.patterns = patterns;
-    src.rofs = rofs;
-    src.dictionary = &dict();
-    src.layerToSurface = itsLayerToSurface;
-    src.timing = ROFTimingConfig{40, 0, 0, 0};
-    src.decoder = &decoder;
-
-    TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
-    BOOST_CHECK(!result.ok());
-    BOOST_CHECK(result.error == MultiSourceLoadError::InconsistentDecoderMetadata);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
-{
-  // A decoder reporting layerMapped=true must never be trusted to also have
-  // produced a `layer` that is safe to index into layerToSurface with:
-  // negative, or equal to/beyond its size, must both be rejected the same
-  // way as layerMapped=false, without ever indexing layerToSurface[layer].
+  // The loader validates the decoded detector-local layer before using it to
+  // index the authoritative layer-to-surface mapping.
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -1236,7 +1114,7 @@ BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
   const std::array<Corruption, 2> corruptions{
-    Corruption::LayerMappedTrueWithNegativeLayer, Corruption::LayerMappedTrueWithLayerOutOfRange};
+    Corruption::NegativeLayer, Corruption::LayerOutOfRange};
   for (const auto corruption : corruptions) {
     FakeClusterDecoder decoder{o2::detectors::DetID::ITS, {0}, false, corruption};
     ClusterSourceInput src;
@@ -1251,41 +1129,11 @@ BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
     src.decoder = &decoder;
 
     TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   }
-}
-
-BOOST_AUTO_TEST_CASE(SurfaceKindMismatchIsRejected)
-{
-  const auto layout = makeCombinedLayout();
-  BOOST_REQUIRE(layout.valid());
-
-  // An ITS decoder that reports it decoded a disk measurement while mapping
-  // onto a cylinder surface must be rejected without inferring geometry
-  // from surface count.
-  const std::vector<CompClusterExt> itsClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
-  const auto itsPatterns = makePatternBytes(itsClusters.size());
-  const std::vector<ROFRecord> itsRofs{ROFRecord{{0, 0}, 0, 0, 1}};
-  FakeClusterDecoder wrongKindDecoder{o2::detectors::DetID::ITS, {0}, false, Corruption::WrongKind};
-
-  ClusterSourceInput src;
-  src.id = ClusterSourceId{0};
-  src.detector = o2::detectors::DetID::ITS;
-  src.clusters = itsClusters;
-  src.patterns = itsPatterns;
-  src.rofs = itsRofs;
-  src.dictionary = &dict();
-  src.layerToSurface = itsLayerToSurface;
-  src.timing = ROFTimingConfig{40, 0, 0, 0};
-  src.decoder = &wrongKindDecoder;
-
-  TimeFrame frame;
-  const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceKindMismatch);
 }
 
 BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
@@ -1354,11 +1202,15 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
 
   // Baseline content before the failing call.
-  const std::vector<SurfaceMeasurement> baselineMeasurements(
-    frame.getSurfaceMeasurements(LayerId{0}).begin(), frame.getSurfaceMeasurements(LayerId{0}).end());
   const std::vector<GlobalMeasurement> baselineGlobals(
     frame.getGlobalMeasurements(LayerId{0}).begin(), frame.getGlobalMeasurements(LayerId{0}).end());
-  const auto baselineLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
+  std::vector<SurfaceMeasurement> baselineMeasurements;
+  for (const auto& global : baselineGlobals) {
+    const auto* measurement = frame.getSurfaceMeasurement(LayerId{0}, global.clusterId);
+    BOOST_REQUIRE(measurement != nullptr);
+    baselineMeasurements.push_back(*measurement);
+  }
+  const auto baselineLabel = frame.getLabels(LayerId{0}, 0);
   BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
 
   // Second source: dense/unique id (so id-level validation passes and the
@@ -1390,29 +1242,27 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
 
   // ...and identical measurements, identities, source metadata, and label
   // lookup.
-  const auto afterMeasurements = frame.getSurfaceMeasurements(LayerId{0});
   const auto afterGlobals = frame.getGlobalMeasurements(LayerId{0});
-  BOOST_REQUIRE_EQUAL(afterMeasurements.size(), baselineMeasurements.size());
   BOOST_REQUIRE_EQUAL(afterGlobals.size(), baselineGlobals.size());
-  for (size_t i = 0; i < afterMeasurements.size(); ++i) {
-    BOOST_CHECK_EQUAL(std::memcmp(&afterMeasurements[i], &baselineMeasurements[i], sizeof(SurfaceMeasurement)), 0);
-    BOOST_CHECK(afterGlobals[i].cluster == baselineGlobals[i].cluster);
-    BOOST_CHECK(afterGlobals[i].surface == baselineGlobals[i].surface);
-    BOOST_CHECK_EQUAL(afterGlobals[i].sourceROF, baselineGlobals[i].sourceROF);
+  for (size_t i = 0; i < afterGlobals.size(); ++i) {
+    const auto* afterMeasurement = frame.getSurfaceMeasurement(LayerId{0}, afterGlobals[i].clusterId);
+    BOOST_REQUIRE(afterMeasurement != nullptr);
+    BOOST_CHECK_EQUAL(std::memcmp(afterMeasurement, &baselineMeasurements[i], sizeof(SurfaceMeasurement)), 0);
+    BOOST_CHECK_EQUAL(std::memcmp(&afterGlobals[i], &baselineGlobals[i], sizeof(GlobalMeasurement)), 0);
   }
-  const auto afterLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
+  const auto afterLabel = frame.getLabels(LayerId{0}, 0);
   BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
   BOOST_CHECK(afterLabel[0] == baselineLabel[0]);
   // The second source's label container must not have been staged either.
-  BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{1}, 0}).empty());
+  BOOST_CHECK(frame.getLabels(LayerId{2}, 0).empty());
 }
 
 BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
 {
   TimeFrame frame;
 
-  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).empty());
-  BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 0) == nullptr);
+  BOOST_CHECK(frame.getLabels(LayerId{0}, 0).empty());
 
   // Loading zero sources into a layout with surfaces is legal and must
   // leave every per-surface bucket empty.
@@ -1422,8 +1272,8 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
-  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).empty());
-  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{0}, MeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 0) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).empty());
 }
 
 BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)

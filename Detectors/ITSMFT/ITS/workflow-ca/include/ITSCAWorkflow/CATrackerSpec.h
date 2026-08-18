@@ -16,6 +16,7 @@
 #define O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_
 
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -131,6 +132,8 @@ class CATrackerDPL : public o2::framework::Task
   bool mTrackingInitialised = false;
   o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
   o2::itsmft::tracking::TimeFrame mFrame;
+  std::vector<std::vector<uint32_t>> mExternalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> mClusterSizesBySurface;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTrackerTraits;
   std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mClusterDecoder;

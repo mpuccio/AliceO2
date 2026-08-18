@@ -12,9 +12,6 @@
 
 #include <array>
 #include <cmath>
-#include <limits>
-
-#include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 
 namespace
@@ -22,77 +19,31 @@ namespace
 using namespace o2::itsmft::tracking;
 
 constexpr ClusterShape Shape{9, 3, 4};
-constexpr ClusterRef ITSCluster{ClusterSourceId{0}, 0};
-constexpr DetectorSensorId ITSSensor{o2::detectors::DetID::ITS, 42};
 } // namespace
 
-BOOST_AUTO_TEST_CASE(ExternalIdentityIsSourceAndIndex)
+BOOST_AUTO_TEST_CASE(CompactTypesHaveLockedABI)
 {
-  constexpr ClusterRef sourceZero{ClusterSourceId{0}, 0};
-  constexpr ClusterRef sourceOne{ClusterSourceId{1}, 0};
-  constexpr ClusterRef flaggedSourceZero{ClusterSourceId{0}, 0, 0xffff};
-
-  BOOST_CHECK(sourceZero.isValid());
-  BOOST_CHECK(sourceOne.isValid());
-  BOOST_CHECK(sourceZero != sourceOne);
-  BOOST_CHECK(sourceZero == flaggedSourceZero);
-  BOOST_CHECK_EQUAL(sourceZero.flags, 0u);
-  BOOST_CHECK_EQUAL(flaggedSourceZero.flags, 0xffffu);
-  BOOST_CHECK_EQUAL(sourceZero.index, 0u);
-  BOOST_CHECK_EQUAL(sourceOne.index, 0u);
+  BOOST_CHECK_EQUAL(sizeof(GlobalMeasurement), 48u);
+  BOOST_CHECK_EQUAL(offsetof(GlobalMeasurement, clusterId), 44u);
 }
 
-BOOST_AUTO_TEST_CASE(FlagsHaveLockedABI)
+BOOST_AUTO_TEST_CASE(DefaultGlobalMeasurementHasInvalidClusterId)
 {
-  BOOST_CHECK_EQUAL(offsetof(ClusterRef, source), 0u);
-  BOOST_CHECK_EQUAL(offsetof(ClusterRef, flags), 2u);
-  BOOST_CHECK_EQUAL(offsetof(ClusterRef, index), 4u);
-  BOOST_CHECK_EQUAL(offsetof(GlobalMeasurement, surface), 68u);
-  BOOST_CHECK_EQUAL(offsetof(GlobalMeasurement, flags), 70u);
+  constexpr GlobalMeasurement measurement{};
+
+  BOOST_CHECK(!measurement.hasValidClusterId());
 }
 
-BOOST_AUTO_TEST_CASE(SensorIdentityIsDetectorQualified)
-{
-  constexpr DetectorSensorId its{o2::detectors::DetID::ITS, 7};
-  constexpr DetectorSensorId mft{o2::detectors::DetID::MFT, 7};
-
-  BOOST_CHECK(its.isValid());
-  BOOST_CHECK(mft.isValid());
-  BOOST_CHECK(its != mft);
-  BOOST_CHECK_EQUAL(its.sensor, mft.sensor);
-}
-
-BOOST_AUTO_TEST_CASE(DefaultIdentifiersAreInvalid)
-{
-  constexpr ClusterSourceId source;
-  constexpr ClusterRef cluster;
-  constexpr DetectorSensorId sensor;
-  constexpr GlobalMeasurement measurement;
-
-  BOOST_CHECK(!source.isValid());
-  BOOST_CHECK_EQUAL(source.value(), std::numeric_limits<uint16_t>::max());
-  BOOST_CHECK(!cluster.isValid());
-  BOOST_CHECK(!sensor.isValid());
-  BOOST_CHECK(!measurement.cluster.isValid());
-  BOOST_CHECK(!measurement.sensor.isValid());
-  BOOST_CHECK(!measurement.surface.isValid());
-  BOOST_CHECK_EQUAL(cluster.flags, 0u);
-  BOOST_CHECK_EQUAL(measurement.flags, 0u);
-  BOOST_CHECK_EQUAL(measurement.sourceROF, std::numeric_limits<uint32_t>::max());
-}
-
-BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
+BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConvention)
 {
   const DecodedCluster decoded{
     {11.f, 12.f, 13.f},
     {21.f, 22.f, 23.f, 0.25f},
     {0.1f, 0.02f, 0.3f},
     Shape,
-    ITSSensor.sensor,
     3};
-  const auto decodedMeasurement = makeCylinderMeasurementDecodeResult(decoded, ITSSensor, LayerId{3}, ITSCluster, 17);
-  const auto& global = decodedMeasurement.global;
-  const auto& measurement = decodedMeasurement.measurement;
+  const auto global = makeCylinderGlobalMeasurement(decoded, 7);
+  const auto measurement = makeCylinderSurfaceMeasurement(decoded);
 
   BOOST_CHECK_EQUAL(global.position.x, 11.f);
   BOOST_CHECK_EQUAL(global.position.y, 12.f);
@@ -105,26 +56,16 @@ BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
   BOOST_CHECK_EQUAL(measurement.covariance.uu, 0.1f);
   BOOST_CHECK_EQUAL(measurement.covariance.uv, 0.02f);
   BOOST_CHECK_EQUAL(measurement.covariance.vv, 0.3f);
-  BOOST_CHECK(global.sensor == ITSSensor);
-  BOOST_CHECK(global.cluster == ITSCluster);
-  BOOST_CHECK(global.surface == LayerId{3});
-  BOOST_CHECK_EQUAL(global.flags, 0u);
-  BOOST_CHECK_EQUAL(global.sourceROF, 17u);
-  BOOST_CHECK_EQUAL(global.shape.nPixels, Shape.nPixels);
-  BOOST_CHECK_EQUAL(global.shape.rowSpan, Shape.rowSpan);
-  BOOST_CHECK_EQUAL(global.shape.columnSpan, Shape.columnSpan);
+  BOOST_CHECK_EQUAL(global.clusterId, 7u);
 }
 
 BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
 {
   constexpr GlobalPoint3F global{31.f, 32.f, 33.f};
   constexpr SurfaceCovariance2F covarianceXY{0.4f, 0.05f, 0.6f};
-  constexpr DetectorSensorId sensor{o2::detectors::DetID::MFT, 73};
-  constexpr ClusterRef cluster{ClusterSourceId{1}, 0};
-  const DecodedCluster decoded{global, {}, covarianceXY, Shape, sensor.sensor, 9};
-  const auto decodedMeasurement = makeDiskMeasurementDecodeResult(decoded, sensor, LayerId{9}, cluster, 23);
-  const auto& globalMeasurement = decodedMeasurement.global;
-  const auto& measurement = decodedMeasurement.measurement;
+  const DecodedCluster decoded{global, {}, covarianceXY, Shape, 9};
+  const auto globalMeasurement = makeDiskGlobalMeasurement(decoded, 11);
+  const auto measurement = makeDiskSurfaceMeasurement(decoded);
 
   BOOST_CHECK_EQUAL(measurement.frame.q, global.z);
   BOOST_CHECK_EQUAL(measurement.frame.u, global.x);
@@ -133,12 +74,5 @@ BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
   BOOST_CHECK_EQUAL(measurement.covariance.uu, covarianceXY.uu);
   BOOST_CHECK_EQUAL(measurement.covariance.uv, covarianceXY.uv);
   BOOST_CHECK_EQUAL(measurement.covariance.vv, covarianceXY.vv);
-  BOOST_CHECK(globalMeasurement.sensor == sensor);
-  BOOST_CHECK(globalMeasurement.cluster == cluster);
-  BOOST_CHECK(globalMeasurement.surface == LayerId{9});
-  BOOST_CHECK_EQUAL(globalMeasurement.flags, 0u);
-  BOOST_CHECK_EQUAL(globalMeasurement.sourceROF, 23u);
-  BOOST_CHECK_EQUAL(globalMeasurement.shape.nPixels, Shape.nPixels);
-  BOOST_CHECK_EQUAL(globalMeasurement.shape.rowSpan, Shape.rowSpan);
-  BOOST_CHECK_EQUAL(globalMeasurement.shape.columnSpan, Shape.columnSpan);
+  BOOST_CHECK_EQUAL(globalMeasurement.clusterId, 11u);
 }

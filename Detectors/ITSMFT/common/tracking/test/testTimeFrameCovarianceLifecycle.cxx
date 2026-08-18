@@ -7,7 +7,7 @@
 
 // Stage-B Slice A: exactly-once systematic covariance in the common
 // normalized-loading path. SurfaceMeasurement covariance is authoritative;
-// compatibility TrackingFrameInfo copies it, and TimeFrame initialization
+// the fitting SurfaceMeasurement stores it, and TimeFrame initialization
 // never mutates either representation.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrameCovarianceLifecycle
@@ -82,49 +82,31 @@ class SystematicContractDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     lastApplySysErrors = applySysErrors;
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int layer = cluster.getSensorID();
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      result.error = ClusterDecodeError::InvalidLayerMapping;
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mKind;
-
     const float rowCovariance = clusterData.sig2Row + (applySysErrors ? mRowIncrement : 0.f);
     const float columnCovariance = clusterData.sig2Col + (applySysErrors ? mColumnIncrement : 0.f);
-    DecodedCluster decoded{
+    result.decoded = DecodedCluster{
       {3.f, 4.f, 5.f},
       {6.f, 7.f, 8.f, 0.125f},
       {rowCovariance, 0.f, columnCovariance},
       clusterData.shape,
-      static_cast<uint32_t>(cluster.getSensorID()),
       layer};
-
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = mKind == SurfaceKind::Disk
-               ? makeDiskMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
-               : makeCylinderMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
     return result;
   }
 
@@ -192,12 +174,14 @@ struct CovarianceSnapshot {
 
 CovarianceSnapshot snapshotCovariance(const TimeFrame& frame)
 {
-  const auto measurements = frame.getSurfaceMeasurements(LayerId{0});
-  BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
+  const auto globals = frame.getGlobalMeasurements(LayerId{0});
+  BOOST_REQUIRE_EQUAL(globals.size(), 1u);
+  const auto* measurement = frame.getSurfaceMeasurement(LayerId{0}, globals[0].clusterId);
+  BOOST_REQUIRE(measurement != nullptr);
   return {
-    {floatBits(measurements[0].covariance.uu),
-     floatBits(measurements[0].covariance.uv),
-     floatBits(measurements[0].covariance.vv)}};
+    {floatBits(measurement->covariance.uu),
+     floatBits(measurement->covariance.uv),
+     floatBits(measurement->covariance.vv)}};
 }
 
 template <int NLayers>

@@ -60,34 +60,33 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 }
 
 inline bool refitSurfaceSeed(const TrackSeed& seed,
+                             const TimeFrame& frame,
                              const TrackingParameters& params,
                              float bz,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-                             gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,
                              gsl::span<const LayerId> orderedSurfaces,
                              TrackingCandidate& candidate)
 {
-  if (layerGlobals.size() != layerMeasurements.size() || orderedSurfaces.size() != layerMeasurements.size()) {
+  if (orderedSurfaces.size() != layerGlobals.size()) {
     return false;
   }
   bool hasMeasurement = false;
-  for (int position = 0; position < static_cast<int>(layerMeasurements.size()); ++position) {
+  for (int position = 0; position < static_cast<int>(layerGlobals.size()); ++position) {
     const int clusterIndex = seed.getCluster(position);
     if (clusterIndex == o2::its::constants::UnusedIndex) {
       continue;
     }
-    if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerMeasurements[position].size()) ||
-        clusterIndex >= static_cast<int>(layerGlobals[position].size())) {
+    if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerGlobals[position].size())) {
       return false;
     }
     const auto& global = layerGlobals[position][clusterIndex];
-    const auto& measurement = layerMeasurements[position][clusterIndex];
-    if (global.surface != orderedSurfaces[position] || !surfaceCatalog.hasSurface(global.surface) ||
-        !global.cluster.isValid() ||
-        !std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v) || !std::isfinite(measurement.frame.q) ||
-        !std::isfinite(measurement.covariance.uu) || !std::isfinite(measurement.covariance.uv) || !std::isfinite(measurement.covariance.vv) ||
-        measurement.covariance.uu < 0.f || measurement.covariance.vv < 0.f) {
+    const auto surface = orderedSurfaces[position];
+    const auto* measurement = frame.getSurfaceMeasurement(surface, global.clusterId);
+    if (!surfaceCatalog.hasSurface(surface) || !global.hasValidClusterId() || measurement == nullptr ||
+        !std::isfinite(measurement->frame.u) || !std::isfinite(measurement->frame.v) || !std::isfinite(measurement->frame.q) ||
+        !std::isfinite(measurement->covariance.uu) || !std::isfinite(measurement->covariance.uv) || !std::isfinite(measurement->covariance.vv) ||
+        measurement->covariance.uu < 0.f || measurement->covariance.vv < 0.f) {
       return false;
     }
     hasMeasurement = true;
@@ -99,7 +98,7 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs(seed, layerGlobals, layerMeasurements, surfaceCatalog, bz,
+  if (!fitTrackSeedLegs(seed, frame, layerGlobals, surfaceCatalog, orderedSurfaces, bz,
                         params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                         params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                         paramIn, paramOut, chi2, reason)) {

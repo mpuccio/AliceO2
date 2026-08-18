@@ -25,6 +25,8 @@ struct DirectionObservation {
   double varianceR{0.};
   double covarianceRZ{0.};
   double varianceZ{0.};
+  double radialUnitX{0.};
+  double radialUnitY{0.};
 };
 
 struct TransverseDirectionObservation {
@@ -68,8 +70,17 @@ bool makeDirectionObservation(const GlobalMeasurement& measurement,
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
                                  const DirectionProcessNoise& processNoise,
+                                 float beamPositionVariance,
                                  float nSigmaCut,
                                  CellDirectionCompatibility& compatibility) noexcept;
+
+inline bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
+                                        const DirectionProcessNoise& processNoise,
+                                        float nSigmaCut,
+                                        CellDirectionCompatibility& compatibility) noexcept
+{
+  return cellDirectionsAreCompatible(observations, processNoise, 0.f, nSigmaCut, compatibility);
+}
 
 #endif
 

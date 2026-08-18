@@ -377,9 +377,9 @@ bool makeTripletFitObservation(const GlobalMeasurement& measurement,
                                TripletFitObservation& observation) noexcept
 {
   const TripletFitObservation scratch{
-    {measurement.position.x, measurement.position.y, measurement.position.z},
-    {measurement.covariance.xx, measurement.covariance.xy, measurement.covariance.xz,
-     measurement.covariance.yy, measurement.covariance.yz, measurement.covariance.zz}};
+    {measurement.x, measurement.y, measurement.z},
+    {measurement.covariance[GlobalMeasurement::XX], measurement.covariance[GlobalMeasurement::XY], measurement.covariance[GlobalMeasurement::XZ],
+     measurement.covariance[GlobalMeasurement::YY], measurement.covariance[GlobalMeasurement::YZ], measurement.covariance[GlobalMeasurement::ZZ]}};
   if (!observationIsValid(scratch)) {
     return false;
   }

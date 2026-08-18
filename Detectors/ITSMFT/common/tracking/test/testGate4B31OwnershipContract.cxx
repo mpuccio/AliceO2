@@ -124,42 +124,26 @@ class OneLayerDecoder final : public ClusterDecoder
  public:
   explicit OneLayerDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool /*applySysErrors*/) const override
   {
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
       result.error = clusterData.error;
       return result;
     }
     const int sensorID = cluster.getSensorID();
-    result.layer = sensorID;
-    if (sensorID < 0 || static_cast<size_t>(sensorID) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.f};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
     decoded.layer = sensorID;
-
-    const auto surface = layerToSurface[sensorID];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 

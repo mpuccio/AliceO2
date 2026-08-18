@@ -109,45 +109,28 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     return result;
   }
 
@@ -291,10 +274,9 @@ int gThrowOnRefitCall = 1;
 // Deliberately a plain function pointer: production itself reaches this
 // seam only after candidate formation and road finding have produced a real
 // seed. Tests reset the process-local controls before every invocation.
-bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float,
+bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParameters&, float,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
-                         gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                         gsl::span<const LayerId>, TrackingCandidate&)
+                         SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
 {
   ++gRefitCalls;
   if (gRefitCalls < gThrowOnRefitCall) {
@@ -313,10 +295,9 @@ bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float,
 
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
-bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float,
+bool testSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
-                   gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                   gsl::span<const LayerId>, TrackingCandidate&)
+                   SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
 {
   return false;
 }
@@ -346,7 +327,7 @@ struct Rig {
     txn.append(0);
     BOOST_REQUIRE_EQUAL(sidecar.pendingSize(), 1u);
 
-    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
+    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
     GenericTrack track{};
     track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
     frame.getGenericTracks().push_back(track);
@@ -471,30 +452,23 @@ class MftRoadDecoder final : public ClusterDecoder
  public:
   explicit MftRoadDecoder(std::vector<DecodedCluster> clusters) : mClusters{std::move(clusters)} {}
 
-  SurfaceMeasurementDecodeResult decode(const CompClusterExt& cluster, BoundedPatternCursor& patterns,
-                                        const TopologyDictionary* dictionary, gsl::span<const LayerId> layerToSurface,
-                                        ClusterSourceId source, uint32_t externalIndex, uint32_t sourceROF, bool) const final
+  ClusterDecodeResult decode(const CompClusterExt& cluster, BoundedPatternCursor& patterns,
+                             const TopologyDictionary* dictionary, uint32_t externalIndex, bool) const final
   {
     const auto clusterData = ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
     if (!clusterData.ok()) {
-      SurfaceMeasurementDecodeResult result;
+      ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
-    SurfaceMeasurementDecodeResult result;
+    ClusterDecodeResult result;
     if (externalIndex >= mClusters.size()) {
       return result;
     }
     auto decoded = mClusters[externalIndex];
     decoded.shape = clusterData.shape;
-    result.layer = decoded.layer;
-    if (decoded.layer < 0 || static_cast<std::size_t>(decoded.layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Disk;
-    return makeDiskMeasurementDecodeResult(decoded, DetectorSensorId{static_cast<uint32_t>(o2::detectors::DetID::MFT), decoded.sensor},
-                                           layerToSurface[decoded.layer], ClusterRef{source, externalIndex}, sourceROF);
+    result.decoded = decoded;
+    return result;
   }
 
  private:
@@ -512,7 +486,6 @@ std::vector<DecodedCluster> makeMftRoad(const TrackingParameters& parameters, fl
     DecodedCluster cluster{};
     cluster.global = {x, y, z};
     cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
-    cluster.sensor = static_cast<uint32_t>(layer);
     cluster.layer = layer;
     result.push_back(cluster);
     if (layer + 1 == MFTNLayers) {
@@ -634,7 +607,7 @@ struct MftFailureRig {
     BOOST_REQUIRE(txn.validate(0));
     txn.reserve();
     txn.append(0);
-    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
+    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
     GenericTrack track{};
     track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
     frame.getGenericTracks().push_back(track);

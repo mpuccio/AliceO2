@@ -19,38 +19,10 @@
 namespace o2::itsmft::tracking
 {
 
-struct ClusterRef {
-  GPUhdDefault() constexpr ClusterRef() noexcept = default;
-  GPUhdDefault() constexpr ClusterRef(ClusterSourceId sourceValue, uint32_t indexValue, uint16_t flagsValue = 0) noexcept
-    : source{sourceValue}, flags{flagsValue}, index{indexValue}
-  {
-  }
-
-  ClusterSourceId source{};
-  uint16_t flags{0};
-  uint32_t index{std::numeric_limits<uint32_t>::max()};
-
-  GPUhdi() constexpr bool isValid() const noexcept { return source.isValid() && index != std::numeric_limits<uint32_t>::max(); }
-  GPUhdi() friend constexpr bool operator==(ClusterRef lhs, ClusterRef rhs) noexcept { return lhs.source == rhs.source && lhs.index == rhs.index; }
-  GPUhdi() friend constexpr bool operator!=(ClusterRef lhs, ClusterRef rhs) noexcept { return !(lhs == rhs); }
-};
-
-struct DetectorSensorId {
-  uint32_t detector{std::numeric_limits<uint32_t>::max()};
-  uint32_t sensor{std::numeric_limits<uint32_t>::max()};
-
-  GPUhdi() constexpr bool isValid() const noexcept
-  {
-    return detector != std::numeric_limits<uint32_t>::max() && sensor != std::numeric_limits<uint32_t>::max();
-  }
-  GPUhdi() friend constexpr bool operator==(DetectorSensorId, DetectorSensorId) noexcept = default;
-  GPUhdi() friend constexpr bool operator!=(DetectorSensorId, DetectorSensorId) noexcept = default;
-};
-
 struct GlobalPoint3F {
-  float x{0.f};
-  float y{0.f};
-  float z{0.f};
+  float x;
+  float y;
+  float z;
 };
 
 struct GlobalCovariance3F {
@@ -60,24 +32,35 @@ struct GlobalCovariance3F {
   float yy{0.f};
   float yz{0.f};
   float zz{0.f};
-};
 
-struct ClusterShape {
-  uint32_t nPixels{0};
-  uint16_t rowSpan{0};
-  uint16_t columnSpan{0};
+  GPUhdi() float& operator[](std::size_t index) noexcept { return (&xx)[index]; }
+  GPUhdi() const float& operator[](std::size_t index) const noexcept { return (&xx)[index]; }
 };
 
 struct GlobalMeasurement {
-  GlobalPoint3F position{};
-  float radius{0.f};
+  enum CovarianceIndex : uint8_t {
+    XX,
+    XY,
+    XZ,
+    YY,
+    YZ,
+    ZZ
+  };
+
+  union {
+    struct {
+      float x;
+      float y;
+      float z;
+    };
+    GlobalPoint3F position;
+  };
   GlobalCovariance3F covariance{};
-  DetectorSensorId sensor{};
-  ClusterRef cluster{};
-  ClusterShape shape{};
-  uint32_t sourceROF{std::numeric_limits<uint32_t>::max()};
-  LayerId surface{};
-  uint16_t flags{0};
+  float radius{0.f};
+  float phi{0.f};
+  uint32_t clusterId{std::numeric_limits<uint32_t>::max()};
+
+  GPUhdi() bool hasValidClusterId() const noexcept { return clusterId != std::numeric_limits<uint32_t>::max(); }
 };
 
 #define O2_ITSMFT_ASSERT_GLOBAL_TYPE(Type, Size)     \
@@ -85,25 +68,18 @@ struct GlobalMeasurement {
   static_assert(std::is_trivially_copyable_v<Type>); \
   static_assert(sizeof(Type) == Size)
 
-O2_ITSMFT_ASSERT_GLOBAL_TYPE(ClusterRef, 8);
-O2_ITSMFT_ASSERT_GLOBAL_TYPE(DetectorSensorId, 8);
+O2_ITSMFT_ASSERT_GLOBAL_TYPE(GlobalMeasurement, 48);
 O2_ITSMFT_ASSERT_GLOBAL_TYPE(GlobalPoint3F, 12);
 O2_ITSMFT_ASSERT_GLOBAL_TYPE(GlobalCovariance3F, 24);
-O2_ITSMFT_ASSERT_GLOBAL_TYPE(ClusterShape, 8);
-O2_ITSMFT_ASSERT_GLOBAL_TYPE(GlobalMeasurement, 72);
 
 #undef O2_ITSMFT_ASSERT_GLOBAL_TYPE
 
 static_assert(alignof(GlobalMeasurement) == 4);
-static_assert(offsetof(GlobalMeasurement, position) == 0);
-static_assert(offsetof(GlobalMeasurement, radius) == 12);
-static_assert(offsetof(GlobalMeasurement, covariance) == 16);
-static_assert(offsetof(GlobalMeasurement, sensor) == 40);
-static_assert(offsetof(GlobalMeasurement, cluster) == 48);
-static_assert(offsetof(GlobalMeasurement, shape) == 56);
-static_assert(offsetof(GlobalMeasurement, sourceROF) == 64);
-static_assert(offsetof(GlobalMeasurement, surface) == 68);
-static_assert(offsetof(GlobalMeasurement, flags) == 70);
+static_assert(offsetof(GlobalMeasurement, x) == 0);
+static_assert(offsetof(GlobalMeasurement, covariance) == 12);
+static_assert(offsetof(GlobalMeasurement, radius) == 36);
+static_assert(offsetof(GlobalMeasurement, phi) == 40);
+static_assert(offsetof(GlobalMeasurement, clusterId) == 44);
 
 } // namespace o2::itsmft::tracking
 

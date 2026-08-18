@@ -184,6 +184,8 @@ void CATrackerDPL::invalidatePublication() noexcept
 {
   mPublicationAdapter.reset();
   mPublicationClock.reset();
+  mExternalIndicesBySurface.clear();
+  mClusterSizesBySurface.clear();
   mFrame.setROFViews({});
 }
 
@@ -287,7 +289,8 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     source.rofViews = rofViews;
     const auto origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
     const auto loaded = o2::itsmft::tracking::loadTimeFrameSources(
-      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getLayout(0).getSurfaceCatalog(), origin);
+      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getLayout(0).getSurfaceCatalog(), origin,
+      &mExternalIndicesBySurface, &mClusterSizesBySurface);
     if (!loaded.ok()) {
       if (o2::itsmft::tracking::isRecoverableLoadError(loaded.error, loaded.timingDetail)) {
         throw o2::itsmft::tracking::RecoverableLoadFailure{loaded};
@@ -349,6 +352,8 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
 void CATrackerDPL::resetEvent() noexcept
 {
   mPublicationAdapter.reset();
+  mExternalIndicesBySurface.clear();
+  mClusterSizesBySurface.clear();
   mFrame.resetTimeFrame();
 }
 
@@ -422,7 +427,8 @@ void CATrackerDPL::run(ProcessingContext& pc)
       const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::MFT, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
-        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout(0).getOrderedSurfaces()}};
+        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout(0).getOrderedSurfaces()},
+        &mExternalIndicesBySurface, &mClusterSizesBySurface};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
       const auto staged = o2::itsmft::tracking::stageMFTGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
       if (!staged) {

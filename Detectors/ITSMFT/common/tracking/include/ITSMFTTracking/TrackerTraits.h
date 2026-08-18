@@ -42,10 +42,10 @@ namespace o2::itsmft::tracking
 // Call-scoped native refit supplied by the detector/workflow edge.
 // Publication and reset remain outside the tracking transaction.
 using SeedRefitFunction = bool (*)(const TrackSeed& seed,
+                                   const TimeFrame& frame,
                                    const TrackingParameters& params,
                                    float bz,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-                                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                    SurfaceCatalogView surfaceCatalog,
                                    gsl::span<const LayerId> orderedSurfaces,
                                    TrackingCandidate& candidate);

@@ -35,7 +35,9 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -52,7 +54,6 @@
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
-#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -76,45 +77,28 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     return result;
   }
 
@@ -336,6 +320,58 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   BOOST_REQUIRE(bindIndexTableConfiguration(expected, params[0], ITSNLayers, SurfaceKind::Cylinder, chartRanges) == IndexTableConfigError::None);
   BOOST_CHECK(indexTableConfigurationsMatch(rig.frame.getIndexTableUtils(), expected, ITSNLayers));
   BOOST_CHECK_GT(rig.frame.getIndexTableUtils().getNrowBins(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(LoadingNormalizesGlobalsToBeamCoordinatesExactlyOnce)
+{
+  const auto params = makeOneIterationITSParams();
+
+  Rig originReference;
+  originReference.establishValidLayout(params);
+  originReference.loadSource(makeFixture());
+
+  Rig rig;
+  rig.establishValidLayout(params);
+  rig.frame.setBeamPosition(1.f, 2.f, 0.04f);
+  rig.loadSource(makeFixture());
+
+  const auto& referenceClusters = originReference.frame.getClusters();
+  const auto& normalizedClusters = rig.frame.getClusters();
+  BOOST_REQUIRE_EQUAL(normalizedClusters.size(), referenceClusters.size());
+  for (size_t layer = 0; layer < normalizedClusters.size(); ++layer) {
+    BOOST_REQUIRE_EQUAL(normalizedClusters[layer].size(), referenceClusters[layer].size());
+    for (size_t cluster = 0; cluster < normalizedClusters[layer].size(); ++cluster) {
+      const auto& reference = referenceClusters[layer][cluster];
+      const auto& normalized = normalizedClusters[layer][cluster];
+      BOOST_CHECK_EQUAL(normalized.clusterId, reference.clusterId);
+      BOOST_CHECK_EQUAL(normalized.x, reference.x - 1.f);
+      BOOST_CHECK_EQUAL(normalized.y, reference.y - 2.f);
+      BOOST_CHECK_EQUAL(normalized.z, reference.z);
+      BOOST_CHECK_CLOSE_FRACTION(normalized.radius, std::hypot(normalized.x, normalized.y), 1.e-6f);
+      BOOST_CHECK_CLOSE_FRACTION(normalized.phi, o2::its::math_utils::computePhi(normalized.x, normalized.y), 1.e-6f);
+    }
+  }
+
+  const auto beforePrepare = normalizedClusters;
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+
+  const auto checkUnchanged = [&] {
+    const auto& current = rig.frame.getClusters();
+    BOOST_REQUIRE_EQUAL(current.size(), beforePrepare.size());
+    for (size_t layer = 0; layer < current.size(); ++layer) {
+      BOOST_REQUIRE_EQUAL(current[layer].size(), beforePrepare[layer].size());
+      for (size_t cluster = 0; cluster < current[layer].size(); ++cluster) {
+        BOOST_CHECK_EQUAL(current[layer][cluster].x, beforePrepare[layer][cluster].x);
+        BOOST_CHECK_EQUAL(current[layer][cluster].y, beforePrepare[layer][cluster].y);
+        BOOST_CHECK_EQUAL(current[layer][cluster].z, beforePrepare[layer][cluster].z);
+      }
+    }
+  };
+  checkUnchanged();
+  BOOST_CHECK_EQUAL(rig.frame.getBeamPositionVariance(), 0.04f);
+
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  checkUnchanged();
 }
 
 // --- Invalid binding leaves TimeFrame untouched -----------------------------

@@ -49,7 +49,6 @@ struct TraversalWorkspace {
   TrackingKernelParameters kernelParameters{};
   AttachHitConfigView attachHitConfig{};
   std::vector<NominalSurfaceMaterial> layerMaterial;
-  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements;
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurements;
   std::vector<float> diskLayerReferenceZ;
   gsl::span<const float> diskLayerReferenceZView{};
@@ -80,7 +79,6 @@ struct TraversalWorkspace {
     kernelParameters = {};
     attachHitConfig = {};
     layerMaterial.clear();
-    layerMeasurements.clear();
     layerGlobalMeasurements.clear();
     diskLayerReferenceZ.clear();
     diskLayerReferenceZView = {};

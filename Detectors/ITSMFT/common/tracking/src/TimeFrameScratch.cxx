@@ -189,11 +189,6 @@ void TimeFrameScratch::initialise(TimeFrame& frame, const TrackingParameters& pa
   if (parameters.PassFlags[IterationStep::FirstPass]) {
     frame.mIndexTableUtils.assign(indexTableConfigs.begin(), indexTableConfigs.end());
     clearResizeBoundedVector(mPositionResolution, maxLayers, mMemoryPool.get());
-    clearResizeBoundedVector(frame.mBogusClusters, maxLayers, frame.mMemoryPool.get());
-    for (int layer = 0; layer < std::min(maxLayers, static_cast<int>(frame.mClusters.size())); ++layer) {
-      clearResizeBoundedVector(frame.mClusters[layer], layerMeasurements[layer].size(), frame.mMemoryPool.get());
-      clearResizeBoundedVector(frame.mUsedClusters[layer], layerMeasurements[layer].size(), frame.mMemoryPool.get());
-    }
     for (std::size_t layer = 0; layer < mNOwnedSurfaces; ++layer) {
       std::size_t stride = 0;
       if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(frame.mIndexTableUtils[layer].getNrowBins()),
@@ -227,7 +222,7 @@ void TimeFrameScratch::initialise(TimeFrame& frame, const TrackingParameters& pa
   clearResizeBoundedVector(mEdgeMSAngles, mNEdges, mMemoryPool.get());
 
   if (parameters.PassFlags[IterationStep::RebuildClusterLUT]) {
-    frame.prepareClusters(maxLayers, layerMeasurements);
+    frame.prepareClusters(maxLayers);
   }
   for (std::size_t layer = 0; layer < mNOwnedSurfaces; ++layer) {
     mPositionResolution[layer] = o2::gpu::CAMath::Sqrt(
@@ -239,7 +234,7 @@ void TimeFrameScratch::initialise(TimeFrame& frame, const TrackingParameters& pa
     deepVectorClear(mTracklets[edge]);
     deepVectorClear(mTrackletLabels[edge]);
     deepVectorClear(mTrackletsLookupTable[edge]);
-    mTrackletsLookupTable[edge].resize(frame.mClusters[fromSlot].size() + 1, 0);
+    mTrackletsLookupTable[edge].resize(frame.mLayerGlobalMeasurements[fromSlot].size() + 1, 0);
   }
   for (int cell = 0; cell < static_cast<int>(mCells.size()); ++cell) {
     deepVectorClear(mCells[cell]);

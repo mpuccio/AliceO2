@@ -112,6 +112,7 @@ BOOST_FIXTURE_TEST_CASE(ConstructorOverrideBeamEstimationStillSelectsMeanVertex,
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), -9.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), -8.f, 1e-4);
+  BOOST_CHECK_EQUAL(tf.getBeamPositionVariance(), meanVertex.getSigmaY2());
 }
 
 BOOST_FIXTURE_TEST_CASE(ITSFallsBackToDiamondWhenNeitherOverrideIsSet, ScopedLegacyOverrideBeamEstimation)

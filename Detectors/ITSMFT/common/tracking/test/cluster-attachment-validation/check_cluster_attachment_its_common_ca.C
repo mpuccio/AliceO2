@@ -34,9 +34,8 @@
 //     one must equal index i in the other for a given track/cluster pair.
 //
 // Because the ground-truth size is recomputed independently from the raw
-// cluster file + dictionary (never from TrackITS::getClusterSize() itself,
-// nor from TimeFrame::getClusterSize()), this check would have failed
-// loudly under the old tf.getClusterSize(0, externalIndex) bug: for every
+// cluster file + dictionary (never from TrackITS::getClusterSize() itself),
+// this check would have failed loudly under the old external-index lookup bug: for every
 // track cluster NOT on layer 0, the published size would have come from an
 // unrelated slot of layer 0's own (much smaller) per-layer vector instead
 // of the correct layer's, so sizeMismatch (and, depending on layer 0's

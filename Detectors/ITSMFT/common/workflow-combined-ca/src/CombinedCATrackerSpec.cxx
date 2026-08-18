@@ -330,6 +330,8 @@ void CombinedCATrackerDPL::invalidatePublication() noexcept
 {
   mITSClock.reset();
   mMFTClock.reset();
+  mExternalIndicesBySurface.clear();
+  mClusterSizesBySurface.clear();
   mPublicationValid = false;
   clearRofViews();
 }
@@ -382,7 +384,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     loadResult = *rejected;
   } else {
     const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
-    loadResult = loadTimeFrameSources(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
+    loadResult = loadTimeFrameSources(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin,
+                                      &mExternalIndicesBySurface, &mClusterSizesBySurface);
   }
   if (!loadResult.ok()) {
     // Apply the shared recoverable-load taxonomy and the owning detector's
@@ -521,9 +524,11 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
       throw std::runtime_error{"Combined ITS+MFT GenericTrack output publication context is unavailable after a successful trackFrame()"};
     }
     const o2::itsmft::tracking::GenericTrackPublicationContext itsContext{
-      itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces};
+      itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces,
+      &mExternalIndicesBySurface, &mClusterSizesBySurface};
     const o2::itsmft::tracking::GenericTrackPublicationContext mftContext{
-      mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces};
+      mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces,
+      &mExternalIndicesBySurface, &mClusterSizesBySurface};
 
     // Stage both outputs before requesting either output stream.
     o2::itsmft::tracking::GenericTrackOutputAdapterError itsError = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;

@@ -73,36 +73,42 @@ void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
 {
   mLayerGlobalMeasurements.swap(other.mLayerGlobalMeasurements);
   mLayerSurfaceMeasurements.swap(other.mLayerSurfaceMeasurements);
-  mLabelSources.swap(other.mLabelSources);
+  mLayerUsedClusters.swap(other.mLayerUsedClusters);
+  mLayerClusterLabels.swap(other.mLayerClusterLabels);
+  std::swap(mHasMCInformation, other.mHasMCInformation);
   mROFramesClusters.swap(other.mROFramesClusters);
   std::swap(mROFViews, other.mROFViews);
   mROFViewsBySurface.swap(other.mROFViewsBySurface);
   mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
-  mSourceBySurface.swap(other.mSourceBySurface);
   std::swap(mUseUPC, other.mUseUPC);
 }
 
 void TimeFrame::assignLoadedEventNavigation(std::vector<std::vector<int>>&& rofBoundaries,
                                             RuntimeROFViews defaultViews,
                                             std::vector<RuntimeROFViews>&& viewsBySurface,
-                                            std::vector<uint16_t>&& localLayerBySurface,
-                                            std::vector<ClusterSourceId>&& sourceBySurface)
+                                            std::vector<uint16_t>&& localLayerBySurface)
 {
   mROFramesClusters = std::move(rofBoundaries);
   mROFViews = defaultViews;
   mROFViewsBySurface = std::move(viewsBySurface);
   mROFLocalLayerBySurface = std::move(localLayerBySurface);
-  mSourceBySurface = std::move(sourceBySurface);
   mUseUPC = false;
 }
 
 void TimeFrame::assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& globals,
                                          std::vector<std::vector<SurfaceMeasurement>>&& measurements,
-                                         std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labels)
+                                         std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>&& labels,
+                                         bool hasMCInformation)
 {
   mLayerGlobalMeasurements = std::move(globals);
   mLayerSurfaceMeasurements = std::move(measurements);
-  mLabelSources = std::move(labels);
+  mLayerUsedClusters.clear();
+  mLayerUsedClusters.reserve(mLayerSurfaceMeasurements.size());
+  for (const auto& layerMeasurements : mLayerSurfaceMeasurements) {
+    mLayerUsedClusters.emplace_back(layerMeasurements.size(), uint8_t{0});
+  }
+  mLayerClusterLabels = std::move(labels);
+  mHasMCInformation = hasMCInformation;
 }
 
 void TimeFrame::commitMeasurements(TimeFrame& staged) noexcept
@@ -111,79 +117,70 @@ void TimeFrame::commitMeasurements(TimeFrame& staged) noexcept
   swapMeasurements(staged);
 }
 
-gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(LayerId surface) const
-{
-  return surface.isValid() && surface.value() < mLayerSurfaceMeasurements.size() ? gsl::make_span(mLayerSurfaceMeasurements[surface.value()]) : gsl::span<const SurfaceMeasurement>{};
-}
-
 gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(LayerId surface) const
 {
   return surface.isValid() && surface.value() < mLayerGlobalMeasurements.size() ? gsl::make_span(mLayerGlobalMeasurements[surface.value()]) : gsl::span<const GlobalMeasurement>{};
 }
 
-const GlobalMeasurement* TimeFrame::getGlobalMeasurement(LayerId surface, MeasurementIndex index) const noexcept
+gsl::span<GlobalMeasurement> TimeFrame::getGlobalMeasurements(LayerId surface)
 {
-  if (!surface.isValid() || surface.value() >= mLayerGlobalMeasurements.size() || !index.isValid()) {
-    return nullptr;
-  }
-  const auto& measurements = mLayerGlobalMeasurements[surface.value()];
-  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
+  return surface.isValid() && surface.value() < mLayerGlobalMeasurements.size() ? gsl::make_span(mLayerGlobalMeasurements[surface.value()]) : gsl::span<GlobalMeasurement>{};
 }
 
-const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(LayerId surface, MeasurementIndex index) const noexcept
+const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(LayerId layer, uint32_t clusterId) const noexcept
 {
-  if (!surface.isValid() || surface.value() >= mLayerSurfaceMeasurements.size() || !index.isValid()) {
+  if (!layer.isValid() || layer.value() >= mLayerSurfaceMeasurements.size()) {
     return nullptr;
   }
-  const auto& measurements = mLayerSurfaceMeasurements[surface.value()];
-  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
+  const auto& measurements = mLayerSurfaceMeasurements[layer.value()];
+  return clusterId < measurements.size() ? &measurements[clusterId] : nullptr;
 }
 
-gsl::span<const o2::MCCompLabel> TimeFrame::getLabels(ClusterRef cluster) const
+gsl::span<const o2::MCCompLabel> TimeFrame::getLabels(LayerId layer, uint32_t clusterId) const
 {
-  if (!cluster.source.isValid() || cluster.source.value() >= mLabelSources.size() || mLabelSources[cluster.source.value()] == nullptr) {
+  if (!layer.isValid() || layer.value() >= mLayerClusterLabels.size()) {
     return {};
   }
-  return mLabelSources[cluster.source.value()]->getLabels(cluster.index);
+  return mLayerClusterLabels[layer.value()].getLabels(clusterId);
 }
 
 std::size_t TimeFrame::getTotalMeasurements() const noexcept
 {
   std::size_t total = 0;
-  for (const auto& measurements : mLayerSurfaceMeasurements) {
+  for (const auto& measurements : mLayerGlobalMeasurements) {
     total += measurements.size();
   }
   return total;
 }
 
-gsl::span<MeasurementLocator> TimeFrame::getClustersOnLayer(int rofId, int layer)
+gsl::span<GlobalMeasurement> TimeFrame::getClustersOnLayer(int rofId, int layer)
 {
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
   }
   const int first = mROFramesClusters[layer][rofId];
-  return {mClusters[layer].data() + first,
-          static_cast<gsl::span<MeasurementLocator>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
+  return {mLayerGlobalMeasurements[layer].data() + first,
+          static_cast<gsl::span<GlobalMeasurement>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
 }
 
-gsl::span<const MeasurementLocator> TimeFrame::getClustersOnLayer(int rofId, int layer) const
+gsl::span<const GlobalMeasurement> TimeFrame::getClustersOnLayer(int rofId, int layer) const
 {
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
   }
   const int first = mROFramesClusters[layer][rofId];
-  return {mClusters[layer].data() + first,
-          static_cast<gsl::span<const MeasurementLocator>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
+  return {mLayerGlobalMeasurements[layer].data() + first,
+          static_cast<gsl::span<const GlobalMeasurement>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
 }
 
-gsl::span<const MeasurementLocator> TimeFrame::getClustersPerROFrange(int rofMin, int range, int layer) const
+gsl::span<const GlobalMeasurement> TimeFrame::getClustersPerROFrange(int rofMin, int range, int layer) const
 {
   if (rofMin < 0 || rofMin >= getNrof(layer)) {
     return {};
   }
   const int first = mROFramesClusters[layer][rofMin];
   const int last = mROFramesClusters[layer][o2::gpu::CAMath::Min(rofMin + range, getNrof(layer))];
-  return {mClusters[layer].data() + first, static_cast<gsl::span<const MeasurementLocator>::size_type>(last - first)};
+  return {mLayerGlobalMeasurements[layer].data() + first, static_cast<gsl::span<const GlobalMeasurement>::size_type>(last - first)};
 }
 
 gsl::span<const int> TimeFrame::getROFramesClustersPerROFrange(int rofMin, int range, int layer) const
@@ -220,45 +217,32 @@ int TimeFrame::getTotalClustersPerROFrange(int rofMin, int range, int layer) con
 
 gsl::span<unsigned char> TimeFrame::getUsedClusters(int layer)
 {
-  return gsl::make_span(mUsedClusters[layer]);
+  return layer >= 0 && static_cast<std::size_t>(layer) < mLayerUsedClusters.size() ? gsl::make_span(mLayerUsedClusters[layer]) : gsl::span<unsigned char>{};
 }
 
-gsl::span<uint8_t> TimeFrame::getUsedClustersROF(int rofId, int layer)
+bool TimeFrame::isClusterUsed(int layer, uint32_t clusterId) const
 {
-  if (rofId < 0 || rofId >= getNrof(layer)) {
-    return {};
-  }
-  const int first = mROFramesClusters[layer][rofId];
-  return {mUsedClusters[layer].data() + first,
-          static_cast<gsl::span<uint8_t>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
+  return layer >= 0 && static_cast<std::size_t>(layer) < mLayerUsedClusters.size() && clusterId < mLayerUsedClusters[layer].size() && mLayerUsedClusters[layer][clusterId] != 0;
 }
 
-gsl::span<const uint8_t> TimeFrame::getUsedClustersROF(int rofId, int layer) const
+void TimeFrame::markUsedCluster(int layer, uint32_t clusterId)
 {
-  if (rofId < 0 || rofId >= getNrof(layer)) {
-    return {};
+  if (layer >= 0 && static_cast<std::size_t>(layer) < mLayerUsedClusters.size() && clusterId < mLayerUsedClusters[layer].size()) {
+    mLayerUsedClusters[layer][clusterId] = 1;
   }
-  const int first = mROFramesClusters[layer][rofId];
-  return {mUsedClusters[layer].data() + first,
-          static_cast<gsl::span<const uint8_t>::size_type>(mROFramesClusters[layer][rofId + 1] - first)};
 }
 
 std::size_t TimeFrame::getNumberOfClusters() const
 {
-  return std::accumulate(mClusters.begin(), mClusters.end(), std::size_t{0},
+  return std::accumulate(mLayerGlobalMeasurements.begin(), mLayerGlobalMeasurements.end(), std::size_t{0},
                          [](std::size_t total, const auto& layer) { return total + layer.size(); });
 }
 
 std::size_t TimeFrame::getNumberOfUsedClusters() const
 {
-  return std::accumulate(mUsedClusters.begin(), mUsedClusters.end(), std::size_t{0}, [](std::size_t total, const auto& layer) {
+  return std::accumulate(mLayerUsedClusters.begin(), mLayerUsedClusters.end(), std::size_t{0}, [](std::size_t total, const auto& layer) {
     return total + static_cast<std::size_t>(std::count(layer.begin(), layer.end(), uint8_t{1}));
   });
-}
-
-int TimeFrame::hasBogusClusters() const
-{
-  return std::accumulate(mBogusClusters.begin(), mBogusClusters.end(), 0);
 }
 
 void TimeFrame::setROFViews(RuntimeROFViews views) noexcept
@@ -314,52 +298,22 @@ gsl::span<const Vertex> TimeFrame::getPrimaryVertices(int layer, int rofId) cons
           static_cast<gsl::span<const Vertex>::size_type>(entry.getEntries())};
 }
 
-std::optional<ClusterSourceId> TimeFrame::getSurfaceSource(int layer) const noexcept
-{
-  return layer >= 0 && static_cast<std::size_t>(layer) < mSourceBySurface.size() && mSourceBySurface[layer].isValid()
-           ? std::optional<ClusterSourceId>{mSourceBySurface[layer]}
-           : std::nullopt;
-}
-
-bool TimeFrame::setSurfaceSources(gsl::span<const ClusterSourceId> sources)
-{
-  if (sources.size() != mClusters.size() || std::any_of(sources.begin(), sources.end(), [](ClusterSourceId source) { return !source.isValid(); })) {
-    return false;
-  }
-  mSourceBySurface.assign(sources.begin(), sources.end());
-  return true;
-}
-
 bool TimeFrame::hasMCinformation() const noexcept
 {
-  return std::any_of(mLabelSources.begin(), mLabelSources.end(), [](const auto* labels) { return labels != nullptr; });
+  return mHasMCInformation;
 }
 
 gsl::span<const MCCompLabel> TimeFrame::getClusterLabels(int layer, int cluster) const
 {
-  return getLabels(mLayerGlobalMeasurements[layer][cluster].cluster);
-}
-
-bool TimeFrame::hasClusterExternalIndex(int layer, int cluster) const noexcept
-{
-  return layer >= 0 && static_cast<std::size_t>(layer) < mLayerGlobalMeasurements.size() && cluster >= 0 &&
-         static_cast<std::size_t>(cluster) < mLayerGlobalMeasurements[layer].size() &&
-         mLayerGlobalMeasurements[layer][cluster].cluster.isValid();
-}
-
-int TimeFrame::getClusterExternalIndex(int layer, int cluster) const
-{
-  return static_cast<int>(mLayerGlobalMeasurements[layer][cluster].cluster.index);
-}
-
-int TimeFrame::getClusterSize(int layer, int cluster) const
-{
-  return static_cast<int>(mLayerGlobalMeasurements[layer][cluster].shape.nPixels);
+  if (layer < 0 || static_cast<std::size_t>(layer) >= mLayerGlobalMeasurements.size() || cluster < 0 || static_cast<std::size_t>(cluster) >= mLayerGlobalMeasurements[layer].size()) {
+    return {};
+  }
+  return getLabels(LayerId{static_cast<uint16_t>(layer)}, mLayerGlobalMeasurements[layer][cluster].clusterId);
 }
 
 bool TimeFrame::commitLoadedEvent(TimeFrame& staged) noexcept
 {
-  if (!mConfigurationValid || !mWorkspace || staged.mROFramesClusters.size() != mClusters.size()) {
+  if (!mConfigurationValid || !mWorkspace || staged.mROFramesClusters.size() != mROFramesClusters.size()) {
     return false;
   }
 
@@ -414,10 +368,8 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceLayout>&& layouts,
 
 void TimeFrame::publishConfiguration(TimeFrame& staged) noexcept
 {
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mClusters)>);
   static_assert(std::is_nothrow_move_assignable_v<decltype(mROFramesClusters)>);
   static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTables)>);
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mUsedClusters)>);
   static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTableUtils)>);
   static_assert(std::is_nothrow_move_assignable_v<decltype(mLayouts)>);
   static_assert(std::is_nothrow_move_assignable_v<decltype(mTrackingParameters)>);
@@ -431,12 +383,9 @@ void TimeFrame::publishConfiguration(TimeFrame& staged) noexcept
   replaceBoundedVector(mPrimaryVerticesLabels, staged.mPrimaryVerticesLabels);
   replaceBoundedVector(mGenericTracks, staged.mGenericTracks);
   replaceBoundedVector(mTrackClusterIndices, staged.mTrackClusterIndices);
-  replaceBoundedVector(mBogusClusters, staged.mBogusClusters);
 
-  mClusters = std::move(staged.mClusters);
   mROFramesClusters = std::move(staged.mROFramesClusters);
   mIndexTables = std::move(staged.mIndexTables);
-  mUsedClusters = std::move(staged.mUsedClusters);
   mIndexTableUtils = std::move(staged.mIndexTableUtils);
   mMinR = std::move(staged.mMinR);
   mMaxR = std::move(staged.mMaxR);
@@ -482,19 +431,17 @@ void TimeFrame::resetTimeFrame() noexcept
   deepVectorClear(mTrackClusterIndices);
   mLayerGlobalMeasurements.clear();
   mLayerSurfaceMeasurements.clear();
-  mLabelSources.clear();
+  mLayerUsedClusters.clear();
+  mLayerClusterLabels.clear();
+  mHasMCInformation = false;
   mROFViews = {};
   mROFViewsBySurface.clear();
   mROFLocalLayerBySurface.clear();
-  mSourceBySurface.clear();
   mUseUPC = false;
   for (auto& boundaries : mROFramesClusters) {
     boundaries.clear();
   }
-  deepVectorClear(mClusters);
   deepVectorClear(mIndexTables);
-  deepVectorClear(mUsedClusters);
-  deepVectorClear(mBogusClusters);
   std::fill(mMinR.begin(), mMinR.end(), std::numeric_limits<float>::max());
   std::fill(mMaxR.begin(), mMaxR.end(), std::numeric_limits<float>::lowest());
   std::fill(mMinZ.begin(), mMinZ.end(), std::numeric_limits<float>::max());
@@ -532,45 +479,31 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   initVector(mPrimaryVerticesLabels);
   initVector(mGenericTracks);
   initVector(mTrackClusterIndices);
-  initVector(mBogusClusters);
-  for (auto& clusters : mClusters) {
-    initVector(clusters);
-  }
   for (auto& table : mIndexTables) {
     initVector(table);
-  }
-  for (auto& used : mUsedClusters) {
-    initVector(used);
   }
 }
 
 void TimeFrame::configureEventStorage(std::size_t nOwnedSurfaces)
 {
-  o2::its::clearResizeBoundedVector(mClusters, nOwnedSurfaces, mMemoryPool.get());
   mROFramesClusters.resize(nOwnedSurfaces);
   o2::its::clearResizeBoundedVector(mIndexTables, nOwnedSurfaces, mMemoryPool.get());
-  o2::its::clearResizeBoundedVector(mUsedClusters, nOwnedSurfaces, mMemoryPool.get());
   mIndexTableUtils.assign(nOwnedSurfaces, IndexTableUtilsCore{});
   mMinR.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
   mMaxR.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
   mMinZ.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
   mMaxZ.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
-  o2::its::clearResizeBoundedVector(mBogusClusters, nOwnedSurfaces, mMemoryPool.get());
 }
 
-void TimeFrame::prepareClusters(int maxLayers,
-                                gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
+void TimeFrame::prepareClusters(int maxLayers)
 {
-  struct LocatorHelper {
-    float phi;
-    float radius;
+  struct SortingHelper {
     int bin;
     int indexWithinBin;
     int measurementIndex;
   };
 
-  const std::array<float, 2> beamXY{getBeamX(), getBeamY()};
-  const int stopLayer = std::min(maxLayers, static_cast<int>(mClusters.size()));
+  const int stopLayer = std::min(maxLayers, static_cast<int>(mLayerGlobalMeasurements.size()));
   for (int layer = 0; layer < stopLayer; ++layer) {
     const auto& utils = mIndexTableUtils[layer];
     const int colBinsCount = utils.getNcolBins();
@@ -581,7 +514,8 @@ void TimeFrame::prepareClusters(int maxLayers,
       throw std::bad_alloc{};
     }
     const std::size_t stride = numBins + 1;
-    bounded_vector<LocatorHelper> helpers(mMemoryPool.get());
+    bounded_vector<SortingHelper> helpers(mMemoryPool.get());
+    bounded_vector<GlobalMeasurement> sortedMeasurements(mMemoryPool.get());
     bounded_vector<int> counts(numBins, 0, mMemoryPool.get());
     bounded_vector<int> offsets(numBins, 0, mMemoryPool.get());
 
@@ -594,46 +528,36 @@ void TimeFrame::prepareClusters(int maxLayers,
       const int count = last - first;
       auto* tableBase = mIndexTables[layer].data() + rof * stride;
       helpers.resize(count);
+      sortedMeasurements.resize(count);
       const bool usePhiRBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::PhiR;
 
       for (int local = 0; local < count; ++local) {
         const int measurementIndex = first + local;
-        const auto& measurement = layerMeasurements[layer][measurementIndex];
-        const float x = measurement.position.x - beamXY[0];
-        const float y = measurement.position.y - beamXY[1];
-        const float z = measurement.position.z;
+        const auto& measurement = mLayerGlobalMeasurements[layer][measurementIndex];
         auto& helper = helpers[local];
-        helper.phi = o2::its::math_utils::computePhi(x, y);
-        helper.radius = o2::its::math_utils::hypot(x, y);
-        int colBin = utils.getColBinIndex(layer, usePhiRBinning ? helper.radius : z);
+        int colBin = utils.getColBinIndex(layer, usePhiRBinning ? measurement.radius : measurement.z);
         if (colBin < 0 || colBin >= colBinsCount) {
           colBin = std::clamp(colBin, 0, colBinsCount - 1);
-          ++mBogusClusters[layer];
         }
-        helper.bin = utils.getBinIndex(colBin, utils.getRowBinIndex(helper.phi));
+        helper.bin = utils.getBinIndex(colBin, utils.getRowBinIndex(measurement.phi));
         helper.indexWithinBin = counts[helper.bin]++;
         helper.measurementIndex = measurementIndex;
-        mMinR[layer] = o2::gpu::GPUCommonMath::Min(helper.radius, mMinR[layer]);
-        mMaxR[layer] = o2::gpu::GPUCommonMath::Max(helper.radius, mMaxR[layer]);
-        mMinZ[layer] = o2::gpu::GPUCommonMath::Min(z, mMinZ[layer]);
-        mMaxZ[layer] = o2::gpu::GPUCommonMath::Max(z, mMaxZ[layer]);
+        mMinR[layer] = o2::gpu::GPUCommonMath::Min(measurement.radius, mMinR[layer]);
+        mMaxR[layer] = o2::gpu::GPUCommonMath::Max(measurement.radius, mMaxR[layer]);
+        mMinZ[layer] = o2::gpu::GPUCommonMath::Min(measurement.z, mMinZ[layer]);
+        mMaxZ[layer] = o2::gpu::GPUCommonMath::Max(measurement.z, mMaxZ[layer]);
       }
       std::exclusive_scan(counts.begin(), counts.end(), offsets.begin(), 0);
 
-      auto sorted = getClustersOnLayer(rof, layer);
       for (const auto& helper : helpers) {
-        const auto& measurement = layerMeasurements[layer][helper.measurementIndex];
-        auto& locator = sorted[offsets[helper.bin] + helper.indexWithinBin];
-        locator = MeasurementLocator{measurement.position.x, measurement.position.y, measurement.position.z,
-                                     helper.measurementIndex};
-        locator.phi = helper.phi;
-        locator.radius = helper.radius;
-        locator.indexTableBinIndex = helper.bin;
+        sortedMeasurements[offsets[helper.bin] + helper.indexWithinBin] = mLayerGlobalMeasurements[layer][helper.measurementIndex];
       }
+      std::copy(sortedMeasurements.begin(), sortedMeasurements.end(), mLayerGlobalMeasurements[layer].begin() + first);
       std::copy_n(offsets.data(), counts.size(), tableBase);
       std::fill_n(tableBase + counts.size(), stride - counts.size(), count);
       std::fill(counts.begin(), counts.end(), 0);
       helpers.clear();
+      sortedMeasurements.clear();
     }
   }
 }

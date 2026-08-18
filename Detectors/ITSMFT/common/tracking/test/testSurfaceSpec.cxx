@@ -182,16 +182,6 @@ static_assert(std::is_standard_layout_v<DetectorLayerIdentity>);
 static_assert(std::is_trivially_copyable_v<DetectorLayerIdentity>);
 static_assert(std::is_standard_layout_v<StaticSurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<StaticSurfaceDescriptor>);
-static_assert(std::is_standard_layout_v<MeasurementIndex>);
-static_assert(std::is_trivially_copyable_v<MeasurementIndex>);
-
-static_assert(!std::is_convertible_v<uint32_t, MeasurementIndex>);
-static_assert(!MeasurementIndex{}.isValid());
-static_assert(MeasurementIndex{0}.isValid());
-static_assert(MeasurementIndex{0xfffffffeu}.isValid());
-static_assert(!MeasurementIndex{0xffffffffu}.isValid());
-static_assert(MeasurementIndex{7} == MeasurementIndex{7});
-static_assert(MeasurementIndex{7} != MeasurementIndex{8});
 
 } // namespace
 
@@ -280,13 +270,4 @@ BOOST_AUTO_TEST_CASE(StaticToRuntimeMaterialProjectionCopiesBothFieldsIndependen
   const auto projectedZeroArealDensity = toRuntimeSurfaceDescriptor(zeroArealDensityValue);
   BOOST_CHECK_EQUAL(projectedZeroArealDensity.material.xOverX0, 0.06f);
   BOOST_CHECK_EQUAL(projectedZeroArealDensity.material.arealDensityGPerCm2, 0.f);
-}
-
-BOOST_AUTO_TEST_CASE(MeasurementIndexBoundaries)
-{
-  BOOST_CHECK(!MeasurementIndex{}.isValid());
-  BOOST_CHECK_EQUAL(MeasurementIndex{}.value(), MeasurementIndex::InvalidValue);
-  BOOST_CHECK(MeasurementIndex{0}.isValid());
-  BOOST_CHECK(MeasurementIndex{0xfffffffeu}.isValid());
-  BOOST_CHECK(!MeasurementIndex{0xffffffffu}.isValid());
 }

@@ -10,8 +10,7 @@
 //    device-compatibility traits;
 //  - isValidTrackRange()'s exact validity condition (empty/default, single-,
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
-//  - per-surface measurement storage and surface-local index bounds
-//    (TimeFrame::getGlobalMeasurement(LayerId, MeasurementIndex));
+//  - sorted global storage and source-indexed fitting-measurement lookup;
 //  - cross-surface and cross-source TrackClusterReference resolution;
 //  - that a completed track's hitSurfaces is the union of the LayerId of
 //    every measurement its range references, and that each resolved
@@ -68,12 +67,12 @@ using namespace o2::itsmft::tracking;
 // This is a structural claim about ITSMFTTracking/GenericTrack.h itself, not
 // something a runtime assertion can observe: GenericTrack.h's own include
 // list (GPUCommonDef.h, and the ITSMFTTracking/Surface{Id,KinematicState,
-// Mask,MeasurementIndex,Timing}.h common primitives) contains no DetID.h,
+// Mask,Timing}.h common primitives) contains no DetID.h,
 // TrackITS.h/TrackITSExt.h, typed MFT output header, GeometryTGeo.h, or workflow
 // header, and GenericTrack/TrackClusterReference declare no
 // DetID/NLayers/publication-type field -- every field is either a plain
 // scalar, or one of the shared LayerId/SurfaceKinematicState/SurfaceMask/
-// MeasurementIndex/GenericTrackTimestamp device PODs. This test case
+// a dense source cluster ID, or a GenericTrackTimestamp device POD. This test case
 // exercises GenericTrack using exactly that narrow surface, so that if a
 // future edit to GenericTrack.h ever added such a dependency, the type
 // itself (constructible, copyable, comparable-by-field here) would still
@@ -94,9 +93,9 @@ BOOST_AUTO_TEST_CASE(GenericTrackHasNoDetectorOrPublicationOutputDependency)
   BOOST_CHECK(track.hitSurfaces.has(LayerId{0}));
   BOOST_CHECK_EQUAL(trackClusterRefCount(track), 1u);
 
-  const TrackClusterReference reference{LayerId{0}, MeasurementIndex{0}};
-  BOOST_CHECK(reference.surface == LayerId{0});
-  BOOST_CHECK(reference.index == MeasurementIndex{0});
+  const TrackClusterReference reference{LayerId{0}, 0, 17};
+  BOOST_CHECK(reference.layer == LayerId{0});
+  BOOST_CHECK_EQUAL(reference.clusterId, 17u);
 }
 
 BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
@@ -122,8 +121,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
   static_assert(std::is_same_v<decltype(GenericTrack::timestamp), GenericTrackTimestamp>);
   static_assert(std::is_same_v<decltype(GenericTrack::firstClusterRef), uint32_t>);
   static_assert(std::is_same_v<decltype(GenericTrack::clusterRefEnd), uint32_t>);
-  static_assert(std::is_same_v<decltype(TrackClusterReference::surface), LayerId>);
-  static_assert(std::is_same_v<decltype(TrackClusterReference::index), MeasurementIndex>);
+  static_assert(std::is_same_v<decltype(TrackClusterReference::layer), LayerId>);
+  static_assert(std::is_same_v<decltype(TrackClusterReference::clusterId), uint32_t>);
 
   // Default-constructed: zeroed range, empty mask, no NLayers/detector
   // dependency of any kind. Not constructed as `constexpr` here:
@@ -213,46 +212,28 @@ class FakeClusterDecoder final : public ClusterDecoder
  public:
   FakeClusterDecoder(o2::detectors::DetID::ID detector, bool disk) : mDetector(detector), mDisk(disk) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mDisk ? SurfaceKind::Disk : SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID), static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {10.f + sensorID, 1.f, 2.f, 0.1f};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = mDisk ? makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF)
-                   : makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     return result;
   }
 
@@ -309,7 +290,9 @@ const TopologyDictionary& dict()
 // {0,1,3} (surface 2 is left empty, a deliberate hole in the catalog's own
 // numbering -- not exercised by any track in these tests, only present to
 // prove per-surface storage does not require every surface to be non-empty).
-void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout)
+void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout,
+                               std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+                               std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr)
 {
   const std::vector<CompClusterExt> itsClusters{
     {10, 20, CompCluster::InvalidPatternID, 0},
@@ -347,49 +330,42 @@ void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout)
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
+  BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0},
+                            externalIndicesBySurface, clusterSizesBySurface)
+                  .ok());
 }
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
+BOOST_AUTO_TEST_CASE(SurfaceMeasurementStorageUsesStablePreSortIndices)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
   loadThreeMeasurementFrame(frame, layout);
 
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 0u);
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{3}).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{1}).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{2}).size(), 0u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{3}).size(), 1u);
 
-  // Index 0 is valid, and independently valid, on every non-empty surface --
-  // proving each surface owns its own index space rather than sharing one
-  // global domain (index 0 resolves to a *different* measurement on each
-  // surface, not the same global position read three times).
-  const auto* onZero = frame.getGlobalMeasurement(LayerId{0}, MeasurementIndex{0});
-  const auto* onOne = frame.getGlobalMeasurement(LayerId{1}, MeasurementIndex{0});
-  const auto* onThree = frame.getGlobalMeasurement(LayerId{3}, MeasurementIndex{0});
-  BOOST_REQUIRE(onZero != nullptr);
-  BOOST_REQUIRE(onOne != nullptr);
-  BOOST_REQUIRE(onThree != nullptr);
-  BOOST_CHECK(onZero->surface == LayerId{0});
-  BOOST_CHECK(onOne->surface == LayerId{1});
-  BOOST_CHECK(onThree->surface == LayerId{3});
-  BOOST_CHECK(onZero->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-  BOOST_CHECK(onThree->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::MFT));
+  // The compact global on each layer carries its stable position in that
+  // layer's pre-sort measurement arrays.
+  const auto& onZero = frame.getGlobalMeasurements(LayerId{0})[0];
+  const auto& onOne = frame.getGlobalMeasurements(LayerId{1})[0];
+  const auto& onThree = frame.getGlobalMeasurements(LayerId{3})[0];
+  BOOST_CHECK_EQUAL(onZero.clusterId, 0u);
+  BOOST_CHECK_EQUAL(onOne.clusterId, 0u);
+  BOOST_CHECK_EQUAL(onThree.clusterId, 0u);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, onZero.clusterId) != nullptr);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{1}, onOne.clusterId) != nullptr);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{3}, onThree.clusterId) != nullptr);
 
-  // Index 1 is out of range for surface 0 (only one measurement), even
-  // though it would be perfectly in range if surface 0 had two entries --
-  // the bound is surface-local, not derived from any other surface's size
-  // or from a shared/global count.
-  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{0}, MeasurementIndex{1}) == nullptr);
+  // An ID beyond the TimeFrame-owned surface's dense range is unresolved.
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 99) == nullptr);
   // Surface 2 has zero measurements: even index 0 is out of range.
-  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{2}, MeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{2}).empty());
   // Invalid surface id (out of range for a 4-surface catalog).
-  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{4}, MeasurementIndex{0}) == nullptr);
-  // Invalid/default index sentinel.
-  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{0}, MeasurementIndex{}) == nullptr);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{4}, 0) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
@@ -405,9 +381,9 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
   // measurement index, never a raw external cluster index or a global
   // position.
   const std::vector<TrackClusterReference> trackClusterIndices{
-    {LayerId{0}, MeasurementIndex{0}},
-    {LayerId{1}, MeasurementIndex{0}},
-    {LayerId{3}, MeasurementIndex{0}},
+    {LayerId{0}, 0, 0},
+    {LayerId{1}, 0, 0},
+    {LayerId{3}, 0, 0},
   };
 
   GenericTrack track{};
@@ -421,22 +397,13 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
   bool foundITSZero = false, foundITSOne = false, foundMFT = false;
   for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
     const auto& reference = trackClusterIndices[i];
-    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getSurfaceMeasurement(reference.layer, reference.clusterId);
     BOOST_REQUIRE(measurement != nullptr);
-    // Completed-track invariant: the resolved measurement's own surface
-    // matches the reference it was resolved from.
-    BOOST_CHECK(measurement->surface == reference.surface);
-    if (reference.surface == LayerId{0}) {
-      BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-      BOOST_CHECK(measurement->cluster.source == ClusterSourceId{0});
+    if (reference.layer == LayerId{0}) {
       foundITSZero = true;
-    } else if (reference.surface == LayerId{1}) {
-      BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-      BOOST_CHECK(measurement->cluster.source == ClusterSourceId{0});
+    } else if (reference.layer == LayerId{1}) {
       foundITSOne = true;
-    } else if (reference.surface == LayerId{3}) {
-      BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::MFT));
-      BOOST_CHECK(measurement->cluster.source == ClusterSourceId{1});
+    } else if (reference.layer == LayerId{3}) {
       foundMFT = true;
     }
   }
@@ -452,9 +419,9 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   loadThreeMeasurementFrame(frame, layout);
 
   const std::vector<TrackClusterReference> trackClusterIndices{
-    {LayerId{0}, MeasurementIndex{0}},
-    {LayerId{1}, MeasurementIndex{0}},
-    {LayerId{3}, MeasurementIndex{0}},
+    {LayerId{0}, 0, 0},
+    {LayerId{1}, 0, 0},
+    {LayerId{3}, 0, 0},
   };
 
   GenericTrack track{};
@@ -468,10 +435,9 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   BOOST_REQUIRE(isValidTrackRange(track, static_cast<uint32_t>(trackClusterIndices.size())));
   for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
     const auto& reference = trackClusterIndices[i];
-    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getSurfaceMeasurement(reference.layer, reference.clusterId);
     BOOST_REQUIRE(measurement != nullptr);
-    BOOST_CHECK(measurement->surface == reference.surface);
-    observed.set(reference.surface);
+    observed.set(reference.layer);
   }
   BOOST_CHECK(observed == track.hitSurfaces);
 
@@ -479,8 +445,8 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   // 1): still a valid, completed track, mask still matches exactly the
   // (smaller) referenced set.
   const std::vector<TrackClusterReference> holeIndices{
-    {LayerId{0}, MeasurementIndex{0}},
-    {LayerId{3}, MeasurementIndex{0}},
+    {LayerId{0}, 0, 0},
+    {LayerId{3}, 0, 0},
   };
   GenericTrack holeTrack{};
   holeTrack.firstClusterRef = 0;
@@ -492,10 +458,9 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   BOOST_REQUIRE(isValidTrackRange(holeTrack, static_cast<uint32_t>(holeIndices.size())));
   for (uint32_t i = holeTrack.firstClusterRef; i < holeTrack.clusterRefEnd; ++i) {
     const auto& reference = holeIndices[i];
-    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getSurfaceMeasurement(reference.layer, reference.clusterId);
     BOOST_REQUIRE(measurement != nullptr);
-    BOOST_CHECK(measurement->surface == reference.surface);
-    observedHole.set(reference.surface);
+    observedHole.set(reference.layer);
   }
   BOOST_CHECK(observedHole == holeTrack.hitSurfaces);
   BOOST_CHECK(!observedHole.has(LayerId{1})); // the hole
@@ -514,45 +479,28 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     return result;
   }
 
@@ -582,6 +530,8 @@ std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 
 struct TimeFrameFixture {
   TimeFrame tf;
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
   // Keep the catalog with the graph fixture so initialization inputs have one
   // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
@@ -613,7 +563,8 @@ struct TimeFrameFixture {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
     return loadTimeFrameSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                               gsl::span<const LayerId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
+                               gsl::span<const LayerId>{orderedSurfaces}, plan->front().getSurfaceCatalog(), true,
+                               &externalIndicesBySurface, &clusterSizesBySurface);
   }
 };
 
@@ -642,7 +593,7 @@ TestGenericTrack makeTestGenericTrack()
   record.track.outerState.kind = SurfaceKind::Cylinder;
   record.track.timestamp = {100, 140};
   record.track.hitSurfaces.set(LayerId{0});
-  record.references.push_back({LayerId{0}, MeasurementIndex{0}});
+  record.references.push_back({LayerId{0}, 0, 0});
   return record;
 }
 
@@ -660,8 +611,8 @@ uint32_t storeTestGenericTrack(TimeFrame& frame, TestGenericTrack record)
 // consistent content so a subsequent clear can be observed.
 void populateCommonResults(TimeFrame& tf)
 {
-  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
-  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{1}, MeasurementIndex{0}});
+  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
+  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{1}, 0, 1});
   GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = 2;
@@ -838,8 +789,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchan
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].firstClusterRef, 0u);
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].clusterRefEnd, 2u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
-  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[0].surface == LayerId{0});
-  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[1].surface == LayerId{1});
+  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[0].layer == LayerId{0});
+  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[1].layer == LayerId{1});
 }
 
 BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndicesTogether)
@@ -859,7 +810,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndices
   // Reload after wipe: both containers accept new content independently of
   // whatever they held before, confirming they are ordinary per-event state
   // rather than something resetTimeFrame() leaves in a half-cleared condition.
-  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{2}, MeasurementIndex{0}});
+  tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{2}, 0, 0});
   GenericTrack reloaded{};
   reloaded.firstClusterRef = 0;
   reloaded.clusterRefEnd = 1;
@@ -956,18 +907,25 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   };
   const std::array<MarkedTrack, 1> marked{{{true}}};
   BOOST_REQUIRE(shared.sealFromMarkedTracks(marked));
-  const auto& measurement = *fixture.tf.getGlobalMeasurement(LayerId{0}, MeasurementIndex{0});
+  const auto& measurement = fixture.tf.getGlobalMeasurements(LayerId{0})[0];
+  BOOST_REQUIRE_EQUAL(measurement.clusterId, 0u);
+  BOOST_REQUIRE_EQUAL(fixture.externalIndicesBySurface[0].size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.clusterSizesBySurface[0].size(), 1u);
+  fixture.externalIndicesBySurface[0][measurement.clusterId] = 42u;
+  fixture.clusterSizesBySurface[0][measurement.clusterId] = 13u;
+  const auto source = ClusterSourceId{0};
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
   GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   const auto clock = makeFixtureClockTiming();
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
-  const auto output = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
-                                                 gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
-                                                 true, error);
+  auto output = stageITSGenericTrackOutput(fixture.tf, source,
+                                           gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
+                                           true, error, &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface);
   BOOST_REQUIRE(output);
   BOOST_CHECK_EQUAL(output->tracks.size(), 1u);
   BOOST_CHECK_EQUAL(output->clusterIndices.size(), 1u);
-  BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.cluster.index));
+  BOOST_CHECK_EQUAL(output->clusterIndices[0], 42);
+  BOOST_CHECK_EQUAL(output->tracks[0].getClusterSize(0), 13);
   BOOST_CHECK(output->tracks[0].hasSharedClusters());
   BOOST_CHECK_EQUAL(output->tracks[0].getChi2(), 3.f);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
@@ -979,8 +937,9 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   // adapter accepts no scratch state and keeps the source/layout binding
   // explicit at this boundary.
   const GenericTrackPublicationContext publicationContext{
-    o2::detectors::DetID::ITS, measurement.cluster.source, rofs, ClockTimingPublicationView{clock},
-    gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}};
+    o2::detectors::DetID::ITS, source, rofs, ClockTimingPublicationView{clock},
+    gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()},
+    &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface};
   const auto contextOutput = stageITSGenericTrackOutput(fixture.tf, publicationContext, shared, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
@@ -994,6 +953,11 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   wrongDetectorContext.detector = o2::detectors::DetID::MFT;
   BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, wrongDetectorContext, shared, false, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::MixedDetector);
+
+  auto missingClusterSizesContext = publicationContext;
+  missingClusterSizesContext.clusterSizesBySurface = nullptr;
+  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, missingClusterSizesContext, shared, false, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::UnresolvedReference);
 
   // Legacy publication retains a track even when its selected output
   // timestamp falls outside the workflow ROF span; it simply does not
@@ -1013,8 +977,9 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   // verbatim and groups only in-range clock slots.
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
   const GenericTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
-  const auto mismatchedOutput = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
-                                                           gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error);
+  const auto mismatchedOutput = stageITSGenericTrackOutput(fixture.tf, source,
+                                                           gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error,
+                                                           &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface);
   BOOST_REQUIRE(mismatchedOutput);
   BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
   BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[0].getNEntries(), 1);
@@ -1027,7 +992,9 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
-  loadThreeMeasurementFrame(frame, layout);
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
+  loadThreeMeasurementFrame(frame, layout, &externalIndicesBySurface, &clusterSizesBySurface);
   TestGenericTrack record;
   record.track.innerState.kind = SurfaceKind::Disk;
   record.track.outerState.kind = SurfaceKind::Disk;
@@ -1044,14 +1011,15 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   record.track.chi2 = 8.f;
   record.track.timestamp = {100, 124};
   record.track.hitSurfaces.set(LayerId{3});
-  record.references.push_back({LayerId{3}, MeasurementIndex{0}});
+  record.references.push_back({LayerId{3}, 0, 0});
   MFTPublicationCompatibility sidecar;
   MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
   const auto genericTrackIndex = storeTestGenericTrack(frame, record);
   BOOST_REQUIRE(tx.validate(genericTrackIndex));
   tx.reserve();
   tx.append(genericTrackIndex);
-  const auto& measurement = *frame.getGlobalMeasurement(LayerId{3}, MeasurementIndex{0});
+  const auto& measurement = frame.getGlobalMeasurements(LayerId{3})[0];
+  const auto source = ClusterSourceId{1};
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
   GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   o2::its::LayerTiming clock{};
@@ -1060,7 +1028,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   clock.mROFDelay = 100;
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const std::array<LayerId, 1> surfaces{LayerId{3}};
-  const auto output = stageMFTGenericTrackOutput(frame, measurement.cluster.source, surfaces, timing, sidecar, true, error);
+  const auto output = stageMFTGenericTrackOutput(frame, source, surfaces, timing, sidecar, true, error,
+                                                 &externalIndicesBySurface, &clusterSizesBySurface);
   BOOST_REQUIRE(output);
   BOOST_REQUIRE_EQUAL(output->tracks.size(), 1u);
   BOOST_CHECK_EQUAL(output->tracks[0].getZ(), -77.);
@@ -1072,13 +1041,14 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(output->tracks[0].getInvQPtSeed(), .25);
   BOOST_CHECK_EQUAL(output->tracks[0].getChi2QPtSeed(), 1.5);
   BOOST_CHECK_EQUAL(output->seedPatterns[0], 0x51u);
-  BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.cluster.index));
+  BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.clusterId));
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
 
   const GenericTrackPublicationContext publicationContext{
-    o2::detectors::DetID::MFT, measurement.cluster.source, rofs, ClockTimingPublicationView{clock}, surfaces};
+    o2::detectors::DetID::MFT, source, rofs, ClockTimingPublicationView{clock}, surfaces,
+    &externalIndicesBySurface, &clusterSizesBySurface};
   const auto contextOutput = stageMFTGenericTrackOutput(frame, publicationContext, sidecar, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
@@ -1091,7 +1061,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK(error == GenericTrackOutputAdapterError::MixedDetector);
 
   MFTPublicationCompatibility missing;
-  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, measurement.cluster.source, surfaces, timing, missing, false, error));
+  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, source, surfaces, timing, missing, false, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingCompatibility);
   BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTrackClusterIndices().size(), 1u);
@@ -1103,7 +1073,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutat
   BOOST_REQUIRE(fixture.load().ok());
   const auto record = makeTestGenericTrack();
   storeTestGenericTrack(fixture.tf, record);
-  const auto& measurement = *fixture.tf.getGlobalMeasurement(LayerId{0}, MeasurementIndex{0});
+  const auto source = ClusterSourceId{0};
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
@@ -1113,9 +1083,10 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutat
   const auto measurements = fixture.tf.getTotalMeasurements();
   GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   ITSSharedClusterCompatibility unsealed;
-  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source, surfaces, timing, unsealed, false, error));
+  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, source, surfaces, timing, unsealed, false, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingCompatibility);
-  const auto wrongSource = stageITSGenericTrackOutput(fixture.tf, ClusterSourceId{99}, surfaces, timing, unsealed, false, error);
+  const std::array<LayerId, 1> foreignSurfaces{LayerId{3}};
+  const auto wrongSource = stageITSGenericTrackOutput(fixture.tf, ClusterSourceId{99}, foreignSurfaces, timing, unsealed, false, error);
   BOOST_REQUIRE(wrongSource);
   BOOST_CHECK(wrongSource->tracks.empty());
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), tracks);
@@ -1123,13 +1094,13 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutat
   BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurements);
 
   fixture.tf.getGenericTracks()[0].clusterRefEnd = refs + 1;
-  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, source, surfaces, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::InvalidTrackRange);
   fixture.tf.getGenericTracks()[0].clusterRefEnd = refs;
-  fixture.tf.getTrackClusterIndices()[0].surface = LayerId{99};
-  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  fixture.tf.getTrackClusterIndices()[0].layer = LayerId::invalid();
+  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, source, surfaces, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::UnresolvedReference);
-  fixture.tf.getTrackClusterIndices()[0].surface = LayerId{0};
+  fixture.tf.getTrackClusterIndices()[0].layer = LayerId{0};
 
   ITSSharedClusterCompatibility sealed;
   ITSSharedClusterCompatibilityTransaction tx{sealed};

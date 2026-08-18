@@ -44,7 +44,6 @@ constexpr std::array<Case, 22> kAllNonTimingCases{{
   {MultiSourceLoadError::InvalidLayerMapping, false},
   {MultiSourceLoadError::DetectorSurfaceMismatch, false},
   {MultiSourceLoadError::InconsistentDecoderMetadata, false},
-  {MultiSourceLoadError::SurfaceKindMismatch, false},
   {MultiSourceLoadError::TimingError, false}, // placeholder entry: real classification is TimingBuildError-dependent, see below
   {MultiSourceLoadError::SurfaceCatalogNotConfigured, false},
   {MultiSourceLoadError::SurfaceCatalogStale, false},

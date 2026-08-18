@@ -76,21 +76,22 @@ struct TimeFrame {
   {
     isBeamPositionOverridden = true;
     resetBeamXY(x, y, s2 / o2::gpu::CAMath::Sqrt((base * base) + systematic));
+    mBeamPositionVariance = s2;
   }
 
   float getBeamX() const { return mBeamPos[0]; }
   float getBeamY() const { return mBeamPos[1]; }
+  float getBeamPositionVariance() const { return mBeamPositionVariance; }
   std::array<float, 2>& getBeamXY() { return mBeamPos; }
 
   void setBz(float bz) { mBz = bz; }
   float getBz() const { return mBz; }
 
-  gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(LayerId surface) const;
   gsl::span<const GlobalMeasurement> getGlobalMeasurements(LayerId surface) const;
-  const GlobalMeasurement* getGlobalMeasurement(LayerId surface, MeasurementIndex index) const noexcept;
-  const SurfaceMeasurement* getSurfaceMeasurement(LayerId surface, MeasurementIndex index) const noexcept;
-  gsl::span<const o2::MCCompLabel> getLabels(ClusterRef cluster) const;
-  uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerSurfaceMeasurements.size()); }
+  gsl::span<GlobalMeasurement> getGlobalMeasurements(LayerId surface);
+  const SurfaceMeasurement* getSurfaceMeasurement(LayerId layer, uint32_t clusterId) const noexcept;
+  gsl::span<const o2::MCCompLabel> getLabels(LayerId layer, uint32_t clusterId) const;
+  uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerGlobalMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
   int getTotalClusters() const { return static_cast<int>(getTotalMeasurements()); }
@@ -101,22 +102,20 @@ struct TimeFrame {
   {
     return mROFramesClusters[layer].empty() ? 0 : static_cast<int>(mROFramesClusters[layer].size()) - 1;
   }
-  gsl::span<MeasurementLocator> getClustersOnLayer(int rofId, int layer);
-  gsl::span<const MeasurementLocator> getClustersOnLayer(int rofId, int layer) const;
-  auto& getClusters() noexcept { return mClusters; }
-  const auto& getClusters() const noexcept { return mClusters; }
-  gsl::span<const MeasurementLocator> getClustersPerROFrange(int rofMin, int range, int layer) const;
+  gsl::span<GlobalMeasurement> getClustersOnLayer(int rofId, int layer);
+  gsl::span<const GlobalMeasurement> getClustersOnLayer(int rofId, int layer) const;
+  auto& getClusters() noexcept { return mLayerGlobalMeasurements; }
+  const auto& getClusters() const noexcept { return mLayerGlobalMeasurements; }
+  gsl::span<const GlobalMeasurement> getClustersPerROFrange(int rofMin, int range, int layer) const;
   gsl::span<const int> getROFramesClustersPerROFrange(int rofMin, int range, int layer) const;
   gsl::span<const int> getROFrameClusters(int layer) const;
   gsl::span<int> getIndexTable(int rofId, int layer);
   int getClusterROF(int layer, int cluster) const;
   int getTotalClustersPerROFrange(int rofMin, int range, int layer) const;
 
-  bool isClusterUsed(int layer, int cluster) const { return mUsedClusters[layer][cluster]; }
-  void markUsedCluster(int layer, int cluster) { mUsedClusters[layer][cluster] = true; }
+  bool isClusterUsed(int layer, uint32_t clusterId) const;
+  void markUsedCluster(int layer, uint32_t clusterId);
   gsl::span<unsigned char> getUsedClusters(int layer);
-  gsl::span<uint8_t> getUsedClustersROF(int rofId, int layer);
-  gsl::span<const uint8_t> getUsedClustersROF(int rofId, int layer) const;
   std::size_t getNumberOfClusters() const;
   std::size_t getNumberOfUsedClusters() const;
 
@@ -124,7 +123,6 @@ struct TimeFrame {
   float getMaxR(int layer) const { return mMaxR[layer]; }
   float getMinZ(int layer) const { return mMinZ[layer]; }
   float getMaxZ(int layer) const { return mMaxZ[layer]; }
-  int hasBogusClusters() const;
   const auto& getIndexTableUtils() const { return mIndexTableUtils.front(); }
   const auto& getIndexTableUtils(int layer) const { return mIndexTableUtils[layer]; }
 
@@ -144,23 +142,18 @@ struct TimeFrame {
   void useUPCMask() noexcept { mUseUPC = true; }
   gsl::span<const Vertex> getPrimaryVertices(int layer, int rofId) const;
 
-  std::optional<ClusterSourceId> getSurfaceSource(int layer) const noexcept;
-  bool setSurfaceSources(gsl::span<const ClusterSourceId> sources);
   bool hasMCinformation() const noexcept;
   gsl::span<const MCCompLabel> getClusterLabels(int layer, int cluster) const;
-  bool hasClusterExternalIndex(int layer, int cluster) const noexcept;
-  int getClusterExternalIndex(int layer, int cluster) const;
-  int getClusterSize(int layer, int cluster) const;
 
   // Loader staging; committed only after complete decoding and validation.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
-                                std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
+                                std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>&& perSurfaceLabels,
+                                bool hasMCInformation);
   void assignLoadedEventNavigation(std::vector<std::vector<int>>&& rofBoundaries,
                                    RuntimeROFViews defaultViews,
                                    std::vector<RuntimeROFViews>&& viewsBySurface,
-                                   std::vector<uint16_t>&& localLayerBySurface,
-                                   std::vector<ClusterSourceId>&& sourceBySurface);
+                                   std::vector<uint16_t>&& localLayerBySurface);
   void commitMeasurements(TimeFrame& staged) noexcept;
 
   // Atomically replace the event after preflight.
@@ -187,7 +180,8 @@ struct TimeFrame {
   // Results are valid only with this event's normalized measurements.
   auto& getGenericTracks() { return mGenericTracks; }
   const auto& getGenericTracks() const { return mGenericTracks; }
-  // Flat inner-to-outer references; indices are local to their surface.
+  // Flat inner-to-outer references; IDs are stable pre-sort positions in the
+  // TimeFrame-owned per-surface arrays.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
 
@@ -200,27 +194,25 @@ struct TimeFrame {
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
   // Event and cross-iteration tracking state.
-  std::vector<bounded_vector<MeasurementLocator>> mClusters;
   std::vector<std::vector<int>> mROFramesClusters;
   std::vector<bounded_vector<int>> mIndexTables;
-  std::vector<bounded_vector<uint8_t>> mUsedClusters;
+  std::vector<std::vector<uint8_t>> mLayerUsedClusters;
   std::vector<IndexTableUtilsCore> mIndexTableUtils;
   std::vector<float> mMinR;
   std::vector<float> mMaxR;
   std::vector<float> mMinZ;
   std::vector<float> mMaxZ;
-  bounded_vector<int> mBogusClusters;
 
   RuntimeROFViews mROFViews{};
   std::vector<RuntimeROFViews> mROFViewsBySurface;
   std::vector<uint16_t> mROFLocalLayerBySurface;
-  std::vector<ClusterSourceId> mSourceBySurface;
   bool mUseUPC{false};
 
   float mBz = 5.;
   unsigned int mNTotalLowPtVertices = 0;
   int mBeamPosWeight = 0;
   std::array<float, 2> mBeamPos = {0.f, 0.f};
+  float mBeamPositionVariance = 0.f;
   bool isBeamPositionOverridden = false;
 
   bounded_vector<Vertex> mPrimaryVertices;
@@ -231,7 +223,8 @@ struct TimeFrame {
 
   std::vector<std::vector<GlobalMeasurement>> mLayerGlobalMeasurements;
   std::vector<std::vector<SurfaceMeasurement>> mLayerSurfaceMeasurements;
-  std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;
+  std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mLayerClusterLabels;
+  bool mHasMCInformation{false};
 
   bool mConfigurationValid = false;
   std::vector<SurfaceLayout> mLayouts;
@@ -246,8 +239,7 @@ struct TimeFrame {
   void swapMeasurements(TimeFrame& other) noexcept;
   void publishConfiguration(TimeFrame& staged) noexcept;
   void configureEventStorage(std::size_t nOwnedSurfaces);
-  void prepareClusters(int maxLayers,
-                       gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
+  void prepareClusters(int maxLayers);
   friend class TimeFrameScratch;
 };
 

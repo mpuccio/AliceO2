@@ -23,22 +23,14 @@ namespace
 using o2::itsmft::ioutils::detail::addSysErrors;
 using o2::itsmft::ioutils::detail::shouldApplySysErrors;
 
-struct DecodedClusterResult {
-  o2::itsmft::tracking::DecodedCluster decoded{};
-  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
-
-  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
-};
-
 template <o2::detectors::DetID::ID DetId, typename GeomT>
-DecodedClusterResult decodeClusterBounded(GeomT* geom,
-                                          const o2::itsmft::CompClusterExt& cluster,
-                                          o2::itsmft::tracking::BoundedPatternCursor& patterns,
-                                          const o2::itsmft::TopologyDictionary* dict,
-                                          bool applySysErrors)
+o2::itsmft::tracking::ClusterDecodeResult decodeClusterBounded(
+  GeomT* geom, const o2::itsmft::CompClusterExt& cluster,
+  o2::itsmft::tracking::BoundedPatternCursor& patterns,
+  const o2::itsmft::TopologyDictionary* dict, bool applySysErrors)
 {
   using o2::itsmft::tracking::ClusterDecodeError;
-  DecodedClusterResult result;
+  o2::itsmft::tracking::ClusterDecodeResult result;
   if (dict == nullptr) {
     result.error = ClusterDecodeError::MissingDictionary;
     return result;
@@ -77,7 +69,6 @@ DecodedClusterResult decodeClusterBounded(GeomT* geom,
                       {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
                       {sigma2Row, 0.f, sigma2Col},
                       clusterData.shape,
-                      static_cast<uint32_t>(sensorID),
                       layer};
   } else {
     if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
@@ -85,7 +76,7 @@ DecodedClusterResult decodeClusterBounded(GeomT* geom,
       return result;
     }
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
-    result.decoded = {{gloXYZ.x(), gloXYZ.y(), gloXYZ.z()}, {}, {sigma2Row, 0.f, sigma2Col}, clusterData.shape, static_cast<uint32_t>(sensorID), layer};
+    result.decoded = {{gloXYZ.x(), gloXYZ.y(), gloXYZ.z()}, {}, {sigma2Row, 0.f, sigma2Col}, clusterData.shape, layer};
   }
   return result;
 }
@@ -108,53 +99,21 @@ void fillMatrixCache(o2::detectors::DetID::ID detId)
 }
 
 template <o2::detectors::DetID::ID DetId>
-o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+o2::itsmft::tracking::ClusterDecodeResult decodeCluster(
   const CompClusterExt& cluster, o2::itsmft::tracking::BoundedPatternCursor& patterns,
-  const TopologyDictionary* dict, gsl::span<const o2::itsmft::tracking::LayerId> layerToSurface,
-  o2::itsmft::tracking::ClusterSourceId source, uint32_t externalClusterIndex,
-  uint32_t sourceROF, bool applySysErrors)
+  const TopologyDictionary* dict, bool applySysErrors)
 {
-  const auto decodedResult = [&] {
-    if constexpr (DetId == o2::detectors::DetID::ITS) {
-      return decodeClusterBounded<DetId>(o2::its::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
-    } else {
-      return decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
-    }
-  }();
-
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
-  if (!decodedResult.ok()) {
-    result.error = decodedResult.error;
-    return result;
-  }
-  const auto& decoded = decodedResult.decoded;
-  result.layer = decoded.layer;
-  if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= layerToSurface.size()) {
-    result.error = o2::itsmft::tracking::ClusterDecodeError::InvalidLayerMapping;
-    return result;
-  }
-  result.layerMapped = true;
-  const auto surface = layerToSurface[decoded.layer];
-  const o2::itsmft::tracking::DetectorSensorId sensor{DetId, decoded.sensor};
-  const o2::itsmft::tracking::ClusterRef clusterRef{source, externalClusterIndex};
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    result.kind = o2::itsmft::tracking::SurfaceKind::Cylinder;
-    result.global = o2::itsmft::tracking::makeCylinderGlobalMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
-    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
+    return decodeClusterBounded<DetId>(o2::its::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
   } else {
-    result.kind = o2::itsmft::tracking::SurfaceKind::Disk;
-    result.global = o2::itsmft::tracking::makeDiskGlobalMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
-    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
+    return decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
   }
-  return result;
 }
 
-template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
-  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::LayerId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
-template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
-  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::LayerId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+template o2::itsmft::tracking::ClusterDecodeResult decodeCluster<o2::detectors::DetID::ITS>(
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*, bool);
+template o2::itsmft::tracking::ClusterDecodeResult decodeCluster<o2::detectors::DetID::MFT>(
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*, bool);
 
 } // namespace o2::itsmft::ioutils
 
@@ -162,14 +121,20 @@ namespace o2::itsmft::tracking
 {
 
 LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const ClusterSourceInput> sources,
-                                       SurfaceCatalogView catalog, const o2::InteractionRecord& origin)
+                                       SurfaceCatalogView catalog, const o2::InteractionRecord& origin,
+                                       std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                                       std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
   // Stage all source measurements before committing the event.
   TimeFrame stagedMeasurements;
-  const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin);
+  stagedMeasurements.resetBeamXY(frame.getBeamX(), frame.getBeamY());
+  std::vector<std::vector<uint32_t>> stagedExternalIndices;
+  std::vector<std::vector<uint32_t>> stagedClusterSizes;
+  const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin,
+                                      &stagedExternalIndices, &stagedClusterSizes);
   if (!loadResult.ok()) {
     return loadResult;
   }
@@ -222,7 +187,6 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
   std::vector<std::vector<int>> rofBoundaries(orderedSurfaces.size());
   std::vector<RuntimeROFViews> viewsBySurface(orderedSurfaces.size());
   std::vector<uint16_t> localLayerBySurface(orderedSurfaces.size(), 0);
-  std::vector<ClusterSourceId> sourceBySurface(orderedSurfaces.size(), ClusterSourceId::invalid());
   for (std::size_t position = 0; position < orderedSurfaces.size(); ++position) {
     const auto surface = orderedSurfaces[position];
     const ClusterSourceInput* owner = nullptr;
@@ -247,10 +211,22 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     boundaries.assign(owner->rofs.size() + 1, 0);
     std::size_t measurement = 0;
     for (std::size_t rof = 0; rof < owner->rofs.size(); ++rof) {
-      while (measurement < globals.size() && globals[measurement].sourceROF == rof) {
-        if (globals[measurement].surface != surface || globals[measurement].cluster.source != owner->id) {
+      const auto firstEntry = static_cast<uint32_t>(owner->rofs[rof].getFirstEntry());
+      const auto endEntry = firstEntry + static_cast<uint32_t>(owner->rofs[rof].getNEntries());
+      while (measurement < globals.size()) {
+        const auto clusterId = globals[measurement].clusterId;
+        if (surface.value() >= stagedExternalIndices.size() ||
+            clusterId >= stagedExternalIndices[surface.value()].size()) {
           return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
-                  static_cast<uint32_t>(rof), globals[measurement].cluster.index};
+                  static_cast<uint32_t>(rof), clusterId};
+        }
+        const auto externalIndex = stagedExternalIndices[surface.value()][clusterId];
+        if (externalIndex >= endEntry) {
+          break;
+        }
+        if (externalIndex < firstEntry) {
+          return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
+                  static_cast<uint32_t>(rof), externalIndex};
         }
         ++measurement;
       }
@@ -261,14 +237,18 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     }
     viewsBySurface[position] = owner->rofViews;
     localLayerBySurface[position] = localLayer;
-    sourceBySurface[position] = owner->id;
   }
 
   stagedMeasurements.assignLoadedEventNavigation(std::move(rofBoundaries), sources.front().rofViews,
-                                                 std::move(viewsBySurface), std::move(localLayerBySurface),
-                                                 std::move(sourceBySurface));
+                                                 std::move(viewsBySurface), std::move(localLayerBySurface));
   if (!frame.commitLoadedEvent(stagedMeasurements)) {
     return {MultiSourceLoadError::OtherMalformedInput};
+  }
+  if (externalIndicesBySurface != nullptr) {
+    *externalIndicesBySurface = std::move(stagedExternalIndices);
+  }
+  if (clusterSizesBySurface != nullptr) {
+    *clusterSizesBySurface = std::move(stagedClusterSizes);
   }
   return {};
 }
@@ -286,7 +266,9 @@ LoadSourcesResult loadTimeFrameSource(
   o2::detectors::DetID::ID detector,
   gsl::span<const LayerId> layerToSurface,
   SurfaceCatalogView catalog,
-  bool applySysErrors)
+  bool applySysErrors,
+  std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+  std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   constexpr ClusterSourceId sourceId{0};
   if (detector != o2::detectors::DetID::ITS && detector != o2::detectors::DetID::MFT) {
@@ -308,7 +290,8 @@ LoadSourcesResult loadTimeFrameSource(
   source.decoder = &decoder;
   source.applySysErrors = applySysErrors;
   source.rofViews = frame.getROFViews();
-  return loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{&source, 1}, catalog, origin);
+  return loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{&source, 1}, catalog, origin,
+                              externalIndicesBySurface, clusterSizesBySurface);
 }
 
 namespace
@@ -334,22 +317,26 @@ bool covariance2DIsPositiveSemidefinite(float varianceFirst, float covariance,
 
 bool globalCovarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance) noexcept
 {
-  if (!covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xy, covariance.yy) ||
-      !covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xz, covariance.zz) ||
-      !covariance2DIsPositiveSemidefinite(covariance.yy, covariance.yz, covariance.zz)) {
+  const float xx = covariance[GlobalMeasurement::XX];
+  const float xy = covariance[GlobalMeasurement::XY];
+  const float xz = covariance[GlobalMeasurement::XZ];
+  const float yy = covariance[GlobalMeasurement::YY];
+  const float yz = covariance[GlobalMeasurement::YZ];
+  const float zz = covariance[GlobalMeasurement::ZZ];
+  if (!covariance2DIsPositiveSemidefinite(xx, xy, yy) ||
+      !covariance2DIsPositiveSemidefinite(xx, xz, zz) ||
+      !covariance2DIsPositiveSemidefinite(yy, yz, zz)) {
     return false;
   }
   const double determinant =
-    static_cast<double>(covariance.xx) * covariance.yy * covariance.zz +
-    2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz -
-    static_cast<double>(covariance.xx) * covariance.yz * covariance.yz -
-    static_cast<double>(covariance.yy) * covariance.xz * covariance.xz -
-    static_cast<double>(covariance.zz) * covariance.xy * covariance.xy;
-  const double scale = std::max({std::abs(static_cast<double>(covariance.xx) * covariance.yy * covariance.zz),
-                                 std::abs(2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz),
-                                 std::abs(static_cast<double>(covariance.xx) * covariance.yz * covariance.yz),
-                                 std::abs(static_cast<double>(covariance.yy) * covariance.xz * covariance.xz),
-                                 std::abs(static_cast<double>(covariance.zz) * covariance.xy * covariance.xy)});
+    static_cast<double>(xx) * yy * zz + 2. * static_cast<double>(xy) * xz * yz -
+    static_cast<double>(xx) * yz * yz - static_cast<double>(yy) * xz * xz -
+    static_cast<double>(zz) * xy * xy;
+  const double scale = std::max({std::abs(static_cast<double>(xx) * yy * zz),
+                                 std::abs(2. * static_cast<double>(xy) * xz * yz),
+                                 std::abs(static_cast<double>(xx) * yz * yz),
+                                 std::abs(static_cast<double>(yy) * xz * xz),
+                                 std::abs(static_cast<double>(zz) * xy * xy)});
   return std::isfinite(determinant) &&
          determinant >= -32. * std::numeric_limits<float>::epsilon() * scale;
 }
@@ -357,8 +344,8 @@ bool globalCovarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance
 bool decodedMeasurementIsValid(const GlobalMeasurement& global,
                                const SurfaceMeasurement& local) noexcept
 {
-  return std::isfinite(global.position.x) && std::isfinite(global.position.y) &&
-         std::isfinite(global.position.z) &&
+  return std::isfinite(global.x) && std::isfinite(global.y) &&
+         std::isfinite(global.z) &&
          globalCovarianceIsPositiveSemidefinite(global.covariance) &&
          std::isfinite(local.frame.q) && std::isfinite(local.frame.u) &&
          std::isfinite(local.frame.v) && std::isfinite(local.frame.frameAngle) &&
@@ -384,8 +371,6 @@ MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
       return MultiSourceLoadError::InvalidSensor;
     case ClusterDecodeError::InvalidLayer:
       return MultiSourceLoadError::InvalidDecodedLayer;
-    case ClusterDecodeError::InvalidLayerMapping:
-      return MultiSourceLoadError::InvalidLayerMapping;
     case ClusterDecodeError::GeometryUnavailable:
       return MultiSourceLoadError::GeometryUnavailable;
     case ClusterDecodeError::OtherMalformedInput:
@@ -398,11 +383,14 @@ MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
 LoadSourcesResult loadSources(TimeFrame& frame,
                               const SurfaceCatalogView& catalog,
                               gsl::span<const ClusterSourceInput> sources,
-                              const o2::InteractionRecord& origin)
+                              const o2::InteractionRecord& origin,
+                              std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                              std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   const auto nSources = static_cast<uint32_t>(sources.size());
 
   std::vector<bool> seen(nSources, false);
+  std::vector<ClusterSourceId> sourceBySurface(catalog.nSurfaces, ClusterSourceId::invalid());
   for (const auto& src : sources) {
     if (!src.id.isValid() || src.id.value() >= nSources) {
       return {MultiSourceLoadError::NonDenseSourceIds, src.id};
@@ -420,15 +408,29 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     if (!src.clusters.empty() && src.dictionary == nullptr) {
       return {MultiSourceLoadError::MissingDictionary, src.id, 0, 0};
     }
+    for (const auto surface : src.layerToSurface) {
+      if (!surface.isValid() || surface.value() >= catalog.nSurfaces) {
+        return {MultiSourceLoadError::InvalidLayerMapping, src.id};
+      }
+      if (sourceBySurface[surface.value()].isValid()) {
+        return {MultiSourceLoadError::InvalidLayerMapping, src.id};
+      }
+      if (catalog.getSurface(surface).detectorId != static_cast<uint8_t>(src.detector)) {
+        return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id};
+      }
+      sourceBySurface[surface.value()] = src.id;
+    }
   }
 
   std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
-  std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
-  std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
+  std::vector<std::vector<SurfaceMeasurement>> perSurfaceMeasurements(catalog.nSurfaces);
+  std::vector<std::vector<uint32_t>> perSurfaceClusterSizes(catalog.nSurfaces);
+  std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>> perSurfaceLabels(catalog.nSurfaces);
+  std::vector<std::vector<uint32_t>> stagedExternalIndices(catalog.nSurfaces);
+  bool hasMCInformation = false;
 
   for (const auto& src : sources) {
-    const auto srcIdx = src.id.value();
-    labelSources[srcIdx] = src.labels;
+    hasMCInformation |= src.labels != nullptr;
 
     int64_t expectedNext = 0;
     for (uint32_t r = 0; r < src.rofs.size(); ++r) {
@@ -463,40 +465,47 @@ LoadSourcesResult loadSources(TimeFrame& frame,
       for (int32_t clusterId = firstEntry; clusterId < firstEntry + nEntries; ++clusterId) {
         const auto& cluster = src.clusters[clusterId];
         const auto externalIndex = static_cast<uint32_t>(clusterId);
-        const auto decoded = src.decoder->decode(cluster, patterns, src.dictionary, src.layerToSurface,
-                                                 src.id, externalIndex, r, src.applySysErrors);
-        if (!decoded.ok()) {
-          return {mapDecodeError(decoded.error), src.id, r, externalIndex};
+        const auto decodeResult = src.decoder->decode(cluster, patterns, src.dictionary,
+                                                      externalIndex, src.applySysErrors);
+        if (!decodeResult.ok()) {
+          return {mapDecodeError(decodeResult.error), src.id, r, externalIndex};
         }
-        if (!decoded.layerMapped || decoded.layer < 0 ||
-            static_cast<size_t>(decoded.layer) >= src.layerToSurface.size()) {
+        const auto& decoded = decodeResult.decoded;
+        if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= src.layerToSurface.size()) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
         const auto expectedSurface = src.layerToSurface[decoded.layer];
         if (!expectedSurface.isValid() || expectedSurface.value() >= catalog.nSurfaces) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
-        auto global = decoded.global;
-        if (global.surface != expectedSurface ||
-            global.cluster.source != src.id ||
-            global.cluster.index != externalIndex ||
-            global.sourceROF != r ||
-            global.sensor.detector != static_cast<uint32_t>(src.detector)) {
-          return {MultiSourceLoadError::InconsistentDecoderMetadata, src.id, r, externalIndex};
-        }
         const auto& surfaceDescriptor = catalog.getSurface(expectedSurface);
         if (surfaceDescriptor.detectorId != static_cast<uint8_t>(src.detector)) {
           return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, externalIndex};
         }
-        if (surfaceDescriptor.kind != decoded.kind) {
-          return {MultiSourceLoadError::SurfaceKindMismatch, src.id, r, externalIndex};
+        const auto localClusterId = static_cast<uint32_t>(perSurfaceGlobal[expectedSurface.value()].size());
+        GlobalMeasurement global;
+        SurfaceMeasurement measurement;
+        if (surfaceDescriptor.kind == SurfaceKind::Cylinder) {
+          global = makeCylinderGlobalMeasurement(decoded, localClusterId);
+          measurement = makeCylinderSurfaceMeasurement(decoded);
+        } else {
+          global = makeDiskGlobalMeasurement(decoded, localClusterId);
+          measurement = makeDiskSurfaceMeasurement(decoded);
         }
-        if (!decodedMeasurementIsValid(global, decoded.measurement)) {
+        if (!decodedMeasurementIsValid(global, measurement)) {
           return {MultiSourceLoadError::OtherMalformedInput, src.id, r, externalIndex};
         }
-        global.radius = std::hypot(global.position.x, global.position.y);
+        global.x -= frame.getBeamX();
+        global.y -= frame.getBeamY();
+        global.radius = std::hypot(global.x, global.y);
+        global.phi = o2::its::math_utils::computePhi(global.x, global.y);
         perSurfaceGlobal[expectedSurface.value()].push_back(global);
-        perSurface[expectedSurface.value()].push_back(decoded.measurement);
+        perSurfaceMeasurements[expectedSurface.value()].push_back(measurement);
+        perSurfaceClusterSizes[expectedSurface.value()].push_back(decoded.shape.nPixels);
+        stagedExternalIndices[expectedSurface.value()].push_back(externalIndex);
+        if (src.labels != nullptr) {
+          perSurfaceLabels[expectedSurface.value()].addElements(localClusterId, src.labels->getLabels(externalIndex));
+        }
       }
     }
     if (!patterns.empty()) {
@@ -505,8 +514,14 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     }
   }
 
-  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface),
-                                 std::move(labelSources));
+  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurfaceMeasurements),
+                                 std::move(perSurfaceLabels), hasMCInformation);
+  if (externalIndicesBySurface != nullptr) {
+    *externalIndicesBySurface = std::move(stagedExternalIndices);
+  }
+  if (clusterSizesBySurface != nullptr) {
+    *clusterSizesBySurface = std::move(perSurfaceClusterSizes);
+  }
   return {};
 }
 
@@ -560,7 +575,6 @@ bool isRecoverableLoadError(MultiSourceLoadError error, TimingBuildError timingD
     case MultiSourceLoadError::InvalidLayerMapping:
     case MultiSourceLoadError::DetectorSurfaceMismatch:
     case MultiSourceLoadError::InconsistentDecoderMetadata:
-    case MultiSourceLoadError::SurfaceKindMismatch:
     case MultiSourceLoadError::SurfaceCatalogNotConfigured:
     case MultiSourceLoadError::SurfaceCatalogStale:
     case MultiSourceLoadError::MissingDictionary:

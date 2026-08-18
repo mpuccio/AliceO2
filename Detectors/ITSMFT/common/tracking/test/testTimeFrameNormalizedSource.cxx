@@ -18,7 +18,7 @@
 // owner-level load operation which loads one single-detector cluster stream
 // through TimeFrame event measurement storage (ITSMFTTracking/
 // IOUtils.h) and then backfills the scratch's existing legacy
-// compatibility structures (unsorted clusters, TrackingFrameInfo, external
+// retired compatibility structures (unsorted clusters, TrackingFrameInfo, external
 // indices, cluster sizes, ROF boundaries, label lookup) from the committed
 // normalized measurements.
 //
@@ -103,47 +103,29 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   LegacyLikeDecoder(o2::detectors::DetID::ID detector, bool disk) : mDetector(detector), mDisk(disk) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     lastApplySysErrors = applySysErrors;
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mDisk ? SurfaceKind::Disk : SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = mDisk ? makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF)
-                   : makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     return result;
   }
 
@@ -310,19 +292,28 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
-  BOOST_REQUIRE(loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
+  BOOST_REQUIRE(loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5},
+                                     &externalIndicesBySurface, &clusterSizesBySurface)
+                  .ok());
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
-  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0})[0].cluster.source == ClusterSourceId{0});
-  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
-  BOOST_CHECK(frame.getSurfaceSource(0) == ClusterSourceId{0});
-  BOOST_CHECK(frame.getSurfaceSource(ITSNLayers) == ClusterSourceId{1});
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0})[0].hasValidClusterId());
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)})[0].hasValidClusterId());
+  BOOST_CHECK_EQUAL(externalIndicesBySurface[0][0], 0u);
+  BOOST_CHECK_EQUAL(externalIndicesBySurface[ITSNLayers][0], 0u);
+  BOOST_CHECK_EQUAL(clusterSizesBySurface[0].size(), 2u);
 
-  // Frame reset clears the workspace and normalized ownership together.
+  // Frame reset clears only normalized event data; adapter-owned index
+  // translation has an independent lifecycle.
   frame.resetTimeFrame();
   BOOST_CHECK(frame.empty());
-  BOOST_CHECK(!frame.getSurfaceSource(0));
+  BOOST_CHECK(!externalIndicesBySurface.empty());
+  BOOST_CHECK(!clusterSizesBySurface.empty());
+  externalIndicesBySurface.clear();
+  clusterSizesBySurface.clear();
 
   // A malformed replacement is rejected before the no-throw three-owner
   // commit; the still-live MFT scratch and shared normalized owner survive.
@@ -345,28 +336,25 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0}; // rofLength > 0: required, no unusable zero-length default.
   // loadNormalizedSource() always submits exactly one source and fixes its
-  // ID to ClusterSourceId{0} internally (loadSources() requires dense,
-  // zero-based IDs, so no other value could ever succeed for a single
-  // source); this local constant mirrors that fixed value for building
-  // expected ClusterRefs below, it is not passed to loadNormalizedSource().
-  constexpr ClusterSourceId kSourceId{0};
-
   TimeFrame frame;
+  std::vector<std::vector<uint32_t>> externalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> clusterSizesBySurface;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureFrame(frame, catalogView, orderedSurfaces);
 
   const auto result = loadTimeFrameSource(frame, decoder, origin, timing,
                                           f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog(), true,
+                                          &externalIndicesBySurface, &clusterSizesBySurface);
   BOOST_REQUIRE(result.ok());
 
   // --- cluster counts per normalized surface (identity layout) ---
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u); // clusters 0,2
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u); // cluster 1
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u); // cluster 3
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 2u); // clusters 0,2
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{1}).size(), 1u); // cluster 1
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2}).size(), 1u); // cluster 3
   for (int l = 3; l < NLayers; ++l) {
-    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(frame.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
@@ -376,13 +364,14 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     // Find the matching normalized measurement.
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
+    uint32_t localClusterId = std::numeric_limits<uint32_t>::max();
     const auto surface = LayerId{static_cast<uint16_t>(e.layer)};
     const auto globals = frame.getGlobalMeasurements(surface);
-    const auto locals = frame.getSurfaceMeasurements(surface);
     for (size_t index = 0; index < globals.size(); ++index) {
-      if (globals[index].cluster.index == e.externalIndex) {
+      if (externalIndicesBySurface[surface.value()][globals[index].clusterId] == e.externalIndex) {
         globalMeasurement = &globals[index];
-        measurement = &locals[index];
+        localClusterId = globals[index].clusterId;
+        measurement = frame.getSurfaceMeasurement(surface, globals[index].clusterId);
         break;
       }
     }
@@ -414,21 +403,14 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_CHECK_EQUAL(measurement->covariance.uv, 0.f);
     BOOST_CHECK_EQUAL(measurement->covariance.vv, o2::itsmft::ioutils::DefClusError2Col);
 
-    // --- external indices and source-qualified references ---
-    BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
-    BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
-    BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(f.detector));
-    BOOST_CHECK_EQUAL(globalMeasurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
-    BOOST_CHECK(globalMeasurement->surface == LayerId{static_cast<uint16_t>(e.layer)});
-    BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
+    // --- stable TimeFrame-local identity and adapter-owned external identity ---
+    BOOST_CHECK_EQUAL(externalIndicesBySurface[surface.value()][localClusterId], e.externalIndex);
 
-    // --- cluster shape / sizes: explicit pattern consumed exactly once ---
-    BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
-    BOOST_CHECK_EQUAL(globalMeasurement->shape.rowSpan, e.rowSpan);
-    BOOST_CHECK_EQUAL(globalMeasurement->shape.columnSpan, e.columnSpan);
+    // --- cluster size: explicit pattern consumed exactly once ---
+    BOOST_CHECK_EQUAL(clusterSizesBySurface[surface.value()][localClusterId], e.nPixels);
 
     // --- labels ---
-    const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
+    const auto normalizedLabels = frame.getLabels(surface, localClusterId);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(normalizedLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
   }
@@ -780,7 +762,6 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getNrof(0), 1);
-  BOOST_REQUIRE(frame.getSurfaceSource(0) == ClusterSourceId{0});
 
   // Then a malformed ROF partition (leading gap): firstEntry != 0. This
   // fails inside loadSources() itself, after the preflight above has passed.
@@ -799,8 +780,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].cluster.index, 0);
-  BOOST_CHECK(frame.getSurfaceSource(0) == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].clusterId, 0);
 }
 
 // Every preflight failure -- not only a loadSources()-internal one -- must
@@ -846,7 +826,7 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].cluster.index, 0);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].clusterId, 0);
 }
 
 // Normalized loading must match the configured covariance default and honor

@@ -14,6 +14,7 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -97,41 +98,27 @@ class PrescribedDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
     uint32_t externalIndex,
-    uint32_t sourceROF,
     bool) const final
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     if (externalIndex >= mClusters.size()) {
       return result;
     }
     auto decoded = mClusters[externalIndex];
     decoded.shape = clusterData.shape;
-    const int layer = decoded.layer;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mKind;
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = mKind == SurfaceKind::Disk
-               ? makeDiskMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
-               : makeCylinderMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
+    result.decoded = decoded;
     return result;
   }
 
@@ -146,7 +133,6 @@ DecodedCluster diskCluster(float x, float y, float z, int layer)
   DecodedCluster cluster{};
   cluster.global = {x, y, z};
   cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
-  cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
   return cluster;
 }
@@ -157,7 +143,6 @@ DecodedCluster cylinderCluster(float radius, float phi, float tanLambda, int lay
   cluster.global = {radius * std::cos(phi), radius * std::sin(phi), radius * tanLambda};
   cluster.cylinderFrame = {cluster.global.x, cluster.global.y, cluster.global.z, 0.f};
   cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
-  cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
   return cluster;
 }
@@ -229,7 +214,6 @@ std::vector<DecodedCluster> buildItsHelixChainClusters(const std::vector<float>&
     cluster.global = {static_cast<float>(point.X()), static_cast<float>(point.Y()), static_cast<float>(point.Z())};
     cluster.cylinderFrame = {cluster.global.x, cluster.global.y, cluster.global.z, 0.f};
     cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
-    cluster.sensor = static_cast<uint32_t>(layer);
     cluster.layer = static_cast<int>(layer);
     clusters.push_back(cluster);
   }
@@ -767,10 +751,11 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
     }
     for (uint32_t ref = track.firstClusterRef; ref < track.clusterRefEnd; ++ref) {
       const auto& reference = frame.getTrackClusterIndices()[ref];
-      const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
-      BOOST_REQUIRE(measurement != nullptr);
-      BOOST_CHECK(measurement->surface == reference.surface);
-      BOOST_CHECK(isMft ? mftMask.has(reference.surface) : itsMask.has(reference.surface));
+      const auto globals = frame.getGlobalMeasurements(reference.layer);
+      BOOST_CHECK(std::any_of(globals.begin(), globals.end(), [&](const auto& measurement) {
+        return measurement.clusterId == reference.clusterId;
+      }));
+      BOOST_CHECK(isMft ? mftMask.has(reference.layer) : itsMask.has(reference.layer));
     }
     nextReference = track.clusterRefEnd;
   }

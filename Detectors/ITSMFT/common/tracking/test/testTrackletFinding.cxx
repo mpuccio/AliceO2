@@ -72,9 +72,14 @@ o2::its::Vertex makeVertex(float x, float y, float z,
   return o2::its::Vertex{position, covariance, contributors, 1.f};
 }
 
-MeasurementLocator makeGlobalCluster(float x, float y, float z, int id = 0)
+GlobalMeasurement makeGlobalCluster(float x, float y, float z, int id = 0)
 {
-  return MeasurementLocator{x, y, z, id};
+  GlobalMeasurement measurement{};
+  measurement.position = {x, y, z};
+  measurement.radius = std::hypot(x, y);
+  measurement.phi = o2::its::math_utils::computePhi(x, y);
+  measurement.clusterId = static_cast<uint32_t>(id);
+  return measurement;
 }
 
 GlobalMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
@@ -86,9 +91,11 @@ GlobalMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, 
   return measurement;
 }
 
-GlobalMeasurement makeMeasurement(const MeasurementLocator& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+GlobalMeasurement makeMeasurement(const GlobalMeasurement& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
 {
-  return makeMeasurement(cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate, uu, vv, uv);
+  auto measurement = cluster;
+  measurement.covariance = {uu, uv, 0.f, vv, 0.f, 0.f};
+  return measurement;
 }
 
 TrackletProjectionCache makeCylinderProjectionCache(int fromLayer, int toLayer, float fromRadius, float toRadius,
@@ -110,27 +117,39 @@ TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, floa
 // CandidateFinding exposes one descriptor-selected projection operation.
 // Keep the numerical fixtures readable without exporting coordinate leaves.
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const MeasurementLocator& sourceLocator,
+                                 const GlobalMeasurement&,
                                  const o2::its::Vertex& vertex,
                                  const TrackletProjectionCache& edgeCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out)
 {
-  return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Cylinder,
+  return projectTrackletSearchWindow(sourceMeasurement, vertex, 0.f, 0.f, SurfaceKind::Cylinder,
                                      edgeCache, bz, indexUtils, params, out);
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                             const MeasurementLocator& sourceLocator,
+                             const GlobalMeasurement&,
                              const o2::its::Vertex& vertex,
                              const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              TrackletSearchWindow& out)
 {
-  return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Disk,
+  return projectTrackletSearchWindow(sourceMeasurement, vertex, 0.f, 0.f, SurfaceKind::Disk,
                                      edgeCache, bz, indexUtils, params, out);
+}
+
+bool acceptTrackletCandidate(const TrackletSearchWindow& window,
+                             const GlobalMeasurement& sourceMeasurement,
+                             const GlobalMeasurement&,
+                             const GlobalMeasurement& targetMeasurement,
+                             const GlobalMeasurement&,
+                             SurfaceKind kind, float nSigmaCut,
+                             float& tanLambdaOut) noexcept
+{
+  return o2::itsmft::tracking::acceptTrackletCandidate(window, sourceMeasurement, targetMeasurement,
+                                                       kind, nSigmaCut, tanLambdaOut);
 }
 
 void setDiskLookup(IndexTableUtilsCore& indexUtils, const TrackingParameters& params,
@@ -298,10 +317,10 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const float inverseR0 = 1.f / source.radius;
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
-  const float tanLambda = (source.zCoordinate - vertex.getZ()) * inverseR0;
+  const float tanLambda = (source.z - vertex.getZ()) * inverseR0;
   const float targetMeanRadius = 0.5f * (state.targetMinR + state.targetMaxR);
-  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - source.radius) + source.zCoordinate;
-  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(source.zCoordinate - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - source.radius) + source.z;
+  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(source.z - vertex.getZ()) + o2::its::constants::Tolerance);
   const float targetRadialVariance = o2::its::math_utils::Sq(state.targetMaxR - state.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.toRadius - state.fromRadius) + 1.f)) +
@@ -316,6 +335,12 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
   BOOST_CHECK_EQUAL(window.prediction[0], zAtTargetMeanR);
   BOOST_CHECK_EQUAL(window.variance[0], o2::its::math_utils::Sq(sigmaZ));
+
+  TrackletSearchWindow beamUncertaintyWindow{};
+  BOOST_REQUIRE(projectTrackletSearchWindow(sourceMeasurement, vertex, 0.f, 0.f, 1.e-3f,
+                                            SurfaceKind::Cylinder, state, Bz, indexUtils, params,
+                                            beamUncertaintyWindow));
+  BOOST_CHECK_GT(beamUncertaintyWindow.variance[0], window.variance[0]);
 
   legacy.PVres = 0.025f;
   const auto positivePVParams = makeKernelParameters(legacy, SurfaceKind::Cylinder);
@@ -333,13 +358,13 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   BOOST_CHECK_GT(positivePVWindow.variance[0], window.variance[0]);
 
   const float targetRadius = 4.f;
-  const float targetZ = tanLambda * (targetRadius - source.radius) + source.zCoordinate;
+  const float targetZ = tanLambda * (targetRadius - source.radius) + source.z;
   const auto acceptedTarget = makeGlobalCluster(targetRadius, 0.f, targetZ);
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
   BOOST_CHECK(acceptTrackletCandidate(window, sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget,
                                       SurfaceKind::Cylinder, params.nSigmaCut, acceptedTanLambda));
-  BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / (source.radius - acceptedTarget.radius));
+  BOOST_CHECK_EQUAL(acceptedTanLambda, (source.z - acceptedTarget.z) / (source.radius - acceptedTarget.radius));
 
   const auto rejectedTarget = makeGlobalCluster(-targetRadius, 0.f, targetZ);
   const auto rejectedTargetMeasurement = makeMeasurement(rejectedTarget);
@@ -373,12 +398,12 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
 
   float expectedX = 0.f;
   float expectedY = 0.f;
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+  detail::mftTrackletProject(source.x, source.y, source.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              fromLayer, toLayer, Bz, params.trackletMinPt, expectedX, expectedY);
   float expectedSigmaX = 0.f;
   float expectedSigmaY = 0.f;
-  detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
+  detail::mftTrackletSigmaXY(source.x, source.y,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
@@ -392,13 +417,20 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
   BOOST_CHECK_GT(window.variance[0], 0.f);
   BOOST_CHECK_GT(window.variance[2], 0.f);
 
+  TrackletSearchWindow beamUncertaintyWindow{};
+  BOOST_REQUIRE(projectTrackletSearchWindow(sourceMeasurement, vertex, 0.f, 0.f, 1.e-3f,
+                                            SurfaceKind::Disk, state, Bz, indexUtils, params,
+                                            beamUncertaintyWindow));
+  BOOST_CHECK_GT(beamUncertaintyWindow.variance[0] + beamUncertaintyWindow.variance[2],
+                 window.variance[0] + window.variance[2]);
+
   const auto acceptedTarget = makeGlobalCluster(expectedX, expectedY, toZ);
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
   BOOST_CHECK(acceptTrackletCandidate(window, sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget,
                                       SurfaceKind::Disk, params.nSigmaCut, acceptedTanLambda));
   BOOST_CHECK_EQUAL(acceptedTanLambda,
-                    (source.zCoordinate - acceptedTarget.zCoordinate) /
+                    (source.z - acceptedTarget.z) /
                       (source.radius - acceptedTarget.radius));
 
   const auto sameRadiusTarget = makeGlobalCluster(source.radius, 0.f, toZ);
@@ -529,7 +561,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionUsesPolarCoordinates)
     sourceMeasurement, source, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
   float expectedX = 0.f;
   float expectedY = 0.f;
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+  detail::mftTrackletProject(source.x, source.y, source.z,
                              straightVertex.getX(), straightVertex.getY(), straightVertex.getZ(),
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
   BOOST_CHECK_EQUAL(straightWindow.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
@@ -540,11 +572,11 @@ BOOST_AUTO_TEST_CASE(DiskProjectionUsesPolarCoordinates)
   BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
   expectedX = expectedY = 0.f;
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+  detail::mftTrackletProject(source.x, source.y, source.z,
                              fallbackVertex.getX(), fallbackVertex.getY(), fallbackVertex.getZ(),
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
-  BOOST_CHECK_EQUAL(expectedX, source.xCoordinate);
-  BOOST_CHECK_EQUAL(expectedY, source.yCoordinate);
+  BOOST_CHECK_EQUAL(expectedX, source.x);
+  BOOST_CHECK_EQUAL(expectedY, source.y);
   BOOST_CHECK_EQUAL(fallbackWindow.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
   BOOST_CHECK_EQUAL(fallbackWindow.prediction[1], o2::its::math_utils::computePhi(expectedX, expectedY));
 }
@@ -585,7 +617,7 @@ BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySeman
   BOOST_CHECK_CLOSE(tanLambda, 200.f, 1.e-3f);
 }
 
-BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocatorCoordinates)
+BOOST_AUTO_TEST_CASE(GlobalMeasurementsAreTheSoleCoordinateAuthority)
 {
   TrackingParameters cylinderParameters;
   cylinderParameters.PVres = 0.f;
@@ -610,12 +642,12 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
   auto poisonedSource = source;
   auto poisonedTarget = target;
-  poisonedSource.xCoordinate = -999.f;
-  poisonedSource.yCoordinate = 888.f;
-  poisonedSource.zCoordinate = -777.f;
-  poisonedTarget.xCoordinate = 666.f;
-  poisonedTarget.yCoordinate = -555.f;
-  poisonedTarget.zCoordinate = 444.f;
+  poisonedSource.x = -999.f;
+  poisonedSource.y = 888.f;
+  poisonedSource.z = -777.f;
+  poisonedTarget.x = 666.f;
+  poisonedTarget.y = -555.f;
+  poisonedTarget.z = 444.f;
   TrackletSearchWindow poisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, poisonedWindow)));
@@ -633,7 +665,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   TrackletSearchWindow cachePoisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, cachePoisonedWindow)));
-  BOOST_CHECK_NE(cachePoisonedWindow.prediction[0], baseline.prediction[0]);
+  checkSearchWindowEqual(cachePoisonedWindow, baseline);
 
   TrackingParameters diskParameters;
   const auto diskKernelParameters = makeKernelParameters(diskParameters, SurfaceKind::Disk);
@@ -647,9 +679,9 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   TrackletSearchWindow diskBaseline{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskBaseline)));
-  diskLocator.xCoordinate = 123.f;
-  diskLocator.yCoordinate = -321.f;
-  diskLocator.zCoordinate = 456.f;
+  diskLocator.x = 123.f;
+  diskLocator.y = -321.f;
+  diskLocator.z = 456.f;
   auto uvPoisoned = diskMeasurement;
   uvPoisoned.covariance.xy = -12345.f;
   TrackletSearchWindow diskPoisoned{};

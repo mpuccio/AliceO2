@@ -54,8 +54,9 @@ bool bitEqual(const SurfaceMeasurement& lhs, const SurfaceMeasurement& rhs)
 struct Fixture {
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
-  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
+  std::array<LayerId, NLayers> orderedSurfaces{};
+  TimeFrame frame;
   TrackSeed seed{};
 
   Fixture()
@@ -63,11 +64,19 @@ struct Fixture {
     for (int layer = 0; layer < NLayers; ++layer) {
       storage[layer] = {makeMeasurement(layer, 0), makeMeasurement(layer, 1)};
       globalStorage[layer].resize(2);
-      globalStorage[layer][0].surface = LayerId{static_cast<uint16_t>(layer)};
-      globalStorage[layer][1].surface = LayerId{static_cast<uint16_t>(layer)};
-      layerMeasurements[layer] = gsl::span<const SurfaceMeasurement>(storage[layer]);
+      globalStorage[layer][0].clusterId = 0;
+      globalStorage[layer][1].clusterId = 1;
       layerGlobals[layer] = gsl::span<const GlobalMeasurement>(globalStorage[layer]);
+      orderedSurfaces[layer] = LayerId{static_cast<uint16_t>(layer)};
     }
+    std::vector<std::vector<GlobalMeasurement>> globals(NLayers);
+    std::vector<std::vector<SurfaceMeasurement>> measurements(NLayers);
+    for (int layer = 0; layer < NLayers; ++layer) {
+      globals[layer] = globalStorage[layer];
+      measurements[layer] = storage[layer];
+    }
+    frame.assignLoadedMeasurements(std::move(globals), std::move(measurements),
+                                   std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
     seed.getClusters()[0] = 0;
     seed.getClusters()[2] = 1;
     seed.getClusters()[4] = 0;
@@ -82,8 +91,10 @@ BOOST_AUTO_TEST_CASE(ForwardLegProducesIncreasingLayerOrder)
 {
   Fixture fx;
   std::array<detail::RefitMeasurementSlot, NLayers> out{};
-  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.layerGlobals, fx.layerMeasurements, 0, NLayers, 1, out);
+  bool valid = false;
+  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, 0, NLayers, 1, out, valid);
 
+  BOOST_REQUIRE(valid);
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   BOOST_CHECK(bitEqual(slots[0].measurement, fx.storage[0][0]));
   BOOST_CHECK(!slots[1].present);
@@ -98,8 +109,10 @@ BOOST_AUTO_TEST_CASE(ReverseLegProducesDecreasingLayerOrder)
 {
   Fixture fx;
   std::array<detail::RefitMeasurementSlot, NLayers> out{};
-  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.layerGlobals, fx.layerMeasurements, NLayers - 1, -1, -1, out);
+  bool valid = false;
+  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, NLayers - 1, -1, -1, out, valid);
 
+  BOOST_REQUIRE(valid);
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   // Exact mirror of the forward-leg order: position 0 is legacy layer 6,
   // position 6 is legacy layer 0. A buggy implementation that writes
@@ -125,9 +138,13 @@ BOOST_AUTO_TEST_CASE(ForwardAndReverseOrdersAreNotEqual)
   Fixture fx;
   std::array<detail::RefitMeasurementSlot, NLayers> outFwd{};
   std::array<detail::RefitMeasurementSlot, NLayers> outRev{};
-  const auto fwd = detail::assembleRefitLegSlots(fx.seed, fx.layerGlobals, fx.layerMeasurements, 0, NLayers, 1, outFwd);
-  const auto rev = detail::assembleRefitLegSlots(fx.seed, fx.layerGlobals, fx.layerMeasurements, NLayers - 1, -1, -1, outRev);
+  bool validFwd = false;
+  bool validRev = false;
+  const auto fwd = detail::assembleRefitLegSlots(fx.seed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, 0, NLayers, 1, outFwd, validFwd);
+  const auto rev = detail::assembleRefitLegSlots(fx.seed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, NLayers - 1, -1, -1, outRev, validRev);
 
+  BOOST_REQUIRE(validFwd);
+  BOOST_REQUIRE(validRev);
   BOOST_REQUIRE_EQUAL(fwd.size(), rev.size());
   bool anyDifferent = false;
   for (size_t i = 0; i < fwd.size(); ++i) {
@@ -144,8 +161,10 @@ BOOST_AUTO_TEST_CASE(AllHoleLegProducesAllInvalidSlots)
   Fixture fx;
   TrackSeed allHoleSeed{}; // every layer left at UnusedIndex
   std::array<detail::RefitMeasurementSlot, NLayers> out{};
-  const auto slots = detail::assembleRefitLegSlots(allHoleSeed, fx.layerGlobals, fx.layerMeasurements, 0, NLayers, 1, out);
+  bool valid = false;
+  const auto slots = detail::assembleRefitLegSlots(allHoleSeed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, 0, NLayers, 1, out, valid);
 
+  BOOST_REQUIRE(valid);
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   for (const auto& slot : slots) {
     BOOST_CHECK(!slot.present);
@@ -160,8 +179,10 @@ BOOST_AUTO_TEST_CASE(PartialRangeReturnsOnlyThePopulatedPrefix)
   // returned span has NLayers elements.
   Fixture fx;
   std::array<detail::RefitMeasurementSlot, NLayers> out{};
-  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.layerGlobals, fx.layerMeasurements, 2, 5, 1, out);
+  bool valid = false;
+  const auto slots = detail::assembleRefitLegSlots(fx.seed, fx.frame, fx.layerGlobals, fx.orderedSurfaces, 2, 5, 1, out, valid);
 
+  BOOST_REQUIRE(valid);
   BOOST_REQUIRE_EQUAL(slots.size(), 3);
   BOOST_CHECK(bitEqual(slots[0].measurement, fx.storage[2][1]));
   BOOST_CHECK(!slots[1].present);

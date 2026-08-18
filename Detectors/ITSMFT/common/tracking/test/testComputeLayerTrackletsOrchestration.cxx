@@ -93,41 +93,27 @@ class PrescribedDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
     uint32_t externalIndex,
-    uint32_t sourceROF,
     bool) const final
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     if (externalIndex >= mClusters.size()) {
       return result;
     }
     auto decoded = mClusters[externalIndex];
     decoded.shape = clusterData.shape;
-    const int layer = decoded.layer;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = mKind;
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = mKind == SurfaceKind::Disk
-               ? makeDiskMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
-               : makeCylinderMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
+    result.decoded = decoded;
     return result;
   }
 
@@ -418,7 +404,6 @@ DecodedCluster cylinderCluster(float radius, float z, int layer)
   cluster.global = {radius, 0.f, z};
   cluster.cylinderFrame = {radius, 0.f, z, 0.f};
   cluster.rowColumnCovariance = {1.e-4f, 0.f, 1.e-4f};
-  cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
   return cluster;
 }
@@ -428,7 +413,6 @@ DecodedCluster diskCluster(float x, float y, float z, int layer)
   DecodedCluster cluster{};
   cluster.global = {x, y, z};
   cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
-  cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
   return cluster;
 }

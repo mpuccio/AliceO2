@@ -70,7 +70,8 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
 
 std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
                                            const TrackingCandidate& candidate,
-                                           gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
+                                           gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
+                                           gsl::span<const LayerId> orderedSurfaces)
 {
   GenericTrack track = candidate.track;
   track.hitSurfaces = {};
@@ -84,15 +85,16 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
     if (localIndex < 0 || static_cast<std::size_t>(localIndex) >= layerMeasurements[position].size()) {
       return std::nullopt;
     }
+    if (position >= orderedSurfaces.size()) {
+      return std::nullopt;
+    }
     const auto& measurement = layerMeasurements[position][localIndex];
-    const TrackClusterReference reference{measurement.surface, MeasurementIndex{static_cast<uint32_t>(localIndex)}};
-    const auto* resolved = frame.getGlobalMeasurement(reference.surface, reference.index);
-    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid() ||
-        resolved == nullptr || resolved != &measurement || resolved->surface != reference.surface || !resolved->cluster.isValid()) {
+    const TrackClusterReference reference{orderedSurfaces[position], 0, measurement.clusterId};
+    if (!reference.isValid()) {
       return std::nullopt;
     }
     resolvedReferences.push_back(reference);
-    track.hitSurfaces.set(reference.surface);
+    track.hitSurfaces.set(reference.layer);
   }
   if (!track.innerState.hasRecognizedKind() || !track.outerState.hasRecognizedKind() ||
       !track.timestamp.isValid() || resolvedReferences.empty()) {
@@ -272,12 +274,11 @@ void TrackerTraits::computeLayerTrackletsImpl(
       }
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
-        const MeasurementLocator& currentCluster = layer0[iCluster];
+        const GlobalMeasurement& sourceMeasurement = layer0[iCluster];
         const int currentSortedIndex = mFrame->getSortedIndex(pivotROF, fromLayer, iCluster);
-        if (mFrame->isClusterUsed(fromLayer, currentCluster.clusterId)) {
+        if (mFrame->isClusterUsed(fromLayer, sourceMeasurement.clusterId)) {
           continue;
         }
-        const auto& sourceMeasurement = mLayerGlobalMeasurements[fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
@@ -288,7 +289,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
             continue;
           }
           TrackletSearchWindow searchWindow{};
-          const bool projected = projectTrackletSearchWindow(sourceMeasurement, currentCluster, pv,
+          const bool projected = projectTrackletSearchWindow(sourceMeasurement, pv, mFrame->getBeamX(), mFrame->getBeamY(),
+                                                             mFrame->getBeamPositionVariance(),
                                                              kind, edgeCache, mBz,
                                                              mFrame->getIndexTableUtils(toLayer),
                                                              mKernelParameters, searchWindow);
@@ -335,19 +337,18 @@ void TrackerTraits::computeLayerTrackletsImpl(
                 if (iNext >= int(layer1.size())) {
                   break;
                 }
-                const MeasurementLocator& nextCluster = layer1[iNext];
-                if (mFrame->isClusterUsed(toLayer, nextCluster.clusterId)) {
+                const GlobalMeasurement& targetMeasurement = layer1[iNext];
+                if (mFrame->isClusterUsed(toLayer, targetMeasurement.clusterId)) {
                   continue;
                 }
-                const auto& targetMeasurement = mLayerGlobalMeasurements[toLayer][nextCluster.clusterId];
 
                 float tanL = 0.f;
-                const bool accepted = acceptTrackletCandidate(searchWindow, sourceMeasurement, currentCluster,
-                                                              targetMeasurement, nextCluster, kind,
+                const bool accepted = acceptTrackletCandidate(searchWindow, sourceMeasurement,
+                                                              targetMeasurement, kind,
                                                               mKernelParameters.nSigmaCut, tanL);
                 if (accepted) {
-                  const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
-                                                                sourceMeasurement.position.x - targetMeasurement.position.x)};
+                  const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.y - targetMeasurement.y,
+                                                                sourceMeasurement.x - targetMeasurement.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
                     tracklets.emplace_back(currentSortedIndex, mFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
@@ -454,10 +455,10 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
         for (auto& trk : mScratch->getTracklets()[scratchEdgeId]) {
           MCCompLabel label;
-          int currentId{mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
-          int nextId{mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
-          for (const auto& lab1 : mFrame->getClusterLabels(fromLayer, currentId)) {
-            for (const auto& lab2 : mFrame->getClusterLabels(toLayer, nextId)) {
+          const auto currentId = mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId;
+          const auto nextId = mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId;
+          for (const auto& lab1 : mFrame->getLabels(context.workspace.orderedSurfaces[fromLayer], currentId)) {
+            for (const auto& lab2 : mFrame->getLabels(context.workspace.orderedSurfaces[toLayer], nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
@@ -519,7 +520,6 @@ void TrackerTraits::computeLayerCellsImpl(
   const auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mAttachHitConfig = context.workspace.attachHitConfig;
   const auto& mLayerMaterial = context.workspace.layerMaterial;
-  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
 
@@ -559,17 +559,16 @@ void TrackerTraits::computeLayerCellsImpl(
         }
 
         /// Prepare the track seed; clusters are numbered from inner to outer.
-        const int clusId[3]{
-          context.frame.getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
-          context.frame.getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
-          context.frame.getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
-
-        const auto& measurementInner = mLayerSurfaceMeasurements[hitLayers[0]][clusId[0]];
-        const auto& measurementMiddle = mLayerSurfaceMeasurements[hitLayers[1]][clusId[1]];
-        const auto& measurementOuter = mLayerSurfaceMeasurements[hitLayers[2]][clusId[2]];
-        const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][clusId[0]];
-        const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][clusId[1]];
-        const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][clusId[2]];
+        const int sortedId[3]{currentTracklet.firstClusterIndex, nextTracklet.firstClusterIndex, nextTracklet.secondClusterIndex};
+        const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][sortedId[0]];
+        const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][sortedId[1]];
+        const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][sortedId[2]];
+        const auto* measurementInner = context.frame.getSurfaceMeasurement(hitBinding.surfaces[0].id, globalInner.clusterId);
+        const auto* measurementMiddle = context.frame.getSurfaceMeasurement(hitBinding.surfaces[1].id, globalMiddle.clusterId);
+        const auto* measurementOuter = context.frame.getSurfaceMeasurement(hitBinding.surfaces[2].id, globalOuter.clusterId);
+        if (measurementInner == nullptr || measurementMiddle == nullptr || measurementOuter == nullptr) {
+          continue;
+        }
         const double edgeMSAngle = static_cast<double>(mScratch->getEdgeMSAngle(secondEdgeId));
         const DirectionProcessNoise directionProcessNoise{edgeMSAngle * edgeMSAngle};
         std::array<TransverseDirectionObservation, 3> transverseObservations{};
@@ -593,7 +592,7 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
         CellDirectionCompatibility directionCompatibility{};
-        if (cellDirectionsAreCompatible(directionObservations, directionProcessNoise, mKernelParameters.nSigmaCut,
+        if (cellDirectionsAreCompatible(directionObservations, directionProcessNoise, context.frame.getBeamPositionVariance(), mKernelParameters.nSigmaCut,
                                         directionCompatibility)) {
 
           // Strictly {inner, middle, outer}: Cylinder reads [1] then
@@ -606,8 +605,7 @@ void TrackerTraits::computeLayerCellsImpl(
           SurfaceKinematicState state{};
           float chi2{0.f};
           OperationFailureReason buildReason{};
-          const bool good = buildCellSeed(kind, globalInner, globalMiddle, globalOuter,
-                                          measurementInner, measurementMiddle, measurementOuter,
+          const bool good = buildCellSeed(kind, *measurementInner, *measurementMiddle, *measurementOuter,
                                           material, mBz, kCompatibilityAbsCharge, kCompatibilityPID,
                                           state, chi2, mKernelParameters, buildReason);
 
@@ -628,13 +626,13 @@ void TrackerTraits::computeLayerCellsImpl(
               }
             }
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-              layerCells.emplace_back(hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells.emplace_back(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, state, chi2, ts);
               layerCells.back().tripletFactor() = tripletFactor;
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
-              layerCells[offset++] = CellSeed(hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells[offset++] = CellSeed(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, state, chi2, ts);
               layerCells[offset - 1].tripletFactor() = tripletFactor;
               ++foundCells;
             } else {
@@ -904,8 +902,8 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mBz = context.bz;
   const auto& mAttachHitConfig = context.workspace.attachHitConfig;
-  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
 
   mTaskArena->execute([&] {
@@ -920,7 +918,8 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         if (currentCellId.empty()) {
           for (int layer = 0; layer < activeSurfaceCount; ++layer) {
             const int clusterIndex = currentCell.getCluster(layer);
-            if (clusterIndex != o2::its::constants::UnusedIndex && context.frame.isClusterUsed(layer, clusterIndex)) {
+            if (clusterIndex != o2::its::constants::UnusedIndex &&
+                context.frame.isClusterUsed(layer, mLayerGlobalMeasurements[layer][clusterIndex].clusterId)) {
               return 0; /// this we do only on the first iteration, hence the check on currentCellId
             }
           }
@@ -949,7 +948,8 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         }
         const int neighbourLayer = neighbourCell.getInnerLayer();
         const int neighbourCluster = neighbourCell.getFirstClusterIndex();
-        if (context.frame.isClusterUsed(neighbourLayer, neighbourCluster)) {
+        const auto& neighbourGlobal = mLayerGlobalMeasurements[neighbourLayer][neighbourCluster];
+        if (context.frame.isClusterUsed(neighbourLayer, neighbourGlobal.clusterId)) {
           continue;
         }
 
@@ -958,10 +958,13 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        const auto& measurement = mLayerSurfaceMeasurements[neighbourLayer][neighbourCluster];
+        const auto* measurement = context.frame.getSurfaceMeasurement(context.workspace.orderedSurfaces[neighbourLayer], neighbourGlobal.clusterId);
+        if (measurement == nullptr) {
+          continue;
+        }
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
-        const bool attached = Propagator::attachMeasurement(seed.state(), measurement, layerMaterial[neighbourLayer], mBz,
+        const bool attached = Propagator::attachMeasurement(seed.state(), *measurement, layerMaterial[neighbourLayer], mBz,
                                                             material::MaterialTraversalDirection::OppositeMomentum, true,
                                                             params.maxChi2ClusterAttachment, chi2, attachReason);
         if (!attached) {
@@ -1055,7 +1058,6 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.workspace.kernelParameters;
-  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const gsl::span<const CellPathId> roadStartCells = context.workspace.roadStartCells;
   const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
@@ -1129,10 +1131,10 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
           TrackingCandidate temporaryTrack;
           temporaryTrack.seed = trackSeeds[iSeed];
           const bool refitSuccess = refitFunction(trackSeeds[iSeed],
+                                                  context.frame,
                                                   mTrkParams[iteration],
                                                   mBz,
                                                   mLayerGlobalMeasurements,
-                                                  mLayerSurfaceMeasurements,
                                                   mTraversalGraph.getSurfaceCatalogView(),
                                                   context.workspace.orderedSurfaces,
                                                   temporaryTrack);
@@ -1211,7 +1213,8 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
       if (track.getClusterIndex(iLayer) == o2::its::constants::UnusedIndex) {
         continue;
       }
-      bool isShared = mFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
+      const auto clusterId = mLayerGlobalMeasurements[iLayer][track.getClusterIndex(iLayer)].clusterId;
+      bool isShared = mFrame->isClusterUsed(iLayer, clusterId);
       nShared += int(isShared);
       if (firstLayer < 0) {
         firstCluster = track.getClusterIndex(iLayer);
@@ -1233,7 +1236,8 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
         continue;
       }
       smallestROFHalf = std::min(smallestROFHalf, mFrame->getROFTiming(iLayer).mROFLength * 0.5f);
-      mFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
+      const auto clusterId = mLayerGlobalMeasurements[iLayer][track.getClusterIndex(iLayer)].clusterId;
+      mFrame->markUsedCluster(iLayer, clusterId);
       int currentROF = mFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
       const auto nominalROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF);
       const auto expandedROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF, true);
@@ -1266,7 +1270,7 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
 
     // acceptTracks() is the serial owner-thread publication boundary. Typed
     // sidecars are completed later by the application adapter.
-    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements);
+    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, context.workspace.orderedSurfaces);
     if (!genericTrackIndex) {
       LOGP(fatal, "GenericTrack publication failed for an accepted CA track");
     }

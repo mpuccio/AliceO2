@@ -99,16 +99,12 @@ constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 
 void fillMatrixCache(o2::detectors::DetID::ID detId);
 
-/// Decode a cluster and map its local layer to a global `LayerId`.
+/// Decode detector geometry and covariance for one compact cluster.
 template <o2::detectors::DetID::ID DetId>
-o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+o2::itsmft::tracking::ClusterDecodeResult decodeCluster(
   const CompClusterExt& c,
   o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const TopologyDictionary* dict,
-  gsl::span<const o2::itsmft::tracking::LayerId> layerToSurface,
-  o2::itsmft::tracking::ClusterSourceId source,
-  uint32_t externalClusterIndex,
-  uint32_t sourceROF,
   bool applySysErrors);
 
 template <class iterator, typename T>
@@ -250,7 +246,6 @@ enum class MultiSourceLoadError : uint8_t {
   InvalidLayerMapping,
   DetectorSurfaceMismatch,
   InconsistentDecoderMetadata,
-  SurfaceKindMismatch,
   TimingError,
   SurfaceCatalogNotConfigured,
   SurfaceCatalogStale,
@@ -277,11 +272,15 @@ struct LoadSourcesResult {
 
 LoadSourcesResult loadSources(TimeFrame&, const SurfaceCatalogView&,
                               gsl::span<const ClusterSourceInput>,
-                              const o2::InteractionRecord&);
+                              const o2::InteractionRecord&,
+                              std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+                              std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr);
 
 /// Atomically decode, normalize, and commit all sources into a configured frame.
 LoadSourcesResult loadTimeFrameSources(TimeFrame&, gsl::span<const ClusterSourceInput>,
-                                       SurfaceCatalogView, const o2::InteractionRecord&);
+                                       SurfaceCatalogView, const o2::InteractionRecord&,
+                                       std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+                                       std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr);
 
 /// Convenience wrapper for a single detector source.
 LoadSourcesResult loadTimeFrameSource(
@@ -289,7 +288,9 @@ LoadSourcesResult loadTimeFrameSource(
   gsl::span<const itsmft::CompClusterExt>, gsl::span<const unsigned char>,
   gsl::span<const o2::itsmft::ROFRecord>, const itsmft::TopologyDictionary*,
   const dataformats::MCTruthContainer<MCCompLabel>*, o2::detectors::DetID::ID,
-  gsl::span<const LayerId>, SurfaceCatalogView, bool applySysErrors = true);
+  gsl::span<const LayerId>, SurfaceCatalogView, bool applySysErrors = true,
+  std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+  std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr);
 
 #ifndef GPUCA_GPUCODE
 class RecoverableLoadFailure final : public std::runtime_error

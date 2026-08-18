@@ -18,25 +18,6 @@
 namespace o2::itsmft::tracking
 {
 
-// Event-owned locator sorted into the per-surface spatial index. Physics and
-// identity remain authoritative in GlobalMeasurement; this type contains only
-// the values needed by the hot candidate-search loops.
-struct MeasurementLocator {
-  GPUhdDefault() MeasurementLocator() = default;
-  GPUhd() MeasurementLocator(float x, float y, float z, int measurementIndex)
-    : xCoordinate{x}, yCoordinate{y}, zCoordinate{z}, phi{o2::its::math_utils::computeNormalizedPhi(x, y)}, radius{o2::its::math_utils::hypot(x, y)}, clusterId{measurementIndex}, indexTableBinIndex{0}
-  {
-  }
-
-  float xCoordinate{0.f};
-  float yCoordinate{0.f};
-  float zCoordinate{0.f};
-  float phi{0.f};
-  float radius{0.f};
-  int clusterId{o2::its::constants::UnusedIndex};
-  int indexTableBinIndex{o2::its::constants::UnusedIndex};
-};
-
 // Per-iteration connection between two sorted measurement locators.
 struct Tracklet {
   GPUhdDefault() Tracklet() = default;
@@ -65,7 +46,6 @@ struct Tracklet {
   o2::its::TimeEstBC mTime;
 };
 
-static_assert(std::is_trivially_copyable_v<MeasurementLocator>);
 static_assert(std::is_trivially_copyable_v<Tracklet>);
 
 } // namespace o2::itsmft::tracking

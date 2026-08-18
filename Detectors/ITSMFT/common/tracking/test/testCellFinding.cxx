@@ -81,7 +81,7 @@ bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
                            const TrackingKernelParameters& params,
                            OperationFailureReason& reason)
 {
-  return buildCellSeed(SurfaceKind::Cylinder, globalInner, globalMiddle, {}, measurementInner, measurementMiddle,
+  return buildCellSeed(SurfaceKind::Cylinder, measurementInner, measurementMiddle,
                        measurementOuter, material, bz, absCharge, pid, outState, chi2, params, reason);
 }
 
@@ -94,7 +94,7 @@ bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
                        const TrackingKernelParameters& params,
                        OperationFailureReason& reason)
 {
-  return buildCellSeed(SurfaceKind::Disk, {}, {}, {}, measurementInner, measurementMiddle, measurementOuter,
+  return buildCellSeed(SurfaceKind::Disk, measurementInner, measurementMiddle, measurementOuter,
                        material, bz, absCharge, pid, outState, chi2, params, reason);
 }
 
@@ -722,6 +722,29 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityTranslatesAngularProcessNoiseInto
   BOOST_CHECK_CLOSE_FRACTION(withScattering.residual, 1., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(withScattering.variance, 6.55 + 3.24, 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(withScattering.chi2, 1. / (6.55 + 3.24), 1.e-12);
+}
+
+BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityPropagatesCommonBeamUncertainty)
+{
+  std::array<GlobalMeasurement, 3> measurements{{
+    diskDirectionMeasurement(2.f, 0.f, 0.04f, 0.f, 0.04f),
+    diskDirectionMeasurement(2.f, 3.f, 0.04f, 0.f, 0.04f),
+    diskDirectionMeasurement(-4.f, 3.f, 0.04f, 0.f, 0.04f),
+  }};
+  measurements[0].z = 1.f;
+  measurements[1].z = 4.f;
+  measurements[2].z = 8.f;
+  std::array<DirectionObservation, 3> observations{};
+  for (std::size_t i = 0; i < measurements.size(); ++i) {
+    BOOST_REQUIRE(makeDirectionObservation(measurements[i], observations[i]));
+  }
+
+  CellDirectionCompatibility exactBeam{};
+  CellDirectionCompatibility uncertainBeam{};
+  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, {}, 0.f, 100.f, exactBeam));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, {}, 0.01f, 100.f, uncertainBeam));
+  BOOST_CHECK_GT(uncertainBeam.variance, exactBeam.variance);
+  BOOST_CHECK_LT(uncertainBeam.chi2, exactBeam.chi2);
 }
 
 BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)

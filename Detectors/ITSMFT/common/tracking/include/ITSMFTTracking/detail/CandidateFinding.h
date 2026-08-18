@@ -71,26 +71,35 @@ bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  TrackletProjectionCache& out) noexcept;
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const MeasurementLocator& sourceLocator,
                                  const o2::its::Vertex& vertex,
+                                 float beamX, float beamY,
+                                 float beamPositionVariance,
                                  SurfaceKind kind,
                                  const TrackletProjectionCache& edgeCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out);
 
+inline bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
+                                        const o2::its::Vertex& vertex,
+                                        float beamX, float beamY,
+                                        SurfaceKind kind,
+                                        const TrackletProjectionCache& edgeCache,
+                                        float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                                        const TrackingKernelParameters& params,
+                                        TrackletSearchWindow& out)
+{
+  return projectTrackletSearchWindow(sourceMeasurement, vertex, beamX, beamY, 0.f, kind,
+                                     edgeCache, bz, indexUtils, params, out);
+}
+
 bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              const GlobalMeasurement& sourceMeasurement,
-                             const MeasurementLocator& sourceLocator,
                              const GlobalMeasurement& targetMeasurement,
-                             const MeasurementLocator& targetLocator,
                              SurfaceKind kind, float nSigmaCut,
                              float& tanLambdaOut) noexcept;
 
 bool buildCellSeed(SurfaceKind kind,
-                   const GlobalMeasurement& globalInner,
-                   const GlobalMeasurement& globalMiddle,
-                   const GlobalMeasurement& globalOuter,
                    const SurfaceMeasurement& measurementInner,
                    const SurfaceMeasurement& measurementMiddle,
                    const SurfaceMeasurement& measurementOuter,

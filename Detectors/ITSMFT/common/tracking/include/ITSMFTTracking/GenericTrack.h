@@ -25,18 +25,23 @@
 namespace o2::itsmft::tracking
 {
 
-// Measurement indices are local to their surface and resolve through TimeFrame.
+// Stable TimeFrame identity. clusterId is the pre-sort position in the
+// per-surface measurement arrays; publication adapters translate it to any
+// external index space.
 struct TrackClusterReference {
-  LayerId surface{};
-  MeasurementIndex index{};
+  LayerId layer{};
+  uint16_t reserved{0};
+  uint32_t clusterId{std::numeric_limits<uint32_t>::max()};
+
+  GPUhdi() bool isValid() const noexcept { return layer.isValid() && clusterId != std::numeric_limits<uint32_t>::max(); }
 };
 
 static_assert(std::is_standard_layout_v<TrackClusterReference>);
 static_assert(std::is_trivially_copyable_v<TrackClusterReference>);
 static_assert(sizeof(TrackClusterReference) == 8);
 static_assert(alignof(TrackClusterReference) == 4);
-static_assert(offsetof(TrackClusterReference, surface) == 0);
-static_assert(offsetof(TrackClusterReference, index) == 4);
+static_assert(offsetof(TrackClusterReference, layer) == 0);
+static_assert(offsetof(TrackClusterReference, clusterId) == 4);
 
 // Frame-owned result; [firstClusterRef, clusterRefEnd) is inner-to-outer and
 // valid only with the same normalized event.

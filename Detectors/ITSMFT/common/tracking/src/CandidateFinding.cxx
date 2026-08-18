@@ -50,18 +50,17 @@ bool acceptNormalizedResidual(const std::array<float, 2>& residual,
 }
 
 bool cylinderTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
-                                 const MeasurementLocator& targetLocator,
                                  std::array<float, 2>& coordinates) noexcept
 {
-  coordinates = {targetMeasurement.position.z, targetLocator.phi};
+  coordinates = {targetMeasurement.z, targetMeasurement.phi};
   return true;
 }
 
 bool diskTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
                              std::array<float, 2>& coordinates) noexcept
 {
-  const float x = targetMeasurement.position.x;
-  const float y = targetMeasurement.position.y;
+  const float x = targetMeasurement.x;
+  const float y = targetMeasurement.y;
   const float r = o2::its::math_utils::hypot(x, y);
   if (!(std::isfinite(r) && r > 0.f)) {
     return false;
@@ -89,26 +88,27 @@ namespace
 {
 
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const MeasurementLocator& sourceLocator,
                                  const o2::its::Vertex& vertex,
+                                 float beamPositionVariance,
                                  const TrackletProjectionCache& edgeCache,
                                  float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out)
 {
-  const float inverseR0 = 1.f / sourceLocator.radius;
+  const float inverseR0 = 1.f / sourceMeasurement.radius;
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(edgeCache.sourcePositionResolution) +
-                                                 o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
-  const float tanLambda = (sourceMeasurement.position.z - vertex.getZ()) * inverseR0;
+                                                 o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()) +
+                                                 beamPositionVariance);
+  const float tanLambda = (sourceMeasurement.z - vertex.getZ()) * inverseR0;
   const float targetMeanRadius = 0.5f * (edgeCache.targetMinR + edgeCache.targetMaxR);
-  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - sourceLocator.radius) + sourceMeasurement.position.z;
-  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.position.z - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - sourceMeasurement.radius) + sourceMeasurement.z;
+  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.z - vertex.getZ()) + o2::its::constants::Tolerance);
   const float targetRadialVariance = o2::its::math_utils::Sq(edgeCache.targetMaxR - edgeCache.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(edgeCache.toRadius - edgeCache.fromRadius) + 1.f)) +
                                              o2::its::math_utils::Sq((edgeCache.toRadius - edgeCache.fromRadius) * edgeCache.edgeMSAngle) +
                                              o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
-  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, edgeCache.toLayer,
+  const auto bins = o2::itsmft::getBinsPhiZ(sourceMeasurement.phi, edgeCache.toLayer,
                                             zAtTargetMeanR, zAtTargetMeanR,
                                             sigmaZ * params.nSigmaCut, edgeCache.edgePhiCut,
                                             indexUtils);
@@ -116,13 +116,14 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
     return false;
   }
   const float phiSigma = edgeCache.edgePhiCut / params.nSigmaCut;
-  out = {bins, {zAtTargetMeanR, sourceLocator.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}};
+  out = {bins, {zAtTargetMeanR, sourceMeasurement.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}};
   return true;
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                             const MeasurementLocator& sourceLocator,
                              const o2::its::Vertex& vertex,
+                             float beamX, float beamY,
+                             float beamPositionVariance,
                              const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
@@ -138,16 +139,19 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   const float targetMeanZ = 0.5f * (edgeCache.targetMinZ + edgeCache.targetMaxZ);
   float xProj = 0.f;
   float yProj = 0.f;
-  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
-                             vertex.getX(), vertex.getY(), vertex.getZ(),
+  const float vertexX = vertex.getX() - beamX;
+  const float vertexY = vertex.getY() - beamY;
+  detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
+                             vertexX, vertexY, vertex.getZ(),
                              edgeCache.fromReferenceCoordinate, targetMeanZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
-  detail::mftTrackletSigmaXY(sourceMeasurement.position.x, sourceMeasurement.position.y,
-                             vertex.getX(), vertex.getY(), vertex.getZ(),
-                             sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
-                             vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
+  detail::mftTrackletSigmaXY(sourceMeasurement.x, sourceMeasurement.y,
+                             vertexX, vertexY, vertex.getZ(),
+                             sourceMeasurement.covariance[GlobalMeasurement::XX], sourceMeasurement.covariance[GlobalMeasurement::YY],
+                             vertex.getSigmaX2() + beamPositionVariance,
+                             vertex.getSigmaY2() + beamPositionVariance, vertex.getSigmaZ2(),
                              edgeCache.fromReferenceCoordinate, targetMeanZ,
                              edgeCache.fromRadius, targetMeanZ - edgeCache.fromReferenceCoordinate,
                              edgeCache.edgeMSAngle, edgeCache.edgePhiCut,
@@ -157,12 +161,12 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   float yAtMinZ = 0.f;
   float xAtMaxZ = 0.f;
   float yAtMaxZ = 0.f;
-  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
-                             vertex.getX(), vertex.getY(), vertex.getZ(),
+  detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
+                             vertexX, vertexY, vertex.getZ(),
                              edgeCache.fromReferenceCoordinate, edgeCache.targetMinZ, bz, params.trackletMinPt,
                              xAtMinZ, yAtMinZ);
-  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
-                             vertex.getX(), vertex.getY(), vertex.getZ(),
+  detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
+                             vertexX, vertexY, vertex.getZ(),
                              edgeCache.fromReferenceCoordinate, edgeCache.targetMaxZ, bz, params.trackletMinPt,
                              xAtMaxZ, yAtMaxZ);
   const float targetZVarianceScale = 1.f / 12.f;
@@ -229,19 +233,24 @@ bool bindTrackletProjectionCache(
 
 bool projectTrackletSearchWindow(
   const GlobalMeasurement& sourceMeasurement,
-  const MeasurementLocator& sourceLocator,
   const o2::its::Vertex& vertex,
+  float beamX, float beamY,
+  float beamPositionVariance,
   SurfaceKind kind,
   const TrackletProjectionCache& edgeCache,
   float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
   const TrackingKernelParameters& params,
   TrackletSearchWindow& out)
 {
+  if (!std::isfinite(beamX) || !std::isfinite(beamY) ||
+      !std::isfinite(beamPositionVariance) || beamPositionVariance < 0.f) {
+    return false;
+  }
   switch (kind) {
     case SurfaceKind::Cylinder:
-      return projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, edgeCache, bz, indexUtils, params, out);
+      return projectCylinderSearchWindow(sourceMeasurement, vertex, beamPositionVariance, edgeCache, bz, indexUtils, params, out);
     case SurfaceKind::Disk:
-      return projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, edgeCache, bz, indexUtils, params, out);
+      return projectDiskSearchWindow(sourceMeasurement, vertex, beamX, beamY, beamPositionVariance, edgeCache, bz, indexUtils, params, out);
     case SurfaceKind::Undefined:
       return false;
   }
@@ -251,16 +260,14 @@ bool projectTrackletSearchWindow(
 bool acceptTrackletCandidate(
   const TrackletSearchWindow& window,
   const GlobalMeasurement& sourceMeasurement,
-  const MeasurementLocator& sourceLocator,
   const GlobalMeasurement& targetMeasurement,
-  const MeasurementLocator& targetLocator,
   SurfaceKind kind, float nSigmaCut, float& tanLambdaOut) noexcept
 {
   std::array<float, 2> residual{};
   bool validCoordinates = false;
   switch (kind) {
     case SurfaceKind::Cylinder:
-      validCoordinates = cylinderTrackletCoordinates(targetMeasurement, targetLocator, residual);
+      validCoordinates = cylinderTrackletCoordinates(targetMeasurement, residual);
       if (!validCoordinates || !acceptTrackletCoordinates(window, residual, true, nSigmaCut)) {
         return false;
       }
@@ -278,7 +285,7 @@ bool acceptTrackletCandidate(
   if (!(std::abs(deltaR) > 1.e-6f)) {
     return false;
   }
-  tanLambdaOut = (sourceMeasurement.position.z - targetMeasurement.position.z) / deltaR;
+  tanLambdaOut = (sourceMeasurement.z - targetMeasurement.z) / deltaR;
   return true;
 }
 
@@ -314,12 +321,12 @@ bool covarianceIsPositiveSemidefiniteWithinRoundoff(double varianceFirst,
 
 bool covarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance) noexcept
 {
-  const double xx = covariance.xx;
-  const double xy = covariance.xy;
-  const double xz = covariance.xz;
-  const double yy = covariance.yy;
-  const double yz = covariance.yz;
-  const double zz = covariance.zz;
+  const double xx = covariance[GlobalMeasurement::XX];
+  const double xy = covariance[GlobalMeasurement::XY];
+  const double xz = covariance[GlobalMeasurement::XZ];
+  const double yy = covariance[GlobalMeasurement::YY];
+  const double yz = covariance[GlobalMeasurement::YZ];
+  const double zz = covariance[GlobalMeasurement::ZZ];
   if (!covarianceIsPositiveSemidefiniteWithinRoundoff(xx, xy, yy) ||
       !covarianceIsPositiveSemidefiniteWithinRoundoff(xx, xz, zz) ||
       !covarianceIsPositiveSemidefiniteWithinRoundoff(yy, yz, zz)) {
@@ -393,9 +400,9 @@ bool makeTransverseDirectionObservation(
     return false;
   }
   const TransverseDirectionObservation scratch{
-    measurement.position.x, measurement.position.y,
-    measurement.covariance.xx, measurement.covariance.xy,
-    measurement.covariance.yy};
+    measurement.x, measurement.y,
+    measurement.covariance[GlobalMeasurement::XX], measurement.covariance[GlobalMeasurement::XY],
+    measurement.covariance[GlobalMeasurement::YY]};
   if (!observationIsValid(scratch)) {
     return false;
   }
@@ -476,31 +483,32 @@ bool trackletDirectionsAreTransverselyCompatible(
 bool makeDirectionObservation(const GlobalMeasurement& measurement,
                               DirectionObservation& observation) noexcept
 {
-  const double x = measurement.position.x;
-  const double y = measurement.position.y;
+  const double x = measurement.x;
+  const double y = measurement.y;
   const double radius = measurement.radius;
   if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius) || radius <= 0. ||
       !covarianceIsPositiveSemidefinite(measurement.covariance)) {
     return false;
   }
   const double inverseRadius = 1. / radius;
-  const double xxTerm = x * x * measurement.covariance.xx;
-  const double xyTerm = 2. * x * y * measurement.covariance.xy;
-  const double yyTerm = y * y * measurement.covariance.yy;
+  const double xxTerm = x * x * measurement.covariance[GlobalMeasurement::XX];
+  const double xyTerm = 2. * x * y * measurement.covariance[GlobalMeasurement::XY];
+  const double yyTerm = y * y * measurement.covariance[GlobalMeasurement::YY];
   const double inverseRadiusSquared = inverseRadius * inverseRadius;
   double varianceR = (xxTerm + xyTerm + yyTerm) * inverseRadiusSquared;
-  double covarianceRZ = (x * measurement.covariance.xz +
-                         y * measurement.covariance.yz) *
+  double covarianceRZ = (x * measurement.covariance[GlobalMeasurement::XZ] +
+                         y * measurement.covariance[GlobalMeasurement::YZ]) *
                         inverseRadius;
   const double projectionScale = (std::abs(xxTerm) + std::abs(xyTerm) + std::abs(yyTerm)) *
                                  inverseRadiusSquared;
   if (!sanitizeProjectedCovariance(projectionScale, varianceR, covarianceRZ,
-                                   measurement.covariance.zz)) {
+                                   measurement.covariance[GlobalMeasurement::ZZ])) {
     return false;
   }
-  const DirectionObservation scratch{radius, measurement.position.z,
+  const DirectionObservation scratch{radius, measurement.z,
                                      varianceR, covarianceRZ,
-                                     measurement.covariance.zz};
+                                     measurement.covariance[GlobalMeasurement::ZZ],
+                                     x * inverseRadius, y * inverseRadius};
   if (!observationIsValid(scratch)) {
     return false;
   }
@@ -510,14 +518,22 @@ bool makeDirectionObservation(const GlobalMeasurement& measurement,
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
                                  const DirectionProcessNoise& processNoise,
+                                 float beamPositionVariance,
                                  float nSigmaCut,
                                  CellDirectionCompatibility& compatibility) noexcept
 {
   if (!std::isfinite(nSigmaCut) || nSigmaCut <= 0.f ||
+      !std::isfinite(beamPositionVariance) || beamPositionVariance < 0.f ||
       !std::isfinite(processNoise.angularVariance) || processNoise.angularVariance < 0. ||
       !observationIsValid(observations[0]) ||
       !observationIsValid(observations[1]) ||
       !observationIsValid(observations[2])) {
+    return false;
+  }
+  if (beamPositionVariance > 0.f &&
+      std::any_of(observations.begin(), observations.end(), [](const auto& observation) {
+        return !std::isfinite(observation.radialUnitX) || !std::isfinite(observation.radialUnitY);
+      })) {
     return false;
   }
 
@@ -541,6 +557,15 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
     variance += derivativeR * derivativeR * observations[i].varianceR +
                 2. * derivativeR * derivativeZ * observations[i].covarianceRZ +
                 derivativeZ * derivativeZ * observations[i].varianceZ;
+  }
+  if (beamPositionVariance > 0.f) {
+    double derivativeBeamX = 0.;
+    double derivativeBeamY = 0.;
+    for (std::size_t i = 0; i < observations.size(); ++i) {
+      derivativeBeamX -= derivatives[i][0] * observations[i].radialUnitX;
+      derivativeBeamY -= derivatives[i][0] * observations[i].radialUnitY;
+    }
+    variance += (derivativeBeamX * derivativeBeamX + derivativeBeamY * derivativeBeamY) * beamPositionVariance;
   }
   const double incomingR = middle.r - first.r;
   const double incomingZ = middle.z - first.z;
@@ -567,8 +592,6 @@ namespace
 {
 
 bool buildCylinderCellSeed(
-  const GlobalMeasurement& globalInner,
-  const GlobalMeasurement& globalMiddle,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -582,7 +605,14 @@ bool buildCylinderCellSeed(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!detail::barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
+  const auto toGlobal = [](const SurfaceMeasurement& measurement) {
+    const float cosine = std::cos(measurement.frame.frameAngle);
+    const float sine = std::sin(measurement.frame.frameAngle);
+    return GlobalPoint3F{measurement.frame.q * cosine - measurement.frame.u * sine,
+                         measurement.frame.q * sine + measurement.frame.u * cosine,
+                         measurement.frame.v};
+  };
+  if (!detail::barrel::buildSeed(toGlobal(measurementInner), toGlobal(measurementMiddle), measurementOuter, bz, absCharge, pid, scratch, reason)) {
     return false;
   }
 
@@ -641,9 +671,6 @@ bool buildDiskCellSeed(
 
 bool buildCellSeed(
   SurfaceKind kind,
-  const GlobalMeasurement& globalInner,
-  const GlobalMeasurement& globalMiddle,
-  const GlobalMeasurement& globalOuter,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -656,15 +683,12 @@ bool buildCellSeed(
   const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
-  // Generic orchestration resolves all global observations; disk seeding uses
-  // only local measurements.
-  (void)globalOuter;
   switch (kind) {
     case SurfaceKind::Undefined:
       reason = OperationFailureReason::SourceSurfaceKindMismatch;
       return false;
     case SurfaceKind::Cylinder:
-      return buildCylinderCellSeed(globalInner, globalMiddle, measurementInner, measurementMiddle, measurementOuter,
+      return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
                                    material, bz, absCharge, pid, outState, chi2, params, reason);
     case SurfaceKind::Disk:
       return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,

@@ -19,6 +19,7 @@
 #define ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -122,6 +123,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
+  std::vector<std::vector<uint32_t>> mExternalIndicesBySurface;
+  std::vector<std::vector<uint32_t>> mClusterSizesBySurface;
   std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTraits;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;

@@ -121,6 +121,8 @@ struct GenericTrackPublicationContext {
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
   ClockTimingPublicationView clock;
   gsl::span<const LayerId> orderedSurfaces;
+  const std::vector<std::vector<uint32_t>>* externalIndicesBySurface{nullptr};
+  const std::vector<std::vector<uint32_t>>* clusterSizesBySurface{nullptr};
 };
 
 struct ITSGenericTrackOutput {
@@ -139,7 +141,8 @@ struct MFTGenericTrackOutput {
 };
 
 inline std::optional<GenericTrackOutputAdapterSelection> selectGenericTracksForSource(
-  const TimeFrame& frame, o2::detectors::DetID::ID detector, ClusterSourceId source,
+  const TimeFrame& frame, o2::detectors::DetID::ID, ClusterSourceId,
+  gsl::span<const LayerId> sourceSurfaces,
   GenericTrackOutputAdapterError& error)
 {
   error = GenericTrackOutputAdapterError::None;
@@ -161,18 +164,13 @@ inline std::optional<GenericTrackOutputAdapterSelection> selectGenericTracksForS
     bool foreign = false;
     for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
       const auto& reference = references[i];
-      const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
-      if (measurement == nullptr || measurement->surface != reference.surface) {
+      if (!reference.isValid()) {
         error = GenericTrackOutputAdapterError::UnresolvedReference;
         return std::nullopt;
       }
-      const bool match = measurement->sensor.detector == static_cast<uint32_t>(detector) && measurement->cluster.source == source;
+      const bool match = std::find(sourceSurfaces.begin(), sourceSurfaces.end(), reference.layer) != sourceSurfaces.end();
       requested |= match;
       foreign |= !match;
-      if (measurement->cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
-        error = GenericTrackOutputAdapterError::InvalidExternalClusterIndex;
-        return std::nullopt;
-      }
     }
     if (requested && foreign) {
       error = GenericTrackOutputAdapterError::MixedDetector;
@@ -264,18 +262,19 @@ inline void setOutputClusterRange(o2::mft::TrackMFT& track, int first, int count
 template <typename OutputTrack>
 inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const LayerId> orderedSurfaces,
                               uint32_t maxLayers, std::vector<int>& outputIndices, OutputTrack& output,
-                              MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error)
+                              MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error,
+                              const std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                              const std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   const auto& references = frame.getTrackClusterIndices();
-  std::vector<const GlobalMeasurement*> byLayer(maxLayers, nullptr);
+  std::vector<const TrackClusterReference*> byLayer(maxLayers, nullptr);
   for (uint32_t ref = common.firstClusterRef; ref < common.clusterRefEnd; ++ref) {
     const auto& key = references[ref];
-    const auto* measurement = frame.getGlobalMeasurement(key.surface, key.index);
-    if (measurement == nullptr) {
+    if (!key.isValid()) {
       error = GenericTrackOutputAdapterError::UnresolvedReference;
       return false;
     }
-    const auto where = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), key.surface);
+    const auto where = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), key.layer);
     if (where == orderedSurfaces.end() || static_cast<uint32_t>(where - orderedSurfaces.begin()) >= maxLayers) {
       error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
@@ -285,25 +284,44 @@ inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common
       error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
     }
-    byLayer[layer] = measurement;
+    byLayer[layer] = &key;
   }
   const int first = static_cast<int>(outputIndices.size());
   uint32_t count = 0;
   for (uint32_t layer = maxLayers; layer-- > 0;) {
-    const auto* measurement = byLayer[layer];
-    if (measurement == nullptr) {
+    const auto* reference = byLayer[layer];
+    if (reference == nullptr) {
       continue;
     }
-    outputIndices.push_back(static_cast<int>(measurement->cluster.index));
-    output.setClusterSize(layer, measurement->shape.nPixels);
+    uint32_t externalIndex = reference->clusterId;
+    if (externalIndicesBySurface != nullptr) {
+      if (reference->layer.value() >= externalIndicesBySurface->size() ||
+          reference->clusterId >= (*externalIndicesBySurface)[reference->layer.value()].size()) {
+        error = GenericTrackOutputAdapterError::InvalidExternalClusterIndex;
+        return false;
+      }
+      externalIndex = (*externalIndicesBySurface)[reference->layer.value()][reference->clusterId];
+    }
+    if (externalIndex > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+      error = GenericTrackOutputAdapterError::InvalidExternalClusterIndex;
+      return false;
+    }
+    if (clusterSizesBySurface == nullptr ||
+        reference->layer.value() >= clusterSizesBySurface->size() ||
+        reference->clusterId >= (*clusterSizesBySurface)[reference->layer.value()].size()) {
+      error = GenericTrackOutputAdapterError::UnresolvedReference;
+      return false;
+    }
+    outputIndices.push_back(static_cast<int>(externalIndex));
+    output.setClusterSize(layer, (*clusterSizesBySurface)[reference->layer.value()][reference->clusterId]);
     pattern |= 1u << layer;
     ++count;
   }
   setOutputClusterRange(output, first, static_cast<int>(count));
   if (labels != nullptr) {
-    for (const auto* measurement : byLayer) {
-      if (measurement != nullptr) {
-        labels->addCluster(frame.getLabels(measurement->cluster));
+    for (const auto* reference : byLayer) {
+      if (reference != nullptr) {
+        labels->addCluster(frame.getLabels(reference->layer, reference->clusterId));
       }
     }
   }
@@ -314,9 +332,11 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
                                                                        gsl::span<const LayerId> surfaces,
                                                                        const GenericTrackOutputTimingContext& context,
                                                                        const ITSSharedClusterCompatibility& compatibility,
-                                                                       bool withMC, GenericTrackOutputAdapterError& error)
+                                                                       bool withMC, GenericTrackOutputAdapterError& error,
+                                                                       const std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+                                                                       const std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr)
 {
-  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::ITS, source, error);
+  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::ITS, source, surfaces, error);
   if (!selection || (!selection->globalIndices.empty() && !compatibility.isSealed())) {
     if (error == GenericTrackOutputAdapterError::None)
       error = GenericTrackOutputAdapterError::MissingCompatibility;
@@ -349,7 +369,8 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
     o2::its::TrackITS output{inner, common.chi2, outer};
     MCLabelAccumulator accumulator;
     uint32_t pattern = 0;
-    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error))
+    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error,
+                           externalIndicesBySurface, clusterSizesBySurface))
       return std::nullopt;
     output.setPattern(pattern);
     output.setSharedClusters(it->hasSharedClusters);
@@ -368,9 +389,11 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
                                                                        gsl::span<const LayerId> surfaces,
                                                                        const GenericTrackOutputTimingContext& context,
                                                                        const MFTPublicationCompatibility& compatibility,
-                                                                       bool withMC, GenericTrackOutputAdapterError& error)
+                                                                       bool withMC, GenericTrackOutputAdapterError& error,
+                                                                       const std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
+                                                                       const std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr)
 {
-  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
+  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::MFT, source, surfaces, error);
   if (!selection)
     return std::nullopt;
   const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
@@ -407,7 +430,8 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
     output.setChi2QPtSeed(sidecar->chi2QPtSeed);
     MCLabelAccumulator accumulator;
     uint32_t ignoredPattern = 0;
-    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, ignoredPattern, error))
+    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, ignoredPattern, error,
+                           externalIndicesBySurface, clusterSizesBySurface))
       return std::nullopt;
     staged.tracks.push_back(std::move(output));
     staged.seedPatterns.push_back(sidecar->seedPattern);
@@ -428,7 +452,8 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
     error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageITSGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
+  return stageITSGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error,
+                                    context.externalIndicesBySurface, context.clusterSizesBySurface);
 }
 
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
@@ -439,7 +464,8 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
     error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
+  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error,
+                                    context.externalIndicesBySurface, context.clusterSizesBySurface);
 }
 
 } // namespace o2::itsmft::tracking

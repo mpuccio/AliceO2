@@ -20,6 +20,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/GlobalMeasurement.h"
+#include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
@@ -41,11 +42,14 @@ struct RefitMeasurementSlot {
 /// Builds an ordered refit leg; holes remain explicit.
 inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   const TrackSeed& seed,
+  const TimeFrame& frame,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+  gsl::span<const LayerId> orderedSurfaces,
   int start, int end, int step,
-  gsl::span<RefitMeasurementSlot> out) noexcept
+  gsl::span<RefitMeasurementSlot> out,
+  bool& valid) noexcept
 {
+  valid = layerGlobals.size() == orderedSurfaces.size();
   int position = 0;
   for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
     const int clsIdx = seed.getCluster(surfacePosition);
@@ -53,8 +57,18 @@ inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
       out[position++] = {};
       continue;
     }
-    out[position++] = RefitMeasurementSlot{layerMeasurements[surfacePosition][clsIdx],
-                                           layerGlobals[surfacePosition][clsIdx].surface, true};
+    if (!valid || clsIdx < 0 || static_cast<std::size_t>(clsIdx) >= layerGlobals[surfacePosition].size()) {
+      valid = false;
+      return {};
+    }
+    const auto& global = layerGlobals[surfacePosition][clsIdx];
+    const auto surface = orderedSurfaces[surfacePosition];
+    const auto* measurement = frame.getSurfaceMeasurement(surface, global.clusterId);
+    if (measurement == nullptr) {
+      valid = false;
+      return {};
+    }
+    out[position++] = RefitMeasurementSlot{*measurement, surface, true};
   }
   return gsl::span<const RefitMeasurementSlot>(out.data(), position);
 }
@@ -151,9 +165,10 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // Refit inward, outward, then optionally inward again; commit on success.
 inline bool fitTrackSeedLegs(
   const TrackSeed& seed,
+  const TimeFrame& frame,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
+  gsl::span<const LayerId> orderedSurfaces,
   float bz,
   bool shiftReferenceToMeasurement,
   float maxChi2ClusterAttachment,
@@ -183,9 +198,14 @@ inline bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateA);
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
-  const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
+  const int activeSurfaceCount = static_cast<int>(layerGlobals.size());
   std::vector<detail::RefitMeasurementSlot> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsA = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
+  bool validSlots = false;
+  const auto slotsA = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, 0, activeSurfaceCount, 1, slotsBufferA, validSlots);
+  if (!validSlots) {
+    reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+    return false;
+  }
   if (!detail::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                              material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                              maxChi2ClusterAttachment, reason)) {
@@ -207,7 +227,11 @@ inline bool fitTrackSeedLegs(
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
   std::vector<detail::RefitMeasurementSlot> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
+  const auto slotsB = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, activeSurfaceCount - 1, -1, -1, slotsBufferB, validSlots);
+  if (!validSlots) {
+    reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+    return false;
+  }
   if (!detail::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                              material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                              maxChi2ClusterAttachment, reason)) {
@@ -242,7 +266,11 @@ inline bool fitTrackSeedLegs(
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
     std::vector<detail::RefitMeasurementSlot> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
+    const auto slotsC = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, 0, activeSurfaceCount, 1, slotsBufferC, validSlots);
+    if (!validSlots) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
     if (!detail::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                                material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                maxChi2ClusterAttachment, reason)) {

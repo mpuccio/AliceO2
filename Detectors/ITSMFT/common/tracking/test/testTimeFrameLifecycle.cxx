@@ -33,6 +33,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -73,45 +74,28 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::ClusterDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const LayerId> layerToSurface,
-    ClusterSourceId source,
-    uint32_t externalIndex,
-    uint32_t sourceROF,
+    uint32_t,
     bool applySysErrors) const override
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::ClusterDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::ClusterDecodeResult result;
     const int sensorID = cluster.getSensorID();
-    const int layer = sensorID;
-    result.layer = layer;
-    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
-      return result;
-    }
-    result.layerMapped = true;
-    result.kind = SurfaceKind::Cylinder;
-
-    DecodedCluster decoded{};
+    auto& decoded = result.decoded;
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
     decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
     decoded.shape = clusterData.shape;
-    decoded.sensor = static_cast<uint32_t>(sensorID);
-    decoded.layer = layer;
-
-    const auto surface = layerToSurface[layer];
-    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
-    const ClusterRef clusterRef{source, externalIndex};
-    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
+    decoded.layer = sensorID;
     // Counts only clusters this decoder actually turned into a measurement
     // (the early-return failure paths above never reach here), so a test can
     // prove every cluster of a given input was successfully decoded by
@@ -252,27 +236,29 @@ const std::vector<Expected> expectedClusters{
 
 void verifyFixtureLoaded(const TimeFrame& frame, const Fixture& f)
 {
-  constexpr ClusterSourceId kSourceId{0};
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2}).size(), 1u);
   for (int l = 3; l < ITSNLayers; ++l) {
-    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(frame.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
   BOOST_CHECK_EQUAL(frame.getNrof(0), static_cast<int>(f.rofs.size()));
 
-  for (const auto& e : expectedClusters) {
+  for (std::size_t expectedIndex = 0; expectedIndex < expectedClusters.size(); ++expectedIndex) {
+    const auto& e = expectedClusters[expectedIndex];
+    const auto localClusterId = static_cast<uint32_t>(std::count_if(
+      expectedClusters.begin(), expectedClusters.begin() + expectedIndex,
+      [&](const auto& previous) { return previous.layer == e.layer; }));
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
     const auto surface = LayerId{static_cast<uint16_t>(e.layer)};
     const auto globals = frame.getGlobalMeasurements(surface);
-    const auto locals = frame.getSurfaceMeasurements(surface);
     for (size_t index = 0; index < globals.size(); ++index) {
-      if (globals[index].cluster.index == e.externalIndex) {
+      if (globals[index].clusterId == localClusterId) {
         globalMeasurement = &globals[index];
-        measurement = &locals[index];
+        measurement = frame.getSurfaceMeasurement(surface, localClusterId);
         break;
       }
     }
@@ -293,16 +279,8 @@ void verifyFixtureLoaded(const TimeFrame& frame, const Fixture& f)
     BOOST_CHECK_EQUAL(measurement->covariance.uv, 0.f);
     BOOST_CHECK_EQUAL(measurement->covariance.vv, o2::itsmft::ioutils::DefClusError2Col);
 
-    BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
-    BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
-    BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-    BOOST_CHECK_EQUAL(globalMeasurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
-    BOOST_CHECK(globalMeasurement->surface == LayerId{static_cast<uint16_t>(e.layer)});
-    BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
-
-    BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
-
-    const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
+    BOOST_CHECK_EQUAL(globalMeasurement->clusterId, localClusterId);
+    const auto normalizedLabels = frame.getLabels(surface, localClusterId);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(normalizedLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
   }
@@ -349,9 +327,9 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{s}).empty());
+    BOOST_CHECK(frame.getGlobalMeasurements(LayerId{s}).empty());
   }
-  BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
+  BOOST_CHECK(frame.getLabels(LayerId{0}, 0).empty());
 
   // Gate 4 B3.1: neither owner stores mDetId any more -- the plan lives on
   // `plan` above, entirely outside both TimeFrame and LegacyTrackerScratch,
@@ -381,13 +359,6 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   frame.getWorkspace().getPositionResolutions().resize(ITSNLayers);
   frame.getWorkspace().getPositionResolutions()[0] = 17.f;
   BOOST_REQUIRE_EQUAL(frame.getClusters().size(), ITSNLayers);
-  for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
-    const auto globals = frame.getGlobalMeasurements(LayerId{layer});
-    for (std::size_t index = 0; index < globals.size(); ++index) {
-      const auto& position = globals[index].position;
-      frame.getClusters()[layer].emplace_back(position.x, position.y, position.z, static_cast<int>(index));
-    }
-  }
   BOOST_REQUIRE(!frame.getClusters()[0].empty());
 
   GenericTrack result{};
@@ -395,7 +366,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   result.firstClusterRef = 0;
   result.clusterRefEnd = 1;
   frame.getGenericTracks().push_back(result);
-  frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
+  frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
   frame.addPrimaryVertex(Vertex{});
 
   verifyFixtureLoaded(frame, fixture);
@@ -413,7 +384,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   const auto livePoolMax = livePool->getMaxMemory();
   const auto liveResetCount = frame.getEventResetCount();
   const auto* const liveGlobalMeasurements = frame.getGlobalMeasurements(LayerId{0}).data();
-  const auto* const liveSurfaceMeasurements = frame.getSurfaceMeasurements(LayerId{0}).data();
+  const auto* const liveSurfaceMeasurement = frame.getSurfaceMeasurement(LayerId{0}, 0);
   const auto* const liveClusters = frame.getClusters()[0].data();
   const auto liveClusterCount = frame.getClusters()[0].size();
   const auto liveClusterId = frame.getClusters()[0][0].clusterId;
@@ -459,12 +430,18 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
 
   verifyFixtureLoaded(frame, fixture);
   BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).data() == liveGlobalMeasurements);
-  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).data() == liveSurfaceMeasurements);
+  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 0) == liveSurfaceMeasurement);
   BOOST_CHECK(frame.getClusters()[0].data() == liveClusters);
   BOOST_CHECK_EQUAL(frame.getClusters()[0].size(), liveClusterCount);
   BOOST_CHECK_EQUAL(frame.getClusters()[0][0].clusterId, liveClusterId);
   BOOST_CHECK(frame.getUsedClusters(0).data() == liveUsedClusterData);
-  BOOST_CHECK(frame.getUsedClusters(0).empty());
+  for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
+    const auto expected = std::count_if(fixture.clusters.begin(), fixture.clusters.end(),
+                                        [layer](const auto& cluster) { return cluster.getSensorID() == layer; });
+    BOOST_REQUIRE_EQUAL(frame.getUsedClusters(layer).size(), expected);
+    BOOST_CHECK(std::all_of(frame.getUsedClusters(layer).begin(), frame.getUsedClusters(layer).end(),
+                            [](uint8_t used) { return used == 0; }));
+  }
   const auto preservedROFBoundaries = frame.getROFrameClusters(0);
   BOOST_CHECK(preservedROFBoundaries.data() == liveROFBoundaryData);
   BOOST_CHECK_EQUAL_COLLECTIONS(preservedROFBoundaries.begin(), preservedROFBoundaries.end(),
@@ -474,8 +451,8 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   BOOST_CHECK_EQUAL(frame.getGenericTracks()[0].chi2, 42.f);
   BOOST_REQUIRE_EQUAL(frame.getTrackClusterIndices().size(), 1u);
   BOOST_CHECK(frame.getTrackClusterIndices().data() == liveTrackClusterIndices);
-  BOOST_CHECK(frame.getTrackClusterIndices()[0].surface == LayerId{0});
-  BOOST_CHECK(frame.getTrackClusterIndices()[0].index == MeasurementIndex{0});
+  BOOST_CHECK(frame.getTrackClusterIndices()[0].layer == LayerId{0});
+  BOOST_CHECK_EQUAL(frame.getTrackClusterIndices()[0].clusterId, 0u);
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVerticesNum(), 1u);
   BOOST_CHECK(frame.getPrimaryVertices().data() == livePrimaryVertices);
 }
