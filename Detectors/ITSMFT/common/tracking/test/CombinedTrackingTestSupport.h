@@ -49,41 +49,23 @@ inline std::vector<LayerId> orderedSurfaceRange(uint16_t first, uint16_t count)
   return result;
 }
 
-inline SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
-{
-  SurfaceMask result;
-  for (uint16_t i = 0; i < count; ++i) {
-    result.set(LayerId{static_cast<uint16_t>(first + i)});
-  }
-  return result;
-}
-
 inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters& itsParams,
                                                        const TrackingParameters& mftParams)
 {
   TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();
   configuration.memoryPool = std::make_shared<BoundedMemoryResource>();
-  TrackerIterationConfiguration iteration;
   const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
-  auto itsDefinition = makeSurfaceLayoutChain(
-    itsSurfaces, itsParams.MaxHoles,
-    positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
-    positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
-  auto mftDefinition = makeSurfaceLayoutChain(
-    mftSurfaces, mftParams.MaxHoles,
-    positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
-    positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
+  auto itsDefinition = makeSurfaceLayoutChain(itsSurfaces);
+  auto mftDefinition = makeSurfaceLayoutChain(mftSurfaces);
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
   const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
   definition.componentOffsets = {0, offset};
-  definition.maxHoles = itsDefinition.maxHoles;
-  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
-  definition.seedingSurfaces = surfaceRangeMask(0, ITSNLayers + MFTNLayers);
-  iteration.layout = std::move(definition);
+  definition.holeLayers = itsDefinition.holeLayers | mftDefinition.holeLayers;
+  configuration.layout = std::move(definition);
   const auto combine = [&] {
     auto parameters = itsParams;
     parameters.NLayers = ITSNLayers + MFTNLayers;
@@ -101,13 +83,17 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
     parameters.LayerColHalfExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
     const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
     parameters.LayerColHalfExtent.insert(parameters.LayerColHalfExtent.end(), mftColExtent.begin(), mftColExtent.end());
+    const auto configuredSeedingLayers = [](const auto& input) {
+      return input.SeedingLayers.empty() ? LayerMask::span(0, input.NLayers - 1) : input.SeedingLayers;
+    };
+    parameters.InactiveLayerMask = itsParams.InactiveLayerMask.value() |
+                                   (mftParams.InactiveLayerMask.value() << itsParams.NLayers);
+    parameters.SeedingLayers = configuredSeedingLayers(itsParams).value() |
+                               (configuredSeedingLayers(mftParams).value() << itsParams.NLayers);
     parameters.StartLayerMask = LayerMask{(uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u};
-    parameters.HoleLayerMask = LayerMask{itsParams.HoleLayerMask.value() |
-                                         (mftParams.HoleLayerMask.value() << ITSNLayers)};
     return parameters;
   };
-  iteration.parameters = combine();
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.parameters.push_back(combine());
   return configuration;
 }
 
@@ -154,10 +140,10 @@ class CombinedTrackingPlan
     auto result = mTracker->run(*mFrame, *mTraits);
     mLastResult = result;
     if (result.outcome == TrackingOutcome::Success) {
-      const auto& params = mFrame->getTrackingParameters();
-      const auto& scratch = mFrame->getWorkspace();
-      for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = scratch.getTraversalWorkspace(i).acceptedTracks;
+      const auto configurations = mTracker->getIterationConfigurations();
+      const auto& scratch = mFrame->getScratch();
+      for (std::size_t i = 0; i < configurations.size(); ++i) {
+        const auto& candidates = scratch.getIteration(i).acceptedTracks;
         if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
@@ -168,7 +154,7 @@ class CombinedTrackingPlan
           }
         }
         if (!mITSPublicationAdapter.completeAccepted(
-              selected, params[i], *mFrame, i + 1 == params.size())) {
+              selected, configurations[i].parameters, *mFrame, i + 1 == configurations.size())) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
       }
@@ -184,10 +170,10 @@ class CombinedTrackingPlan
     }
     auto result = *mLastResult;
     if (result.outcome == TrackingOutcome::Success) {
-      const auto& params = mFrame->getTrackingParameters();
-      const auto& scratch = mFrame->getWorkspace();
-      for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = scratch.getTraversalWorkspace(i).acceptedTracks;
+      const auto configurations = mTracker->getIterationConfigurations();
+      const auto& scratch = mFrame->getScratch();
+      for (std::size_t i = 0; i < configurations.size(); ++i) {
+        const auto& candidates = scratch.getIteration(i).acceptedTracks;
         if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
           throw std::runtime_error{"failed to seal MFT tracking compatibility"};
         }
@@ -198,7 +184,7 @@ class CombinedTrackingPlan
           }
         }
         if (!mMFTPublicationAdapter.completeAccepted(
-              selected, params[i], *mFrame, i + 1 == params.size())) {
+              selected, configurations[i].parameters, *mFrame, i + 1 == configurations.size())) {
           throw std::runtime_error{"failed to seal MFT tracking compatibility"};
         }
       }
@@ -232,13 +218,13 @@ class CombinedTrackingPlan
   std::optional<bool> dropTFUponFailureFor(ClusterSourceId source) const noexcept
   {
     if (source == ClusterSourceId{0}) {
-      return mFrame != nullptr && !mFrame->getTrackingParameters().empty()
-               ? std::optional<bool>{mFrame->getTrackingParameters()[0].DropTFUponFailure}
+      return mTracker != nullptr && !mTracker->getIterationConfigurations().empty()
+               ? std::optional<bool>{mTracker->getIterationConfigurations()[0].parameters.DropTFUponFailure}
                : std::nullopt;
     }
     if (source == ClusterSourceId{1}) {
-      return mFrame != nullptr && !mFrame->getTrackingParameters().empty()
-               ? std::optional<bool>{mFrame->getTrackingParameters()[0].DropTFUponFailure}
+      return mTracker != nullptr && !mTracker->getIterationConfigurations().empty()
+               ? std::optional<bool>{mTracker->getIterationConfigurations()[0].parameters.DropTFUponFailure}
                : std::nullopt;
     }
     return std::nullopt;
@@ -268,10 +254,10 @@ class CombinedTrackingPlan
     configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), MFTNLayers);
   }
 
-  const TimeFrameScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
-  const TimeFrameScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
-  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().first(ITSNLayers); }
-  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
+  const TimeFrameScratch& getITSScratch() const noexcept { return mFrame->getScratch(); }
+  const TimeFrameScratch& getMFTScratch() const noexcept { return mFrame->getScratch(); }
+  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout().getOrderedSurfaces().first(ITSNLayers); }
+  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout().getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -282,7 +268,10 @@ class CombinedTrackingPlan
   }
   TraversalTopologyView getITSLayoutView() const noexcept
   {
-    return mFrame != nullptr && mFrame->isConfigured() ? mFrame->getWorkspace().getTraversalWorkspace(0).getTopologyView() : TraversalTopologyView{};
+    const auto* configuration = mTracker == nullptr ? nullptr : mTracker->getIterationConfiguration(0);
+    return mFrame != nullptr && configuration != nullptr && mTracker->isConfiguredFor(*mFrame)
+             ? configuration->getTopologyView(mFrame->getLayout().getSurfaceCatalog())
+             : TraversalTopologyView{};
   }
   TraversalTopologyView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
 

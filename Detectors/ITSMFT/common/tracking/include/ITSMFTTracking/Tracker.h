@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file Tracker.h
-/// \brief Shared runtime-plan tracker orchestrator.
+/// \brief Tracker orchestrator.
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKER_H_
@@ -25,6 +25,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/IterationConfiguration.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -55,14 +56,10 @@ struct TrackingResult {
   std::vector<std::size_t> acceptedTrackCounts;
 };
 
-struct TrackerIterationConfiguration {
-  SurfaceLayoutDefinition layout;
-  TrackingParameters parameters;
-};
-
 struct TrackerInitialization {
   SurfaceCatalogView catalog;
-  std::vector<TrackerIterationConfiguration> iterations;
+  SurfaceLayoutDefinition layout;
+  std::vector<TrackingParameters> parameters;
   std::shared_ptr<BoundedMemoryResource> memoryPool;
 };
 
@@ -94,8 +91,14 @@ class Tracker
 
   TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
 
-  // Tracker stores no frame, configuration, workspace, graph, or event state.
   void setSeedRefitFunction(SeedRefitFunction refitFunction) noexcept { mRefitFunction = refitFunction; }
+  gsl::span<const IterationConfiguration> getIterationConfigurations() const noexcept { return mIterations; }
+  const DetectorConfiguration& getDetectorConfiguration() const noexcept { return mDetectorConfiguration; }
+  const IterationConfiguration* getIterationConfiguration(std::size_t iteration) const noexcept
+  {
+    return iteration < mIterations.size() ? &mIterations[iteration] : nullptr;
+  }
+  bool isConfiguredFor(const TimeFrame& frame) const noexcept;
 
   /// Run all configured iterations. Returns `Success` on success or
   /// `RecoverableDropped` when an allowed recoverable per-TF failure is
@@ -104,9 +107,13 @@ class Tracker
 
  private:
   friend struct TrackerTestAccess;
-  void buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceLayout& layout, SurfaceMask disabledSurfaces, int iteration) const;
-  void initializeTraversalWorkspace(TraversalWorkspaceView& view) const;
+  std::vector<gsl::span<const GlobalMeasurement>> prepareTimeFrame(TimeFrame& frame) const;
+  void initializeIterationScratch(IterationContext& context) const;
   SeedRefitFunction mRefitFunction = nullptr;
+  DetectorConfiguration mDetectorConfiguration;
+  std::vector<IterationConfiguration> mIterations;
+  const TimeFrame* mFrame = nullptr;
+  uint64_t mFrameConfigurationGeneration = 0;
 };
 } // namespace o2::itsmft::tracking
 

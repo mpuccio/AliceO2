@@ -67,7 +67,6 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchDoesNotParticipateInLoading)
 {
   TimeFrameScratch scratch;
   scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-  BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 0u);
 
   class RejectDecoder final : public ClusterDecoder
   {
@@ -86,14 +85,11 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchDoesNotParticipateInLoading)
     layerToSurface.push_back(LayerId{i});
   }
   TimeFrame frame;
-  std::vector<SurfaceLayout> layouts;
   const SurfaceCatalogView catalog{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
-  layouts.emplace_back(gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
-                       makeSurfaceLayoutChain(layerToSurface));
-  std::vector<TrackingParameters> parameters(1);
-  std::vector<TrackingWorkspaceCapacity> capacities{{layerToSurface.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
-                                          std::move(capacities), std::make_shared<o2::its::BoundedMemoryResource>()));
+  SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                       makeSurfaceLayoutChain(layerToSurface)};
+  BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0,
+                                std::make_shared<o2::its::BoundedMemoryResource>()));
   const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                           gsl::span<const o2::itsmft::CompClusterExt>{}, gsl::span<const unsigned char>{}, gsl::span<const o2::itsmft::ROFRecord>{},
                                           nullptr, nullptr, o2::detectors::DetID::ITS, gsl::span<const LayerId>{layerToSurface},
@@ -222,7 +218,6 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   auto& itsParticipantScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
   auto& mftParticipantScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
   BOOST_REQUIRE(!itsParticipantScratch.getTracklets().empty());
@@ -231,12 +226,9 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   mftParticipantScratch.getTracklets()[7].emplace_back();
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 2);
 
-  const auto resetCount = frame.getEventResetCount();
   frame.resetTimeFrame();
 
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 0);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
@@ -250,7 +242,6 @@ BOOST_AUTO_TEST_CASE(ProductionITSWorkspaceMatchesConfiguredTopologyAtRealParame
   TimeFrame frame;
   participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNEdges(), 15u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }
@@ -286,10 +277,8 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   }
   const auto standaloneLayout = SurfaceLayout{
     gsl::span<const SurfaceDescriptor>{kITSStaticSurfaceCatalog.data(), kITSStaticSurfaceCatalog.size()},
-    makeSurfaceLayoutChain(standaloneOrder, standaloneParams.front().MaxHoles,
-                           positionalSurfaceMask(standaloneParams.front().HoleLayerMask, standaloneOrder, ITSNLayers),
-                           positionalSurfaceMask(standaloneParams.front().StartLayerMask, standaloneOrder, ITSNLayers))};
-  const auto standaloneTopology = deriveTraversalTopology(standaloneLayout);
+    makeSurfaceLayoutChain(standaloneOrder)};
+  const auto standaloneTopology = deriveTraversalTopology(standaloneLayout, standaloneParams.front());
   BOOST_REQUIRE(standaloneTopology.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
@@ -297,10 +286,8 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   const auto combinedOrder = orderedRange(0, ITSNLayers);
   const auto combinedLayout = SurfaceLayout{
     gsl::span<const SurfaceDescriptor>{kITSMFTCombinedStaticSurfaceCatalog.data(), kITSMFTCombinedStaticSurfaceCatalog.size()},
-    makeSurfaceLayoutChain(combinedOrder, combinedParams.front().MaxHoles,
-                           positionalSurfaceMask(combinedParams.front().HoleLayerMask, combinedOrder, ITSNLayers),
-                           positionalSurfaceMask(combinedParams.front().StartLayerMask, combinedOrder, ITSNLayers))};
-  const auto combinedTopology = deriveTraversalTopology(combinedLayout);
+    makeSurfaceLayoutChain(combinedOrder)};
+  const auto combinedTopology = deriveTraversalTopology(combinedLayout, combinedParams.front());
   BOOST_REQUIRE(combinedTopology.ok());
   BOOST_CHECK_EQUAL(standaloneTopology.topology->edges.size(), combinedTopology.topology->edges.size());
   BOOST_CHECK_EQUAL(standaloneTopology.topology->paths.size(), combinedTopology.topology->paths.size());
@@ -312,13 +299,11 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   // workflow participant accessors below, in contrast, must alias the one
   // global workspace.
   TimeFrameScratch standaloneScratch;
-  standaloneScratch.adoptPlan(standaloneOrder.size(), standaloneTopology.topology->edges.size(), standaloneTopology.topology->paths.size());
+  standaloneScratch.configureStorage(standaloneTopology.topology->edges.size(), standaloneTopology.topology->paths.size());
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);
-  BOOST_CHECK_EQUAL(standaloneScratch.getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNEdges(), 15u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }

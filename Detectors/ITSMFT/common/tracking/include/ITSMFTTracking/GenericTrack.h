@@ -19,7 +19,7 @@
 #endif
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 
 namespace o2::itsmft::tracking
@@ -50,7 +50,7 @@ struct GenericTrack {
   SurfaceKinematicState outerState{};
   float chi2{0.f};
   GenericTrackTimestamp timestamp{};
-  SurfaceMask hitSurfaces{};
+  LayerMask hitLayers{};
   uint32_t firstClusterRef{0};
   uint32_t clusterRefEnd{0};
 };
@@ -66,9 +66,9 @@ struct TrackingCandidate {
   double charge{0.};
   uint32_t genericTrackIndex{std::numeric_limits<uint32_t>::max()};
 
-  int getNumberOfClusters() const noexcept { return seed.getActiveSurfaceCount(); }
+  int getNumberOfClusters() const noexcept { return seed.getActiveLayerCount(); }
   int getClusterIndex(int position) const noexcept { return seed.getCluster(position); }
-  int getFirstClusterLayer() const noexcept { return seed.getSurfaceMask().first(); }
+  int getFirstClusterLayer() const noexcept { return seed.getHitLayerMask().first(); }
 };
 
 #endif

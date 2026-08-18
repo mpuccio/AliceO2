@@ -33,6 +33,7 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
+#include "ITSMFTTracking/detail/TrackerTraversalPreparation.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "TraversalTestSupport.h"
@@ -75,6 +76,9 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(detector), kind});
     surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
+    surfaces.back().referenceCoordinate = kind == SurfaceKind::Disk
+                                            ? o2::mft::constants::mft::LayerZCoordinate()[i % MFTNLayers]
+                                            : 3.f + static_cast<float>(i);
     // Matches o2::itsmft::resetDetectorDefaults()'s per-detector LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
     // compatibility check passes for these unperturbed fixtures.
@@ -208,7 +212,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             SurfaceKind tag,
                             std::vector<DecodedCluster> decoded,
                             int nThreads,
-                            std::function<void(TrackingParameters&)> customizeParams = {})
+                            std::function<void(TrackingParameters&)> customizeParams = {},
+                            LayerMask holeLayers = {})
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
@@ -234,16 +239,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   TrackerInitialization configuration;
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
-  TrackerIterationConfiguration iteration;
-  iteration.layout = makeSurfaceLayoutChain(
-    orderedSurfaces, params[0].MaxHoles,
-    positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, NLayers),
-    positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, NLayers));
-  iteration.parameters = params[0];
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces, holeLayers);
+  configuration.parameters.push_back(params[0]);
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
-  auto& tf = frame.getWorkspace();
-  const auto& layout = frame.getLayout(0);
+  auto& tf = frame.getScratch();
+  const auto& layout = frame.getLayout();
 
   std::vector<CompClusterExt> compactClusters;
   std::vector<unsigned char> patterns;
@@ -309,14 +309,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
       BOOST_CHECK(std::isfinite(phiCuts[id]));
     }
 
-    std::vector<float> positionResolution(NLayers);
-    for (int layer = 0; layer < NLayers; ++layer) {
-      positionResolution[layer] = tf.getPositionResolution(layer);
-    }
+    const auto& positionResolution = view.detectorConfiguration.positionResolutions;
     std::vector<float> expectedMSAngles;
     std::vector<float> expectedPhiCuts;
     computeLegacyEdgeMSAndPhiCut<NLayers>(params[0], Bz, kind == SurfaceKind::Disk, preparedTopology,
-                                          gsl::span<const float>(positionResolution.data(), positionResolution.size()),
+                                          gsl::span<const float>{positionResolution},
                                           expectedMSAngles, expectedPhiCuts);
     BOOST_REQUIRE_EQUAL(expectedMSAngles.size(), msAngles.size());
     BOOST_REQUIRE_EQUAL(expectedPhiCuts.size(), phiCuts.size());
@@ -506,7 +503,7 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
   checkSame(serial, parallel);
 }
 
-BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPartial)
+BOOST_AUTO_TEST_CASE(PerTimeFrameValidationFailureLeavesEdgeArraysZeroFilledNotPartial)
 {
   // Gate 3 edge-preparation slice failure contract: TimeFrame::initialise()
   // already clears/resizes mEdgeMSAngles/mEdgePhiCuts to
@@ -530,7 +527,6 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
   params[0].PassFlags.reset();
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
-  params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitConfigView rejects it
 
   traits.setNThreads(1, arena);
   frame.setBz(Bz);
@@ -541,17 +537,12 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   TrackerInitialization configuration;
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
-  TrackerIterationConfiguration iteration;
-  iteration.layout = makeSurfaceLayoutChain(
-    orderedSurfaces, params[0].MaxHoles,
-    positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, ITSNLayers),
-    positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, ITSNLayers));
-  iteration.parameters = params[0];
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.parameters.push_back(params[0]);
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
-  auto& tf = frame.getWorkspace();
-  const auto& layout = frame.getLayout(0);
-  const auto topologyBuild = deriveTraversalTopology(layout);
+  auto& tf = frame.getScratch();
+  const auto& layout = frame.getLayout();
+  const auto topologyBuild = deriveTraversalTopology(layout, params[0]);
   BOOST_REQUIRE(topologyBuild.ok());
   const auto layoutView = topologyBuild.topology->getView(layout.getSurfaceCatalog());
 
@@ -559,7 +550,8 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   // (called unconditionally, before any of this test's induced failure) needs
   // it to size mIndexTables/mClusters correctly, regardless of what this test
   // is actually probing.
-  const std::vector<DecodedCluster> decoded{cylinderCluster(3.f, 0.3f, 0), cylinderCluster(4.f, 0.4f, 1)};
+  const std::vector<DecodedCluster> decoded{cylinderCluster(3.f, 0.3f, 0), cylinderCluster(3.1f, 0.31f, 0),
+                                            cylinderCluster(4.f, 0.4f, 1)};
   std::vector<CompClusterExt> compactClusters;
   std::vector<unsigned char> patterns;
   compactClusters.reserve(decoded.size());
@@ -574,6 +566,9 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
                                         compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
                                         gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
+  auto layer0 = frame.getGlobalMeasurements(LayerId{0});
+  BOOST_REQUIRE_EQUAL(layer0.size(), 2u);
+  layer0[1].clusterId = layer0[0].clusterId;
 
   o2::its::LayerTiming layerTiming{};
   layerTiming.mNROFsTF = 1;
@@ -596,7 +591,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   frame.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   BOOST_CHECK_EXCEPTION(TrackerTestAccess::prepare(tracker, frame, 0), TraversalException, [](const TraversalException& error) {
-    return error.getReason() == TraversalFailureReason::InvalidSurfaceParameters;
+    return error.getReason() == TraversalFailureReason::NormalizedMeasurementMismatch;
   });
 
   const auto topology = layoutView;
@@ -732,8 +727,8 @@ BOOST_AUTO_TEST_CASE(ItsHoleEdgeTrackletResolvesCorrectLegacyLayerEndpoints)
     o2::detectors::DetID::ITS, SurfaceKind::Cylinder, SurfaceKind::Cylinder, clusters, 1,
     [](TrackingParameters& p) {
       p.MaxHoles = 1;
-      p.HoleLayerMask = LayerMask{static_cast<uint16_t>(1u << 1)};
-    });
+    },
+    LayerMask{static_cast<uint16_t>(1u << 1)});
 
   const float expectedTanLambda = (0.3f - 0.5f) / (3.f - 5.f);
   const float expectedPhi = o2::gpu::CAMath::ATan2(0.f, -1.f);
@@ -795,7 +790,9 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
   }
   definition.componentOffsets = {0, nCylinders};
   const auto layout = SurfaceLayout{surfaces, std::move(definition)};
-  const auto result = deriveTraversalTopology(layout);
+  TrackingParameters parameters;
+  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.topology->edges.size(), static_cast<std::size_t>(nCylinders + nDisks - 2));
 }

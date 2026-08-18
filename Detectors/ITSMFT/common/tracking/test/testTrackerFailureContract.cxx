@@ -274,7 +274,7 @@ int gThrowOnRefitCall = 1;
 // Deliberately a plain function pointer: production itself reaches this
 // seam only after candidate formation and road finding have produced a real
 // seed. Tests reset the process-local controls before every invocation.
-bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParameters&, float,
+bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const IterationParameters&, float,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
                          SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
 {
@@ -295,7 +295,7 @@ bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParam
 
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
-bool testSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParameters&, float,
+bool testSeedRefit(const TrackSeed&, const TimeFrame&, const IterationParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
 {
@@ -360,19 +360,11 @@ struct Rig {
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    configuration.iterations.reserve(params.size());
-    for (const auto& parameter : params) {
-      TrackerIterationConfiguration iteration;
-      iteration.layout = makeSurfaceLayoutChain(
-        orderedSurfaces, parameter.MaxHoles,
-        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
-        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
-      iteration.parameters = parameter;
-      configuration.iterations.push_back(std::move(iteration));
-    }
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.parameters = params;
     const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
-    BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), orderedSurfaces.size());
+    BOOST_REQUIRE_EQUAL(frame.getLayout().getOrderedSurfaces().size(), orderedSurfaces.size());
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -392,7 +384,7 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& layout = frame.getLayout(0);
+    const auto& layout = frame.getLayout();
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                             f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
@@ -541,14 +533,8 @@ struct MftFailureRig {
     configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
     configuration.memoryPool = pool;
     const auto surfaces = identitySurfaces(MFTNLayers);
-    for (std::size_t index = 0; index < iterations; ++index) {
-      TrackerIterationConfiguration iteration;
-      iteration.layout = makeSurfaceLayoutChain(surfaces, parameters.MaxHoles,
-                                                positionalSurfaceMask(parameters.HoleLayerMask, surfaces, MFTNLayers),
-                                                positionalSurfaceMask(parameters.StartLayerMask, surfaces, MFTNLayers));
-      iteration.parameters = parameters;
-      configuration.iterations.push_back(std::move(iteration));
-    }
+    configuration.layout = makeSurfaceLayoutChain(surfaces);
+    configuration.parameters.assign(iterations, parameters);
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   }
 
@@ -565,7 +551,7 @@ struct MftFailureRig {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     MftRoadDecoder decoder{decoded};
-    const auto& layout = frame.getLayout(0);
+    const auto& layout = frame.getLayout();
     BOOST_REQUIRE(loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                       compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
                                       gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
@@ -594,10 +580,10 @@ struct MftFailureRig {
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
     BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(frame.getTrackClusterIndices().empty());
-    for (std::size_t iteration = 0; iteration < frame.getTrackingParameters().size(); ++iteration) {
-      const auto& workspace = frame.getWorkspace().getTraversalWorkspace(iteration);
-      BOOST_CHECK(!workspace.valid);
-      BOOST_CHECK(workspace.acceptedTracks.empty());
+    for (std::size_t iteration = 0; iteration < frame.getScratch().getNMaterializedIterations(); ++iteration) {
+      const auto& iterationScratch = frame.getScratch().getIteration(iteration);
+      BOOST_CHECK(!iterationScratch.valid);
+      BOOST_CHECK(iterationScratch.acceptedTracks.empty());
     }
   }
 
@@ -669,7 +655,6 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getGenericTracks().empty());
-  BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
 BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
@@ -687,7 +672,6 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   // "the process is going down anyway".
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getGenericTracks().empty());
-  BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
 // --- std::bad_alloc: recoverable, same drop-or-rethrow policy ------------
@@ -786,49 +770,40 @@ BOOST_AUTO_TEST_CASE(LaterIterationRefitFailureWipesEveryIterationWorkspace)
 // StaleLayout test above used to cover -- so they must follow the identical
 // always-rethrow-and-wipe contract, regardless of DropTFUponFailure.
 
-BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardlessOfFlag)
+BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationIsRejectedBeforeTimeFrameConfiguration)
 {
   for (const bool dropFlag : {false, true}) {
     Rig rig{dropFlag};
     rig.params[0].RowBins = 0; // structurally invalid
-    rig.establishValidLayout();
-    rig.loadSource(emptyFixture());
-
-    rig.frame.getGenericTracks().push_back(GenericTrack{});
-    BOOST_REQUIRE(!rig.frame.getGenericTracks().empty());
-
-    bool threw = false;
-    try {
-      rig.tracker.run(rig.frame, rig.traits);
-    } catch (const TraversalException& e) {
-      threw = true;
-      BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
-    }
-    BOOST_CHECK(threw);
-
-    BOOST_CHECK(rig.frame.getGenericTracks().empty());
+    rig.catalog = makeITSTestCatalog();
+    const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    TrackerInitialization configuration;
+    configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
+    configuration.memoryPool = rig.pool;
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.parameters = rig.params;
+    const auto result = rig.tracker.initialize(rig.frame, configuration);
+    BOOST_CHECK(!result.ok());
+    BOOST_CHECK(!rig.frame.isConfigured());
   }
 }
 
-BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegardlessOfFlag)
+BOOST_AUTO_TEST_CASE(IterationSpecificIndexTableConfigurationIsRejectedBeforeCommit)
 {
-  ensureTrivialMagneticFieldIsSet(); // iteration 0 runs to completion (findRoads()) before iteration 1 fails
   for (const bool dropFlag : {false, true}) {
     Rig rig{dropFlag};
     rig.params = makeTwoIterationITSParams(dropFlag);
-    rig.params[1].RowBins = rig.params[0].RowBins + 1; // mismatched against what iteration 0 will commit
-    rig.establishValidLayout();
-    rig.loadSource(emptyFixture());
-
-    bool threw = false;
-    try {
-      rig.tracker.run(rig.frame, rig.traits);
-    } catch (const TraversalException& e) {
-      threw = true;
-      BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
-    }
-    BOOST_CHECK(threw);
-
+    rig.params[1].RowBins = rig.params[0].RowBins + 1;
+    rig.catalog = makeITSTestCatalog();
+    TrackerInitialization configuration;
+    configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
+    configuration.memoryPool = rig.pool;
+    configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+    configuration.parameters = rig.params;
+    const auto result = rig.tracker.initialize(rig.frame, configuration);
+    BOOST_CHECK(!result.ok());
+    BOOST_CHECK_EQUAL(result.failedIteration, 1u);
+    BOOST_CHECK(!rig.frame.isConfigured());
     BOOST_CHECK(rig.frame.getGenericTracks().empty());
   }
 }

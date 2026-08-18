@@ -276,7 +276,8 @@ LoadSourcesResult loadSources(TimeFrame&, const SurfaceCatalogView&,
                               std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
                               std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr);
 
-/// Atomically decode, normalize, and commit all sources into a configured frame.
+/// Reset, decode, and normalize all sources into a configured TimeFrame.
+/// A failed load leaves the TimeFrame empty.
 LoadSourcesResult loadTimeFrameSources(TimeFrame&, gsl::span<const ClusterSourceInput>,
                                        SurfaceCatalogView, const o2::InteractionRecord&,
                                        std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,

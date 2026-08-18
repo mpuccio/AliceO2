@@ -26,7 +26,7 @@ There is now exactly one common orchestration implementation:
 |---|---|---|
 | Shared CA orchestration | non-templated `TrackerTraits` | adopted `DetectorLayoutView`, `SurfacePlanBinding`, and `SurfaceTrackingScratch` |
 | Iteration execution and failure classification | non-templated `Tracker` | runtime scratch/plan plus the caller-owned operation invocation |
-| Whole-track device-safe value | `TrackSeed` | fixed `MaxLayoutSurfaces` capacity and positional `SurfaceMask` |
+| Whole-track device-safe value | `TrackSeed` | fixed `MaxLayoutSurfaces` capacity and positional `LayerMask` |
 | Detector/refit/output conversion | `SurfacePlanTrackingParticipant<N>` and `ITSMFTTrackingInterface<N>` | application-owned `DetectorTraits<N>` and publication sidecars |
 | Event lifecycle and raw ROFs | DPL workflow/application task | existing loader, reset, timing, and publication ownership |
 
@@ -85,7 +85,7 @@ The M7b/M7c authorities remain unchanged:
 - transition and cell slots use the binding's compact mappings;
 - source-qualified measurements resolve through the binding and normalized
   `TimeFrame` view; and
-- `TrackSeed::SurfaceMask` records compact plan positions, not numeric
+- `TrackSeed::LayerMask` records compact plan positions, not numeric
   `SurfaceId` or ITS/MFT layer identity.
 
 `TrackingParameters::NLayers` remains only an adapter-edge validation against

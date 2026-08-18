@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gsl/span>
@@ -27,6 +28,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GenericTrack.h"
+#include "ITSMFTTracking/IterationConfiguration.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -43,7 +45,7 @@ namespace o2::itsmft::tracking
 // Publication and reset remain outside the tracking transaction.
 using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    const TimeFrame& frame,
-                                   const TrackingParameters& params,
+                                   const IterationParameters& params,
                                    float bz,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    SurfaceCatalogView surfaceCatalog,
@@ -52,22 +54,25 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
 
 #endif
 
-struct DiskReferenceCoordinateView;
 struct TrackerTestAccess;
 
-struct TraversalWorkspaceView {
+struct IterationContext {
   int iteration{-1};
   TimeFrame& frame;
   TimeFrameScratch& scratch;
   TraversalTopologyView topology{};
-  gsl::span<const TrackingParameters> parameters;
+  const DetectorConfiguration& detectorConfiguration;
+  const IterationConfiguration& configuration;
+  std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurements;
   float bz{0.f};
-  TraversalWorkspace& workspace;
+  IterationScratch& iterationScratch;
 
-  TraversalWorkspaceView(int iterationValue, TimeFrame& frameValue, TimeFrameScratch& scratchValue,
-                         TraversalTopologyView topologyValue, gsl::span<const TrackingParameters> parametersValue,
-                         float bzValue, TraversalWorkspace& workspaceValue)
-    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, parameters{parametersValue}, bz{bzValue}, workspace{workspaceValue}
+  IterationContext(int iterationValue, TimeFrame& frameValue, TimeFrameScratch& scratchValue,
+                   TraversalTopologyView topologyValue, const IterationConfiguration& configurationValue,
+                   const DetectorConfiguration& detectorConfigurationValue,
+                   std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurementsValue,
+                   float bzValue, IterationScratch& iterationScratchValue)
+    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, detectorConfiguration{detectorConfigurationValue}, configuration{configurationValue}, layerGlobalMeasurements{std::move(layerGlobalMeasurementsValue)}, bz{bzValue}, iterationScratch{iterationScratchValue}
   {
   }
 };
@@ -97,7 +102,7 @@ enum class TraversalFailureReason : uint8_t {
   NormalizedMeasurementMismatch,
   // orderedSurfaces does not map plan positions bijectively to global LayerId.
   SurfaceLayerMappingMismatch,
-  // The adopted binding cannot translate a traversal ID to a compact scratch slot.
+  // The iteration configuration cannot translate a traversal ID to a compact scratch slot.
   // This is a binding/layout mismatch, detected before scratch access.
   TraversalBindingMismatch
 };
@@ -126,7 +131,7 @@ class TrackerTraits
  public:
   virtual ~TrackerTraits() = default;
   // The production caller supplies all event and iteration state explicitly.
-  void runTraversal(TraversalWorkspaceView view, SeedRefitFunction refitFunction);
+  void runTraversal(IterationContext view, SeedRefitFunction refitFunction);
 
   virtual const char* getName() const noexcept { return "CPU"; }
   virtual bool isGPU() const noexcept { return false; }
@@ -136,29 +141,29 @@ class TrackerTraits
  private:
   friend struct TrackerTestAccess;
 
-  void acceptTracks(TraversalWorkspaceView& context, int iteration,
+  void acceptTracks(IterationContext& context, int iteration,
                     bounded_vector<TrackingCandidate>& tracks,
                     bounded_vector<bounded_vector<int>>& firstClusters);
 
   // Tracklet and cell enumeration are common; coordinate selection is owned
   // by their operation leaves.
-  void computeLayerTracklets(TraversalWorkspaceView& context, int iteration, int iVertex);
-  void computeLayerTrackletsImpl(TraversalWorkspaceView& context, int iteration, int iVertex,
+  void computeLayerTracklets(IterationContext& context, int iteration, int iVertex);
+  void computeLayerTrackletsImpl(IterationContext& context, int iteration, int iVertex,
                                  gsl::span<const EdgeId> edgeIds);
-  void computeLayerCells(TraversalWorkspaceView& context, int iteration);
-  void computeLayerCellsImpl(TraversalWorkspaceView& context, int iteration,
+  void computeLayerCells(IterationContext& context, int iteration);
+  void computeLayerCellsImpl(IterationContext& context, int iteration,
                              gsl::span<const CellPathId> cellIds);
-  void findCellsNeighbours(TraversalWorkspaceView& context, int iteration);
-  void findCellsNeighboursForSchedule(TraversalWorkspaceView& context, int iteration,
+  void findCellsNeighbours(IterationContext& context, int iteration);
+  void findCellsNeighboursForSchedule(IterationContext& context, int iteration,
                                       gsl::span<const CellPathId> scheduledCells,
                                       const TrackingKernelParameters& params);
 
-  void findRoads(TraversalWorkspaceView& context, int iteration, SeedRefitFunction refitFunction);
-  void findRoadsImpl(TraversalWorkspaceView& context, int iteration, SeedRefitFunction refitFunction);
+  void findRoads(IterationContext& context, int iteration, SeedRefitFunction refitFunction);
+  void findRoadsImpl(IterationContext& context, int iteration, SeedRefitFunction refitFunction);
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <typename InputSeed>
-  void processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellPathIds, const TrackingKernelParameters& params);
+  void processNeighbours(IterationContext& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellPathIds, const TrackingKernelParameters& params);
 
   std::shared_ptr<tbb::task_arena> mTaskArena;
 };

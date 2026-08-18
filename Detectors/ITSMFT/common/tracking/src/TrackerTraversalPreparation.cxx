@@ -7,13 +7,11 @@
 
 #include "ITSMFTTracking/detail/TrackerTraversalPreparation.h"
 
-#include <array>
 #include <cmath>
 
 #include "CommonConstants/MathConstants.h"
 #include "GPUCommonMath.h"
 #include "ITStracking/MathUtils.h"
-#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
@@ -35,17 +33,6 @@ float diskLayerMultipleScatteringAngle(const DiskLayerScatteringInputs& inputs, 
                             ? std::sqrt(1.f + tanlRef * tanlRef) / absTanl
                             : 1e6f;
   return 0.0136f * invP * std::sqrt(inputs.layerxX0 * cscLambda);
-}
-
-namespace
-{
-constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegacyMFTReferenceCoordinate =
-  o2::mft::constants::mft::LayerZCoordinate();
-} // namespace
-
-DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
-{
-  return {gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
 }
 
 float clampEdgeCurvature(float oneOverR, float outerRadius) noexcept

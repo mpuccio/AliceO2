@@ -75,19 +75,13 @@ int initializeCommonITSTracker()
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
   configuration.memoryPool = pool;
-  TrackerIterationConfiguration iteration;
-  iteration.layout = makeSurfaceLayoutChain(
-    orderedSurfaces, parameters.front().MaxHoles,
-    positionalSurfaceMask(parameters.front().HoleLayerMask, orderedSurfaces, ITSNLayers),
-    positionalSurfaceMask(parameters.front().StartLayerMask, orderedSurfaces, ITSNLayers));
-  iteration.parameters = parameters.front();
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.parameters = parameters;
   const auto result = tracker.initialize(frame, configuration);
   if (!result.ok()) {
     return 5;
   }
-  const auto* capacity = frame.getWorkspaceCapacity(0);
-  if (capacity == nullptr) {
+  if (frame.getLayout().getOrderedSurfaces().size() != ITSNLayers) {
     return 6;
   }
   return 0;

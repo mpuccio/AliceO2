@@ -5,28 +5,19 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// TimeFrame lifecycle and transactional configuration/load publication.
+// TimeFrame lifecycle, transactional configuration, and direct loading.
 //
-// A. Reset lifecycle: TimeFrame::resetTimeFrame() must unconditionally clear the
-//    normalized owner (mNormalizedFrame) associated by
-//    TimeFrameScratch::loadNormalizedSource() -- every
-//    normalized accessor obtained *after* resetTimeFrame() must report empty/zero
-//    content. This test never dereferences a view obtained before resetTimeFrame():
-//    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
-//    TimeFrame nor TimeFrameScratch stores mDetId at all any
-//    more -- callers pass the detector explicitly to every call that needs
-//    it -- so there is nothing detector-identity-shaped left for resetTimeFrame() to
-//    preserve or clear.)
+// A. Reset lifecycle: TimeFrame::resetTimeFrame() unconditionally clears all
+//    TimeFrame data while preserving detector configuration and allocator
+//    identity. Post-reset checks always obtain fresh views.
 //
 // B. Strong configuration transactionality: a BoundedMemoryResource failure
 //    while staging a valid replacement must preserve the live configuration,
-//    workspace, allocator and capacities, as well as an already loaded event,
+//    workspace, allocator and capacities, as well as an already loaded TimeFrame,
 //    its allocator-backed storage, navigation, and results.
 //
-// C. Event loading decodes into heap-backed staging and publishes through the
-//    no-throw TimeFrame::commitLoadedEvent(). Malformed replacement input is
-//    therefore validation coverage: rejection before publication must leave
-//    the loaded event unchanged.
+// C. TimeFrame loading resets and fills the configured frame directly. Any
+//    failure clears partially loaded data.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrame lifecycle
 #define BOOST_TEST_MAIN
@@ -289,11 +280,8 @@ void verifyFixtureLoaded(const TimeFrame& frame, const Fixture& f)
 void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog, gsl::span<const LayerId> orderedSurfaces,
                     std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>())
 {
-  std::vector<SurfaceLayout> layouts;
-  layouts.push_back(catalogLayout(catalog, orderedSurfaces));
-  std::vector<TrackingParameters> parameters(1);
-  std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters), std::move(capacities), std::move(pool)));
+  auto layout = catalogLayout(catalog, orderedSurfaces);
+  BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0, std::move(pool)));
 }
 
 } // namespace
@@ -356,8 +344,6 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
                                           gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(loaded.ok());
 
-  frame.getWorkspace().getPositionResolutions().resize(ITSNLayers);
-  frame.getWorkspace().getPositionResolutions()[0] = 17.f;
   BOOST_REQUIRE_EQUAL(frame.getClusters().size(), ITSNLayers);
   BOOST_REQUIRE(!frame.getClusters()[0].empty());
 
@@ -370,19 +356,13 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   frame.addPrimaryVertex(Vertex{});
 
   verifyFixtureLoaded(frame, fixture);
-  const auto* const liveLayout = &frame.getLayout(0);
-  const auto* const liveParameters = frame.getTrackingParameters(0);
-  const auto liveCapacity = *frame.getWorkspaceCapacity(0);
-  const auto* const liveWorkspace = &frame.getWorkspace();
-  const auto* const liveWorkspacePool = frame.getWorkspace().getMemoryPool().get();
-  const auto liveWorkspaceSurfaces = frame.getWorkspace().getNOwnedSurfaces();
-  const auto liveWorkspaceEdges = frame.getWorkspace().getNEdges();
-  const auto liveWorkspaceCells = frame.getWorkspace().getNCells();
-  const auto liveTraversalWorkspaces = frame.getWorkspace().getNTraversalWorkspaces();
-  const auto livePositionResolution = frame.getWorkspace().getPositionResolution(0);
+  const auto* const liveLayout = &frame.getLayout();
+  const auto* const liveWorkspace = &frame.getScratch();
+  const auto* const liveWorkspacePool = frame.getScratch().getMemoryPool().get();
+  const auto liveWorkspaceEdges = frame.getScratch().getNEdges();
+  const auto liveWorkspaceCells = frame.getScratch().getNCells();
   const auto livePoolUsed = livePool->getUsedMemory();
   const auto livePoolMax = livePool->getMaxMemory();
-  const auto liveResetCount = frame.getEventResetCount();
   const auto* const liveGlobalMeasurements = frame.getGlobalMeasurements(LayerId{0}).data();
   const auto* const liveSurfaceMeasurement = frame.getSurfaceMeasurement(LayerId{0}, 0);
   const auto* const liveClusters = frame.getClusters()[0].data();
@@ -397,37 +377,22 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   const auto* const liveTrackClusterIndices = frame.getTrackClusterIndices().data();
   const auto* const livePrimaryVertices = frame.getPrimaryVertices().data();
 
-  std::vector<SurfaceLayout> replacementLayouts;
-  replacementLayouts.push_back(catalogLayout(catalogView, orderedSurfaces));
-  std::vector<TrackingParameters> replacementParameters(1);
-  std::vector<TrackingWorkspaceCapacity> replacementCapacities{{ITSNLayers, 1, 1}};
+  auto replacementLayout = catalogLayout(catalogView, orderedSurfaces);
   auto failingPool = std::make_shared<BoundedMemoryResource>(0);
 
-  BOOST_CHECK(!frame.commitConfiguration(std::move(replacementLayouts), std::move(replacementParameters),
-                                         std::move(replacementCapacities), failingPool));
+  BOOST_CHECK(!frame.configure(std::move(replacementLayout), 1, 1, failingPool));
   BOOST_CHECK_EQUAL(failingPool->getThrowCount(), 1u);
   BOOST_CHECK_EQUAL(failingPool->getUsedMemory(), 0u);
 
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK_EQUAL(frame.getNIterations(), 1u);
-  BOOST_CHECK(&frame.getLayout(0) == liveLayout);
-  BOOST_CHECK(frame.getTrackingParameters(0) == liveParameters);
-  BOOST_REQUIRE(frame.getWorkspaceCapacity(0) != nullptr);
-  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->ownedSurfaces, liveCapacity.ownedSurfaces);
-  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->edges, liveCapacity.edges);
-  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, liveCapacity.cells);
-  BOOST_CHECK(&frame.getWorkspace() == liveWorkspace);
+  BOOST_CHECK(&frame.getLayout() == liveLayout);
+  BOOST_CHECK(&frame.getScratch() == liveWorkspace);
   BOOST_CHECK(frame.getMemoryPool().get() == livePool.get());
-  BOOST_CHECK(frame.getWorkspace().getMemoryPool().get() == liveWorkspacePool);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), liveWorkspaceSurfaces);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNEdges(), liveWorkspaceEdges);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNCells(), liveWorkspaceCells);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), liveTraversalWorkspaces);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getPositionResolution(0), livePositionResolution);
+  BOOST_CHECK(frame.getScratch().getMemoryPool().get() == liveWorkspacePool);
+  BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), liveWorkspaceEdges);
+  BOOST_CHECK_EQUAL(frame.getScratch().getNCells(), liveWorkspaceCells);
   BOOST_CHECK_EQUAL(livePool->getUsedMemory(), livePoolUsed);
   BOOST_CHECK_EQUAL(livePool->getMaxMemory(), livePoolMax);
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), liveResetCount);
-
   verifyFixtureLoaded(frame, fixture);
   BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).data() == liveGlobalMeasurements);
   BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 0) == liveSurfaceMeasurement);
@@ -457,7 +422,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
   BOOST_CHECK(frame.getPrimaryVertices().data() == livePrimaryVertices);
 }
 
-BOOST_AUTO_TEST_CASE(MalformedReplacementValidationLeavesLoadedEventUnchanged)
+BOOST_AUTO_TEST_CASE(MalformedTimeFrameLoadLeavesTheFrameEmpty)
 {
   const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
@@ -484,5 +449,6 @@ BOOST_AUTO_TEST_CASE(MalformedReplacementValidationLeavesLoadedEventUnchanged)
                                           gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
-  verifyFixtureLoaded(frame, baselineFixture);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
 }

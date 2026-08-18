@@ -329,16 +329,11 @@ struct StandaloneRun {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    TrackerIterationConfiguration iteration;
-    iteration.layout = makeSurfaceLayoutChain(
-      orderedSurfaces, singleParams.MaxHoles,
-      positionalSurfaceMask(singleParams.HoleLayerMask, orderedSurfaces, NLayers),
-      positionalSurfaceMask(singleParams.StartLayerMask, orderedSurfaces, NLayers));
-    iteration.parameters = singleParams;
-    configuration.iterations.push_back(std::move(iteration));
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.parameters.push_back(singleParams);
     const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
-    scratch = &frame.getWorkspace();
+    scratch = &frame.getScratch();
     traits.setNThreads(1, arena);
     frame.setBz(Bz);
 
@@ -352,8 +347,8 @@ struct StandaloneRun {
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
                                           compact, patterns, rofs, &dict(), nullptr, det,
-                                          gsl::span<const LayerId>{frame.getLayout(0).getOrderedSurfaces()},
-                                          frame.getLayout(0).getSurfaceCatalog());
+                                          gsl::span<const LayerId>{frame.getLayout().getOrderedSurfaces()},
+                                          frame.getLayout().getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};
@@ -498,11 +493,11 @@ struct CombinedTrackingComposer {
     }
 
     markPublicationValid();
-    const auto countFor = [this](LayerId first) {
+    const auto countFor = [this](int first) {
       return static_cast<size_t>(std::count_if(this->frame->getGenericTracks().begin(), this->frame->getGenericTracks().end(),
-                                               [first](const auto& track) { return track.hitSurfaces.has(first); }));
+                                               [first](const auto& track) { return track.hitLayers.has(first); }));
     };
-    return {TrackingOutcome::Success, countFor(LayerId{0}), countFor(LayerId{ITSNLayers})};
+    return {TrackingOutcome::Success, countFor(0), countFor(ITSNLayers)};
   }
 
   const TimeFrameScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
@@ -550,15 +545,15 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   composer.setNThreads(1);
 
   constexpr uint32_t allCombinedSurfaces = (uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u;
-  BOOST_REQUIRE_EQUAL(frame.getTrackingParameters().size(), 1u);
-  const auto& combined = frame.getTrackingParameters()[0];
+  BOOST_REQUIRE_EQUAL(composer.plan.itsTracker().getIterationConfigurations().size(), 1u);
+  const auto& combined = composer.plan.itsTracker().getIterationConfigurations()[0].parameters;
+  const auto& detector = composer.plan.itsTracker().getDetectorConfiguration();
   BOOST_CHECK_EQUAL(combined.NLayers, ITSNLayers + MFTNLayers);
   BOOST_CHECK_EQUAL(combined.StartLayerMask.value(), allCombinedSurfaces);
   BOOST_CHECK(combined.PassFlags == itsParams.PassFlags);
-  BOOST_CHECK_EQUAL(combined.IndexRowMin, itsParams.IndexRowMin);
-  BOOST_CHECK_EQUAL(combined.IndexRowMax, itsParams.IndexRowMax);
-  BOOST_CHECK_EQUAL(combined.ColBins, itsParams.ColBins);
-  BOOST_CHECK_EQUAL(combined.RowBins, itsParams.RowBins);
+  BOOST_REQUIRE(!detector.indexTableConfigs.empty());
+  BOOST_CHECK_EQUAL(detector.indexTableConfigs.front().getNcolBins(), itsParams.ColBins);
+  BOOST_CHECK_EQUAL(detector.indexTableConfigs.front().getNrowBins(), itsParams.RowBins);
   BOOST_CHECK_EQUAL(combined.UseDiamond, itsParams.UseDiamond);
   BOOST_CHECK_EQUAL_COLLECTIONS(std::begin(combined.Diamond), std::end(combined.Diamond),
                                 std::begin(itsParams.Diamond), std::end(itsParams.Diamond));
@@ -588,22 +583,22 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
     BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.begin() + itsValues.size(), itsValues.begin(), itsValues.end());
     BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin() + itsValues.size(), actual.end(), mftValues.begin(), mftValues.end());
   };
-  checkConcatenated(combined.AddTimeError, itsParams.AddTimeError, mftParams.AddTimeError);
-  checkConcatenated(combined.LayerZ, itsParams.LayerZ, mftParams.LayerZ);
-  checkConcatenated(combined.LayerRadii, itsParams.LayerRadii, mftParams.LayerRadii);
-  checkConcatenated(combined.LayerxX0, itsParams.LayerxX0, mftParams.LayerxX0);
-  checkConcatenated(combined.LayerResolution, itsParams.LayerResolution, mftParams.LayerResolution);
-  checkConcatenated(combined.SystError2Row, itsParams.SystError2Row, mftParams.SystError2Row);
-  checkConcatenated(combined.SystError2Col, itsParams.SystError2Col, mftParams.SystError2Col);
-  const auto& itsColExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
-  const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
-  checkConcatenated(combined.LayerColHalfExtent, itsColExtent, mftColExtent);
+  checkConcatenated(detector.addTimeError, itsParams.AddTimeError, mftParams.AddTimeError);
+  checkConcatenated(detector.layerRadii, itsParams.LayerRadii, mftParams.LayerRadii);
+  checkConcatenated(detector.layerResolution, itsParams.LayerResolution, mftParams.LayerResolution);
+  checkConcatenated(detector.systError2Row, itsParams.SystError2Row, mftParams.SystError2Row);
+  checkConcatenated(detector.systError2Col, itsParams.SystError2Col, mftParams.SystError2Col);
+  BOOST_REQUIRE_EQUAL(detector.layerMaterial.size(), itsParams.LayerxX0.size() + mftParams.LayerxX0.size());
+  for (std::size_t layer = 0; layer < detector.layerMaterial.size(); ++layer) {
+    const auto expected = layer < itsParams.LayerxX0.size() ? itsParams.LayerxX0[layer] : mftParams.LayerxX0[layer - itsParams.LayerxX0.size()];
+    BOOST_CHECK_EQUAL(detector.layerMaterial[layer].xOverX0, expected);
+  }
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
-  const auto topology = frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  BOOST_CHECK_EQUAL(topology.seedingSurfaces.value(), allCombinedSurfaces);
+  const auto topology = composer.plan.itsTracker().getIterationConfigurations()[0].getTopologyView(frame.getLayout().getSurfaceCatalog());
+  BOOST_CHECK_EQUAL(topology.seedingLayers.value(), allCombinedSurfaces);
   BOOST_REQUIRE_EQUAL(topology.nEdges, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
   for (uint16_t edgeId = 0; edgeId < topology.nEdges; ++edgeId) {
     const auto& edge = topology.getEdge(EdgeId{edgeId});
@@ -716,11 +711,11 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_CHECK_GT(composer.getITSScratch().getNumberOfCells(), 0u);
 
   // GenericTrack global references resolve correctly and ordering is ITS
-  // then MFT: every accepted track's hitSurfaces mask stays within exactly
+  // then MFT: every accepted track's hitLayers mask stays within exactly
   // one detector's own global range, and every ITS-range entry precedes
   // every MFT-range entry (shared TimeFrame, append-only, ITS run first).
-  const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
-  const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
+  const auto itsMask = LayerMask{uint32_t{(1u << ITSNLayers) - 1u}};
+  const auto mftMask = LayerMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
   const auto& commonTracks = frame.getGenericTracks();
   BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
   for (size_t i = 0; i < result.nITSTracks; ++i) {
@@ -742,8 +737,8 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
     BOOST_CHECK_EQUAL(track.firstClusterRef, nextReference);
     BOOST_CHECK_LT(track.firstClusterRef, track.clusterRefEnd);
     BOOST_CHECK(isValidTrackRange(track, static_cast<uint32_t>(frame.getTrackClusterIndices().size())));
-    BOOST_REQUIRE(track.hitSurfaces.isSubsetOf(itsMask) || track.hitSurfaces.isSubsetOf(mftMask));
-    const bool isMft = track.hitSurfaces.isSubsetOf(mftMask) && !track.hitSurfaces.empty();
+    BOOST_REQUIRE(track.hitLayers.isSubsetOf(itsMask) || track.hitLayers.isSubsetOf(mftMask));
+    const bool isMft = track.hitLayers.isSubsetOf(mftMask) && !track.hitLayers.empty();
     if (isMft) {
       seenMft = true;
     } else {
@@ -755,7 +750,7 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
       BOOST_CHECK(std::any_of(globals.begin(), globals.end(), [&](const auto& measurement) {
         return measurement.clusterId == reference.clusterId;
       }));
-      BOOST_CHECK(isMft ? mftMask.has(reference.layer) : itsMask.has(reference.layer));
+      BOOST_CHECK(isMft ? mftMask.has(reference.layer.value()) : itsMask.has(reference.layer.value()));
     }
     nextReference = track.clusterRefEnd;
   }
@@ -1210,17 +1205,17 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   // GenericTrack ordering: every ITS-range entry precedes every MFT-range
   // entry -- the observable footprint of the engine having run track() in
   // schedule order [ITS, MFT], not some other order.
-  const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
-  const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
+  const auto itsMask = LayerMask{uint32_t{(1u << ITSNLayers) - 1u}};
+  const auto mftMask = LayerMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
   const auto& commonTracks = frame.getGenericTracks();
   BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
   bool seenMft = false;
   for (const auto& track : commonTracks) {
-    const bool isMft = track.hitSurfaces.isSubsetOf(mftMask) && !track.hitSurfaces.empty();
+    const bool isMft = track.hitLayers.isSubsetOf(mftMask) && !track.hitLayers.empty();
     if (isMft) {
       seenMft = true;
     } else {
-      BOOST_CHECK(track.hitSurfaces.isSubsetOf(itsMask));
+      BOOST_CHECK(track.hitLayers.isSubsetOf(itsMask));
       BOOST_CHECK_MESSAGE(!seenMft, "an ITS GenericTrack appeared after an MFT one: schedule order was not ITS-then-MFT");
     }
   }

@@ -38,7 +38,7 @@ field during the migration; it must not be used as the generic core's loop or
 capacity authority.
 
 `TrackSeed::MaxSurfaces == MaxLayoutSurfaces` remains the sole fixed whole-track
-seed capacity. Its `SurfaceMask` says which positional slots are active. A
+seed capacity. Its `LayerMask` says which positional slots are active. A
 runtime plan may use fewer positions, but it may not make the device value
 type's array shorter at runtime. `CellSeed` remains a three-cluster cell value
 because three measurements are the CA cell definition, not a detector layer
@@ -139,9 +139,9 @@ copyable is not a detector choice.
 | Current dependency | Evidence and actual responsibility | Classification | M7 disposition |
 |---|---|---:|---|
 | `CellSeed` / `SeedMetadataBase<ClustersPerCell>` | A cell always carries three cluster slots and two tracklet references. The base is still live and is not a whole-track compatibility bridge. | 1 | Retain `SeedMetadataBase<N>` for `CellSeed`; do not broaden M6f's deletion. Its 16-bit `LayerMask` is a cell-local/legacy-pattern field, not the generic plan mask. |
-| `TrackSeed` | Non-templated, `GPUhd()`, trivially copyable, with `MaxSurfaces == MaxLayoutSurfaces` cluster slots and a 32-bit `SurfaceMask`. Active positions come from the mask and plan order. | 1 for fixed device capacity; 2 for active count | Retain exactly this representation. Do not reintroduce `TrackSeedTpl` or make the array heap-backed. |
+| `TrackSeed` | Non-templated, `GPUhd()`, trivially copyable, with `MaxSurfaces == MaxLayoutSurfaces` cluster slots and a 32-bit `LayerMask`. Active positions come from the mask and plan order. | 1 for fixed device capacity; 2 for active count | Retain exactly this representation. Do not reintroduce `TrackSeedTpl` or make the array heap-backed. |
 | `CATrackTypeHelper<NLayers>`/`CATrackType` and `bounded_vector<CATrackType<NLayers>>` | Resolves to `o2::its::TrackITSExt`, holds typed acceptance/output staging, and is consumed by `DetectorTraits` and output-side compatibility. It is not a generic tracking result. | 3 | Move typed output construction and shared-cluster/pattern compatibility to ITS/MFT adapters. Core acceptance publishes `CommonTrack` and references. Delete the alias and the generic typed vector after adapter parity is proven. |
-| `LayerMask` views on `TrackSeed` and `CommonTrack` | `LayerMask` is 16-bit and cannot represent all 32 plan positions. `TrackSeed` already keeps `SurfaceMask` authoritative and exposes a compatibility view for old hole/pattern code. | 1 for compatibility value types; 4 for core use as a plan mask | Core schedule, topology, and whole-track hit selection use `SurfaceMask`/`SurfaceId`. Keep a `LayerMask` view only at a legacy output/algorithm edge until those consumers are migrated. |
+| `LayerMask` views on `TrackSeed` and `CommonTrack` | `LayerMask` is 16-bit and cannot represent all 32 plan positions. `TrackSeed` already keeps `LayerMask` authoritative and exposes a compatibility view for old hole/pattern code. | 1 for compatibility value types; 4 for core use as a plan mask | Core schedule, topology, and whole-track hit selection use `LayerMask`/`SurfaceId`. Keep a `LayerMask` view only at a legacy output/algorithm edge until those consumers are migrated. |
 
 The old ITS `TrackSeed<NLayers>` and related `ITStracking` track/cell types are
 outside the common-CA production tree and belong to frozen legacy ITS
@@ -170,8 +170,8 @@ it does not change a leaf's numerical behavior.
 | `SurfacePlanTrackingParticipant<NLayers>` | Its static assertion accepts only 7/10; it owns a leg's scratch, binding, parameters, and compatibility sidecar, and currently embeds `TrackerTraits<NLayers>`/`Tracker<NLayers>`. | 3 | It is a temporary application participant seam, not a coordinator. It may remain templated only until it embeds the non-templated core and its detector-specific sidecar setup moves to the adapter edge. It must never own the combined schedule, clocks, or event reset sequencing. |
 | `TrackingLoadPolicy<DetId, NLayers>` and `TrackingLoadPolicyN` | Beam-position and source/configuration setup uses detector identity and compile-time counts. | 3 | Keep at the ITS/MFT application boundary; remove the `N` alias when its callers are direct. The core sees an already-configured `TimeFrame`. |
 | Explicit instantiations | Common production currently instantiates `Tracker<7/10>`, `TrackerTraits<7/10>`, `DetectorTraits<7/10>`, `TrackingInterface<7/10>`, `SurfacePlanTrackingParticipant<7/10>`, scratch helper families, and index-table binders for 7/10 and both private tags. | 3 while callers migrate; 4 after migration | Treat each as a deletion checklist, not an ABI to preserve. The common core's M7 exit guard must show no `Tracker<7>`/`Tracker<10>` or `TrackerTraits<...>` instantiation. Adapter-only instantiations may remain until their own bridge exit criteria are met. |
-| Common tests and fixtures | Orchestration, load-failure, ROF, refit, topology, and adapter tests use `template<int NLayers>` fixtures and explicit 7/10 cases. | 3 in tests only | Keep parameterized fixtures while they cover both plans, but migrate assertions to plan/binding counts and `TrackSeed`/`SurfaceMask`. Tests must not preserve a production compatibility type merely because a fixture uses it. |
-| Common GPU/device-facing types | `SurfaceId`, `SurfaceMask`, `SurfaceDescriptor`, `SurfaceKinematicState`, `SurfaceMeasurement`, `SparseTrackingTopologyView`, `CellSeed`, `TrackSeed`, and `IndexTableUtilsCore` are `GPUhdi()`/trivially-copyable value/view types. | 1 for fixed representation and ABI | Keep fixed widths and `MaxLayoutSurfaces` capacity. Runtime counts are scalar/view fields. No GPU validation is claimed for M7a; a device build is required only in a later implementation slice when the toolchain exists. |
+| Common tests and fixtures | Orchestration, load-failure, ROF, refit, topology, and adapter tests use `template<int NLayers>` fixtures and explicit 7/10 cases. | 3 in tests only | Keep parameterized fixtures while they cover both plans, but migrate assertions to plan/binding counts and `TrackSeed`/`LayerMask`. Tests must not preserve a production compatibility type merely because a fixture uses it. |
+| Common GPU/device-facing types | `SurfaceId`, `LayerMask`, `SurfaceDescriptor`, `SurfaceKinematicState`, `SurfaceMeasurement`, `SparseTrackingTopologyView`, `CellSeed`, `TrackSeed`, and `IndexTableUtilsCore` are `GPUhdi()`/trivially-copyable value/view types. | 1 for fixed representation and ABI | Keep fixed widths and `MaxLayoutSurfaces` capacity. Runtime counts are scalar/view fields. No GPU validation is claimed for M7a; a device build is required only in a later implementation slice when the toolchain exists. |
 | Frozen ITS GPU hierarchy | `ITStracking` retains `TimeFrame<NLayers>`, `TrackingTopology<NLayers>`, `TrackITSInternal<NLayers>`, follower/refit types, and CUDA kernels with fixed ITS layer arrays. | 3, frozen workflow exclusion | Exclude narrowly: this is not common-CA production and frozen ITS workflows must not change. The M7 guard scans common tracking core paths and records this exclusion explicitly. |
 
 ## 4. Runtime plan API and ownership target
@@ -198,7 +198,7 @@ the source of every bound explicit:
    `NLayers` topology.
 3. A per-surface temporary is a runtime span or a fixed
    `MaxLayoutSurfaces` device buffer with an explicit populated count.
-4. A seed's active count is `TrackSeed::getSurfaceMask().count()`; its slot
+4. A seed's active count is `TrackSeed::getHitLayerMask().count()`; its slot
    interpretation is the adopted ordered plan, not the numeric `SurfaceId`.
 5. A road/cell/hole decision reads the sparse topology and operation-local
    policy parameters. `StartLayerMask` and `HoleLayerMask` remain compatibility
@@ -431,7 +431,7 @@ These are not simplifications to smuggle into M7:
 - removing or changing the MFT road pre-cut, legacy reference-Z lookup, or
   curvature-literal behavior;
 - replacing `TransitionPolicyTag` with a different public dispatch taxonomy;
-- changing `TrackSeed`/`SurfaceMask`/`LayerMask` widths or fixed capacities, or
+- changing `TrackSeed`/`LayerMask`/`LayerMask` widths or fixed capacities, or
   introducing dynamic device allocation;
 - making arbitrary mixed cylinder/disk plans legal when current validation
   rejects them;
@@ -469,7 +469,7 @@ Focused tests required by the implementation slices are:
   transition/cell slots, and `TrackSeed` masks;
 - a compile/dependency test proving the non-templated core has no detector,
   DPL, workflow, writer, or public `TransitionPolicyTag` dependency;
-- fixed-capacity tests for `CellSeed`, `TrackSeed`, `SurfaceMask`, and device
+- fixed-capacity tests for `CellSeed`, `TrackSeed`, `LayerMask`, and device
   views, including the distinction between active count and maximum capacity;
 - failure lifecycle tests proving load failure, dropped TF, structural
   tracking failure, and successful replacement cannot publish stale clocks,

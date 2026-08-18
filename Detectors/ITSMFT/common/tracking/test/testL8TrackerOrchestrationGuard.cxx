@@ -71,14 +71,14 @@ BOOST_AUTO_TEST_CASE(RetiredEngineAndParticipantCompositionIsAbsent)
   assertNoSpellings(workflowRoot / "src", forbidden);
 }
 
-BOOST_AUTO_TEST_CASE(TrackerIsStatelessAndOwnsOnlyTheOperationEdge)
+BOOST_AUTO_TEST_CASE(TrackerOwnsConfigurationButNoFrameScratchOrBackend)
 {
   const fs::path trackingRoot{fs::path{__FILE__}.parent_path().parent_path()};
   const auto header = read(trackingRoot / "include/ITSMFTTracking/Tracker.h");
   BOOST_CHECK(header.find("TrackingResult run(TimeFrame& frame, TrackerTraits& traits)") != std::string::npos);
-  BOOST_CHECK(header.find("TimeFrame*") == std::string::npos);
-  BOOST_CHECK(header.find("TrackerTraits*") == std::string::npos);
+  BOOST_CHECK(header.find("std::vector<IterationConfiguration> mIterations") != std::string::npos);
   BOOST_CHECK(header.find("TimeFrameScratch m") == std::string::npos);
+  BOOST_CHECK(header.find("TrackerTraits*") == std::string::npos);
   BOOST_CHECK(header.find("std::vector<" + std::string{"Surface"} + "Graph>") == std::string::npos);
 }
 
@@ -123,7 +123,7 @@ BOOST_AUTO_TEST_CASE(TraversalTraitsKeepsNoAdoptedTraversalState)
   for (const auto& pattern : retired) {
     BOOST_CHECK_MESSAGE(!std::regex_search(traits, pattern), "retired TrackerTraits state/API remains in its header");
   }
-  BOOST_CHECK(traits.find("TraversalWorkspaceView") != std::string::npos);
+  BOOST_CHECK(traits.find("IterationContext") != std::string::npos);
   BOOST_CHECK(traits.find("mTaskArena") != std::string::npos);
 }
 

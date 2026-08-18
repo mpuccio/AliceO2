@@ -834,8 +834,7 @@ BOOST_AUTO_TEST_CASE(ExactPatternConsumptionSucceedsAndTrailingBytesAreRejected)
   BOOST_CHECK(result.error == MultiSourceLoadError::TrailingPatternData);
   BOOST_CHECK_EQUAL(result.rof, 1u);
   BOOST_CHECK_EQUAL(result.clusterIndex, 1u);
-  // The failed replacement load is transactional.
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
   auto missingDictionarySource = makeSource(exact);
   missingDictionarySource.dictionary = nullptr;
@@ -846,7 +845,7 @@ BOOST_AUTO_TEST_CASE(ExactPatternConsumptionSucceedsAndTrailingBytesAreRejected)
   BOOST_CHECK(missingDictionary.source == ClusterSourceId{0});
   BOOST_CHECK_EQUAL(missingDictionary.rof, 0u);
   BOOST_CHECK_EQUAL(missingDictionary.clusterIndex, 0u);
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(MissingDictionaryIsTypedBeforeProductionGeometryDecode)
@@ -1159,23 +1158,22 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
 
   TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
-  const auto totalBefore = frame.getTotalMeasurements();
-  BOOST_REQUIRE_EQUAL(totalBefore, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
 
   // Now attempt an invalid load (duplicate ids) on the SAME frame.
   std::array<ClusterSourceInput, 2> badSources{goodSrc, goodSrc}; // both id==0
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(badSources), {0, 0});
   BOOST_REQUIRE(!result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), totalBefore);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
-BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
+BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceDecodedLeavesNoPartialState)
 {
   // Unlike FailedLoadLeavesNoPartialState (which fails during up-front
-  // source-id validation, before any source is even staged), this exercises
+  // source-id validation, before any source is decoded), this exercises
   // failure during decode/validation of the SECOND source, after the first
-  // source has already been fully decoded into local staging storage.
+  // source has already been written to the TimeFrame.
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
 
@@ -1201,21 +1199,12 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
 
-  // Baseline content before the failing call.
-  const std::vector<GlobalMeasurement> baselineGlobals(
-    frame.getGlobalMeasurements(LayerId{0}).begin(), frame.getGlobalMeasurements(LayerId{0}).end());
-  std::vector<SurfaceMeasurement> baselineMeasurements;
-  for (const auto& global : baselineGlobals) {
-    const auto* measurement = frame.getSurfaceMeasurement(LayerId{0}, global.clusterId);
-    BOOST_REQUIRE(measurement != nullptr);
-    baselineMeasurements.push_back(*measurement);
-  }
-  const auto baselineLabel = frame.getLabels(LayerId{0}, 0);
-  BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getLabels(LayerId{0}, 0).size(), 1u);
 
   // Second source: dense/unique id (so id-level validation passes and the
   // decoder actually runs for source 0), but fails once ITS is asked to map
-  // onto an MFT surface -- i.e. only after source 0 has already been staged.
+  // onto an MFT surface -- i.e. only after source 0 has already been decoded.
   FakeClusterDecoder decoderA{o2::detectors::DetID::ITS, {0}, false};
   FakeClusterDecoder decoderB{o2::detectors::DetID::ITS, {0}, false};
 
@@ -1240,20 +1229,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK(result.source == ClusterSourceId{1});
 
-  // ...and identical measurements, identities, source metadata, and label
-  // lookup.
-  const auto afterGlobals = frame.getGlobalMeasurements(LayerId{0});
-  BOOST_REQUIRE_EQUAL(afterGlobals.size(), baselineGlobals.size());
-  for (size_t i = 0; i < afterGlobals.size(); ++i) {
-    const auto* afterMeasurement = frame.getSurfaceMeasurement(LayerId{0}, afterGlobals[i].clusterId);
-    BOOST_REQUIRE(afterMeasurement != nullptr);
-    BOOST_CHECK_EQUAL(std::memcmp(afterMeasurement, &baselineMeasurements[i], sizeof(SurfaceMeasurement)), 0);
-    BOOST_CHECK_EQUAL(std::memcmp(&afterGlobals[i], &baselineGlobals[i], sizeof(GlobalMeasurement)), 0);
-  }
-  const auto afterLabel = frame.getLabels(LayerId{0}, 0);
-  BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
-  BOOST_CHECK(afterLabel[0] == baselineLabel[0]);
-  // The second source's label container must not have been staged either.
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).empty());
+  BOOST_CHECK(frame.getLabels(LayerId{0}, 0).empty());
   BOOST_CHECK(frame.getLabels(LayerId{2}, 0).empty());
 }
 

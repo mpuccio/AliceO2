@@ -24,6 +24,7 @@
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
@@ -94,7 +95,7 @@ struct RefitFixture {
       seed.getClusters()[layer] = 0;
       mask |= static_cast<uint16_t>(uint16_t(1) << layer);
     }
-    seed.setSurfaceMask(SurfaceMask{mask});
+    seed.setHitLayerMask(LayerMask{mask});
 
     // The native driver starts from the CA seed state.
     const int innerLayer = 0;
@@ -134,8 +135,9 @@ struct RefitFixture {
         measurements[layer] = storage[layer];
       }
     }
-    frame.assignLoadedMeasurements(std::move(globals), std::move(measurements),
-                                   std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
+    detail::TimeFrameLoadAccess::setMeasurements(
+      frame, std::move(globals), std::move(measurements),
+      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
   }
 };
 
@@ -148,7 +150,7 @@ bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 
 void checkTrackUnchanged(const TrackingCandidate& before, const TrackingCandidate& after)
 {
-  BOOST_CHECK_EQUAL(before.seed.getSurfaceMask().value(), after.seed.getSurfaceMask().value());
+  BOOST_CHECK_EQUAL(before.seed.getHitLayerMask().value(), after.seed.getHitLayerMask().value());
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     BOOST_CHECK_EQUAL(before.seed.getCluster(position), after.seed.getCluster(position));
   }
@@ -321,10 +323,10 @@ BOOST_AUTO_TEST_CASE(PreservesSeedMembershipForGenericRefit)
   RefitFixture fx(geometry);
   fx.seed.getClusters()[2] = o2::its::constants::UnusedIndex;
   fx.seed.getClusters()[7] = o2::its::constants::UnusedIndex;
-  SurfaceMask mask = fx.seed.getSurfaceMask();
-  mask.reset(LayerId{2});
-  mask.reset(LayerId{7});
-  fx.seed.setSurfaceMask(mask);
+  LayerMask mask = fx.seed.getHitLayerMask();
+  mask.reset(2);
+  mask.reset(7);
+  fx.seed.setHitLayerMask(mask);
 
   TrackingCandidate track;
   BOOST_REQUIRE(refit(fx, track));
@@ -420,7 +422,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
     seed.getClusters()[layer] = 0;
     mask |= static_cast<uint16_t>(uint16_t(1) << layer);
   }
-  seed.setSurfaceMask(SurfaceMask{mask});
+  seed.setHitLayerMask(LayerMask{mask});
 
   OperationFailureReason seedReason{};
   BOOST_REQUIRE(detail::forward::buildSeed(storage[0][1], storage[NLayers / 2][1],
@@ -440,8 +442,9 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
     measurements[layer] = storage[layer];
   }
   TimeFrame frame;
-  frame.assignLoadedMeasurements(std::move(globals), std::move(measurements),
-                                 std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
+  detail::TimeFrameLoadAccess::setMeasurements(
+    frame, std::move(globals), std::move(measurements),
+    std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
   BOOST_REQUIRE(detail::refitSurfaceSeed(seed, frame, params, Bz, layerGlobals,
                                          catalog, orderedSurfaces, track));
 

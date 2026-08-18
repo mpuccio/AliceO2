@@ -78,15 +78,15 @@ class CATrackerDPL : public o2::framework::Task
     gsl::span<const unsigned char> patterns,
     const o2::dataformats::MCTruthContainer<MCCompLabel>* labels,
     gsl::span<const o2::dataformats::IRFrame> irFrames);
-  void resetEvent() noexcept;
-  bool isActive() const noexcept { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
+  void resetTimeFrame() noexcept;
+  bool isActive() const noexcept { return mTracker != nullptr && mTracker->isConfiguredFor(mFrame); }
   const o2::itsmft::tracking::TimeFrameScratch& getScratch() const noexcept
   {
-    return mFrame.getWorkspace();
+    return mFrame.getScratch();
   }
   o2::itsmft::tracking::TimeFrameScratch& getScratch() noexcept
   {
-    return mFrame.getWorkspace();
+    return mFrame.getScratch();
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;

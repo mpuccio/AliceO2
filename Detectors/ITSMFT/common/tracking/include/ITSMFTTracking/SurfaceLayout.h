@@ -12,7 +12,7 @@
 #include <gsl/span>
 
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 
 namespace o2::itsmft::tracking
 {
@@ -25,42 +25,34 @@ enum class SurfaceLayoutError : uint8_t {
   InvalidSurface,
   DuplicateSurface,
   InvalidComponentBoundary,
-  NegativeMaxHoles,
-  HoleSurfacesOutsideLayout,
-  SeedingSurfacesOutsideLayout
+  HoleLayersOutsideLayout
 };
 
 struct SurfaceLayoutDefinition {
   std::vector<LayerId> orderedSurfaces;
   // First position of each component. Position zero is always required.
   std::vector<uint16_t> componentOffsets{0};
-  int maxHoles{0};
-  SurfaceMask holeSurfaces{};
-  SurfaceMask seedingSurfaces{};
+  LayerMask holeLayers{};
 };
 
 inline SurfaceLayoutDefinition makeSurfaceLayoutChain(gsl::span<const LayerId> orderedSurfaces,
-                                                      int maxHoles = 0,
-                                                      SurfaceMask holeSurfaces = {},
-                                                      SurfaceMask seedingSurfaces = {})
+                                                      LayerMask holeLayers = {})
 {
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  definition.maxHoles = maxHoles;
-  definition.holeSurfaces = holeSurfaces;
-  definition.seedingSurfaces = seedingSurfaces;
+  definition.holeLayers = holeLayers;
   return definition;
 }
 
-// Immutable layout configuration. Runtime-expanded topology belongs to a
-// future TraversalWorkspace; this type intentionally owns no edges, paths,
+// Immutable detector layout. Iteration-expanded topology belongs to the
+// Tracker's IterationConfiguration; this type intentionally owns no edges, paths,
 // adjacency, schedules, or mutable pass state.
 class SurfaceLayout
 {
  public:
   SurfaceLayout() = default;
   SurfaceLayout(gsl::span<const SurfaceDescriptor> catalog, SurfaceLayoutDefinition definition)
-    : mCatalog{catalog.begin(), catalog.end()}, mOrderedSurfaces{std::move(definition.orderedSurfaces)}, mComponentOffsets{std::move(definition.componentOffsets)}, mMaxHoles{definition.maxHoles}, mHoleSurfaces{definition.holeSurfaces}, mSeedingSurfaces{definition.seedingSurfaces}
+    : mCatalog{catalog.begin(), catalog.end()}, mOrderedSurfaces{std::move(definition.orderedSurfaces)}, mComponentOffsets{std::move(definition.componentOffsets)}, mHoleLayers{definition.holeLayers}
   {
     validate();
   }
@@ -69,9 +61,7 @@ class SurfaceLayout
   SurfaceLayoutError getError() const noexcept { return mError; }
   gsl::span<const LayerId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
   gsl::span<const uint16_t> getComponentOffsets() const noexcept { return mComponentOffsets; }
-  int getMaxHoles() const noexcept { return mMaxHoles; }
-  SurfaceMask getHoleSurfaces() const noexcept { return mHoleSurfaces; }
-  SurfaceMask getSeedingSurfaces() const noexcept { return mSeedingSurfaces; }
+  LayerMask getHoleLayers() const noexcept { return mHoleLayers; }
   SurfaceCatalogView getSurfaceCatalog() const noexcept { return {mCatalog.data(), static_cast<uint32_t>(mCatalog.size()), mSurfaceIndexById.data()}; }
 
   bool sameComponent(uint16_t first, uint16_t second) const noexcept
@@ -113,17 +103,17 @@ class SurfaceLayout
       mError = SurfaceLayoutError::EmptyOrder;
       return;
     }
-    SurfaceMask layoutSurfaces;
+    std::array<bool, MaxLayoutSurfaces> orderedSurfaceSeen{};
     for (const auto id : mOrderedSurfaces) {
       if (!id.isValid() || id.value() >= MaxLayoutSurfaces || mSurfaceIndexById[id.value()] == 0xff) {
         mError = SurfaceLayoutError::InvalidSurface;
         return;
       }
-      if (layoutSurfaces.has(id)) {
+      if (orderedSurfaceSeen[id.value()]) {
         mError = SurfaceLayoutError::DuplicateSurface;
         return;
       }
-      layoutSurfaces.set(id);
+      orderedSurfaceSeen[id.value()] = true;
     }
     if (mComponentOffsets.empty() || mComponentOffsets.front() != 0 || mComponentOffsets.back() >= mOrderedSurfaces.size() ||
         !std::is_sorted(mComponentOffsets.begin(), mComponentOffsets.end()) ||
@@ -131,16 +121,8 @@ class SurfaceLayout
       mError = SurfaceLayoutError::InvalidComponentBoundary;
       return;
     }
-    if (mMaxHoles < 0) {
-      mError = SurfaceLayoutError::NegativeMaxHoles;
-      return;
-    }
-    if (!mHoleSurfaces.isSubsetOf(layoutSurfaces)) {
-      mError = SurfaceLayoutError::HoleSurfacesOutsideLayout;
-      return;
-    }
-    if (!mSeedingSurfaces.isSubsetOf(layoutSurfaces)) {
-      mError = SurfaceLayoutError::SeedingSurfacesOutsideLayout;
+    if (!mHoleLayers.isSubsetOf(LayerMask::span(0, static_cast<int>(mOrderedSurfaces.size()) - 1))) {
+      mError = SurfaceLayoutError::HoleLayersOutsideLayout;
       return;
     }
     mError = SurfaceLayoutError::None;
@@ -149,9 +131,7 @@ class SurfaceLayout
   std::vector<SurfaceDescriptor> mCatalog;
   std::vector<LayerId> mOrderedSurfaces;
   std::vector<uint16_t> mComponentOffsets;
-  int mMaxHoles{0};
-  SurfaceMask mHoleSurfaces{};
-  SurfaceMask mSeedingSurfaces{};
+  LayerMask mHoleLayers{};
   std::array<uint8_t, MaxLayoutSurfaces> mSurfaceIndexById{};
   SurfaceLayoutError mError{SurfaceLayoutError::EmptyCatalog};
 };

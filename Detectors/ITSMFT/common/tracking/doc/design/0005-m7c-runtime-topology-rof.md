@@ -62,7 +62,7 @@ test were deleted. Traversal now follows this sequence:
 4. CA stages read the sparse transitions, cells, neighbours, scheduled cells,
    and road starts through the existing layout/binding views. No numeric
    `SurfaceId` range is interpreted as a traversal order.
-5. `TrackSeed::SurfaceMask` records compact plan positions. A mask bit is not
+5. `TrackSeed::LayerMask` records compact plan positions. A mask bit is not
    a global or detector-layer identity.
 
 There is no second sparse topology in `SurfaceTrackingScratch`, and no

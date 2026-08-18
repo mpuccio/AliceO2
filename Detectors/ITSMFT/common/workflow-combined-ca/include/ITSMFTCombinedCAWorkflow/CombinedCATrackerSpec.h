@@ -65,7 +65,7 @@ class CombinedCATrackerDPL : public o2::framework::Task
   void buildParticipantsOnce();
 
   // Composes the atomic load and, once that has committed, the tracking phase
-  // into a whole-event all-or-nothing contract. Any non-success -- a load
+  // into a whole-TimeFrame all-or-nothing contract. Any non-success -- a load
   // failure, a non-Success tracking outcome, or an exception from tracking
   // -- performs exactly one whole reset and leaves the
   // workflow-owned publication/timing state invalidated. A successful return
@@ -88,8 +88,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getITSPublicationExport() const;
   std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getMFTPublicationExport() const;
 
-  const o2::itsmft::tracking::TimeFrameScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(); }
-  const o2::itsmft::tracking::TimeFrameScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(); }
+  const o2::itsmft::tracking::TimeFrameScratch& getITSScratch() const noexcept { return mFrame.getScratch(); }
+  const o2::itsmft::tracking::TimeFrameScratch& getMFTScratch() const noexcept { return mFrame.getScratch(); }
   const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -100,17 +100,17 @@ class CombinedCATrackerDPL : public o2::framework::Task
   }
   gsl::span<const o2::itsmft::tracking::LayerId> getITSOrderedSurfaces() const noexcept
   {
-    if (mFrame.getNIterations() == 0) {
+    if (mTracker == nullptr || !mTracker->isConfiguredFor(mFrame)) {
       return {};
     }
-    return mFrame.getLayout(0).getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
+    return mFrame.getLayout().getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
   }
   gsl::span<const o2::itsmft::tracking::LayerId> getMFTOrderedSurfaces() const noexcept
   {
-    if (mFrame.getNIterations() == 0) {
+    if (mTracker == nullptr || !mTracker->isConfiguredFor(mFrame)) {
       return {};
     }
-    return mFrame.getLayout(0).getOrderedSurfaces().subspan(
+    return mFrame.getLayout().getOrderedSurfaces().subspan(
       o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
   }
 

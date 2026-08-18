@@ -39,9 +39,7 @@ BOOST_AUTO_TEST_CASE(ValidOrderedLayoutProvidesValidatedCatalog)
 {
   const auto surfaces = catalog(4);
   auto definition = ordered(4);
-  definition.maxHoles = 1;
-  definition.holeSurfaces.set(LayerId{1});
-  definition.seedingSurfaces.set(LayerId{2});
+  definition.holeLayers.set(1);
   const SurfaceLayout layout{surfaces, definition};
   BOOST_REQUIRE(layout.valid());
   BOOST_CHECK_EQUAL(layout.getOrderedSurfaces().size(), 4u);
@@ -78,15 +76,12 @@ BOOST_AUTO_TEST_CASE(RejectsInvalidSurfacesAndBoundaries)
   BOOST_CHECK((SurfaceLayout{surfaces, repeated}.getError() == SurfaceLayoutError::InvalidComponentBoundary));
 }
 
-BOOST_AUTO_TEST_CASE(PoliciesMustBeSubsetsOfTheLayout)
+BOOST_AUTO_TEST_CASE(HolesMustBeASubsetOfTheLayout)
 {
   const auto surfaces = catalog(3);
   auto holes = ordered(3);
-  holes.holeSurfaces.set(LayerId{7});
-  BOOST_CHECK((SurfaceLayout{surfaces, holes}.getError() == SurfaceLayoutError::HoleSurfacesOutsideLayout));
-  auto seeds = ordered(3);
-  seeds.seedingSurfaces.set(LayerId{7});
-  BOOST_CHECK((SurfaceLayout{surfaces, seeds}.getError() == SurfaceLayoutError::SeedingSurfacesOutsideLayout));
+  holes.holeLayers.set(7);
+  BOOST_CHECK((SurfaceLayout{surfaces, holes}.getError() == SurfaceLayoutError::HoleLayersOutsideLayout));
 }
 
 BOOST_AUTO_TEST_CASE(LayoutHasNoStaticExpandedTopology)

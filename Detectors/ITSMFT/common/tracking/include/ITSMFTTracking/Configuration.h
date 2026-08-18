@@ -35,7 +35,7 @@
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"
 
@@ -70,34 +70,46 @@ static_assert(static_cast<uint16_t>(IterationStep::MarkVerticesAsUPC) == 6);
 static_assert(static_cast<uint16_t>(IterationStep::TrackFollowerTop) == 7);
 static_assert(static_cast<uint16_t>(IterationStep::TrackFollowerBot) == 8);
 
-struct TrackingParameters {
-  int CellMinimumLevel() const noexcept
+// Parameters that may change from one tracking pass to the next.
+struct IterationParameters {
+  tracking::LayerMask getActiveLayerMask() const noexcept
+  {
+    return tracking::LayerMask::span(0, NLayers - 1) & ~InactiveLayerMask;
+  }
+
+  tracking::LayerMask getSeedingLayerMask() const noexcept
+  {
+    const auto activeLayers = getActiveLayerMask();
+    return SeedingLayers.empty() ? activeLayers : (SeedingLayers & activeLayers);
+  }
+
+  tracking::LayerMask getNonSeedingLayerMask() const noexcept
+  {
+    return tracking::LayerMask::span(0, NLayers - 1) & ~getSeedingLayerMask();
+  }
+
+  int getNSeedingLayers() const noexcept
+  {
+    return getSeedingLayerMask().count();
+  }
+
+  int getMinSeedingClusters() const noexcept
   {
     const int minClusters = MinTrackLength - (MaxHoles > 0 ? MaxHoles : 0);
-    const int effectiveMinClusters = minClusters > ClustersPerCell ? minClusters : ClustersPerCell;
-    return effectiveMinClusters - ClustersPerCell + 1;
+    const int minClustersWithCells = minClusters > ClustersPerCell ? minClusters : ClustersPerCell;
+    const int nSeedingLayers = getNSeedingLayers();
+    return minClustersWithCells < nSeedingLayers ? minClustersWithCells : nSeedingLayers;
   }
-  // Compatibility accessors for frozen ITStracking/GPU consumers; the common
-  // runtime derives its road start level from TimeFrameScratch.
-  int NeighboursPerRoad() const noexcept { return NLayers - 3; }
-  int CellsPerRoad() const noexcept { return NLayers - 2; }
-  int TrackletsPerRoad() const noexcept { return NLayers - 1; }
-  std::string asString() const;
 
+  int CellMinimumLevel() const noexcept
+  {
+    return getMinSeedingClusters() - ClustersPerCell + 1;
+  }
+  int NeighboursPerRoad() const noexcept { return getNSeedingLayers() - 3; }
+  int CellsPerRoad() const noexcept { return getNSeedingLayers() - 2; }
+  int TrackletsPerRoad() const noexcept { return getNSeedingLayers() - 1; }
   IterationSteps PassFlags{IterationStep::FirstPass, IterationStep::RebuildClusterLUT};
   int NLayers = tracking::ITSNLayers;
-  std::vector<uint32_t> AddTimeError = {0, 0, 0, 0, 0, 0, 0};
-  std::vector<float> LayerZ{tracking::kITSLookupZHalfExtent.begin(), tracking::kITSLookupZHalfExtent.end()};
-  std::vector<float> LayerColHalfExtent{}; // Index-table column half extent (ITS z, MFT global x); falls back to LayerZ.
-  float IndexRowMin{0.f};                  // Index-table row minimum (MFT global y); unused for ITS phi-z.
-  float IndexRowMax{0.f};                  // Index-table row maximum (MFT global y); 0 means TwoPI for ITS.
-  std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
-  std::vector<float> LayerxX0{tracking::kNominalITSLayerX0.begin(), tracking::kNominalITSLayerX0.end()};
-  std::vector<float> LayerResolution = {5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f};
-  std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic row error squared per layer (ALPIDE X).
-  std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic column error squared per layer (ALPIDE Z).
-  int ColBins{256};                                                       // ITS: ZBins
-  int RowBins{128};                                                       // ITS: PhiBins
   bool UseDiamond = false;
   float Diamond[3] = {0.f, 0.f, 0.f};
   float DiamondCov[6] = {25.e-6f, 0.f, 0.f, 25.e-6f, 0.f, 36.f};
@@ -105,9 +117,9 @@ struct TrackingParameters {
   /// General parameters
   int MinTrackLength = 7;
   int MaxHoles = 0;
-  tracking::LayerMask HoleLayerMask = 0;
   // Positional static-graph surfaces disabled for this tracking pass.
   tracking::LayerMask InactiveLayerMask = 0;
+  // Positional layers used to build tracklets, cells, and roads. Empty means all active layers.
   tracking::LayerMask SeedingLayers = 0;
   float NSigmaCut = 5;
   float PVres = 1.e-2f;
@@ -143,6 +155,26 @@ struct TrackingParameters {
   int SharedMaxClusters = 0;              // Maximum shared clusters, excluding the first.
 };
 
+// Detector inputs accepted by the configuration interface. Tracker consumes
+// these once to construct DetectorConfiguration; they are not retained in the
+// per-iteration configuration.
+struct TrackingParameters : public IterationParameters {
+  std::vector<uint32_t> AddTimeError = {0, 0, 0, 0, 0, 0, 0};
+  std::vector<float> LayerZ{tracking::kITSLookupZHalfExtent.begin(), tracking::kITSLookupZHalfExtent.end()};
+  std::vector<float> LayerColHalfExtent{}; // Index-table column half extent (ITS z, MFT global x); falls back to LayerZ.
+  float IndexRowMin{0.f};                  // Index-table row minimum (MFT global y); unused for ITS phi-z.
+  float IndexRowMax{0.f};                  // Index-table row maximum (MFT global y); 0 means TwoPI for ITS.
+  std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
+  std::vector<float> LayerxX0{tracking::kNominalITSLayerX0.begin(), tracking::kNominalITSLayerX0.end()};
+  std::vector<float> LayerResolution = {5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f};
+  std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic row error squared per layer (ALPIDE X).
+  std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic column error squared per layer (ALPIDE Z).
+  int ColBins{256};                                                       // ITS: ZBins
+  int RowBins{128};                                                       // ITS: PhiBins
+
+  std::string asString() const;
+};
+
 #ifndef GPUCA_GPUCODE
 
 inline bool isRecognizedMatCorrType(o2::base::PropagatorF::MatCorrType corrType) noexcept
@@ -173,7 +205,7 @@ struct AttachHitConfigView {
 };
 
 inline AttachHitConfigView bindAttachHitConfig(gsl::span<const tracking::NominalSurfaceMaterial> layerMaterial,
-                                               const TrackingParameters& params) noexcept
+                                               const IterationParameters& params) noexcept
 {
   return {layerMaterial, params.CorrType};
 }

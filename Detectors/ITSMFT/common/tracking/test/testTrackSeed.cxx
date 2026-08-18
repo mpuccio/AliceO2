@@ -44,7 +44,7 @@ SurfaceKinematicState makeDistinctState(SurfaceKind family)
 BOOST_AUTO_TEST_CASE(CapacityIsExactlyMaxLayoutSurfaces)
 {
   // The one existing generic compile-time capacity constant this library
-  // already uses to bound every owned-surface position (SurfaceMask,
+  // already uses to bound every owned-surface position (LayerMask,
   // the retired topology owner -- IdTypes.h). TrackSeed
   // reuses it rather than inventing a new one.
   static_assert(TrackSeed::MaxSurfaces == static_cast<int>(MaxLayoutSurfaces));
@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE(ConstructionFromCellCopiesStateAndMetadataCompletely)
   BOOST_CHECK_EQUAL(seed.getTimeStamp().getTimeStampError(), cell.getTimeStamp().getTimeStampError());
   BOOST_CHECK_EQUAL(seed.getFirstTrackletIndex(), cell.getFirstTrackletIndex());
   BOOST_CHECK_EQUAL(seed.getSecondTrackletIndex(), cell.getSecondTrackletIndex());
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 3);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), 3);
   BOOST_CHECK_EQUAL(seed.getCluster(innerLayer), cell.getFirstClusterIndex());
   BOOST_CHECK_EQUAL(seed.getCluster(innerLayer + 1), cell.getSecondClusterIndex());
   BOOST_CHECK_EQUAL(seed.getCluster(innerLayer + 2), cell.getThirdClusterIndex());
@@ -104,18 +104,18 @@ BOOST_AUTO_TEST_CASE(ConstructionFromCellCopiesStateAndMetadataCompletely)
 BOOST_AUTO_TEST_CASE(SupportsHolesAndAllActiveSlotsAtFullCapacity)
 {
   TrackSeed seed{};
-  SurfaceMask mask;
+  LayerMask mask;
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     if (position % 2 == 0) {
       seed.setCluster(position, position * 10);
-      mask.set(LayerId{static_cast<uint16_t>(position)});
+      mask.set(static_cast<uint16_t>(position));
     } else {
       seed.setCluster(position, o2::its::constants::UnusedIndex); // explicit hole
     }
   }
-  seed.setSurfaceMask(mask);
+  seed.setHitLayerMask(mask);
 
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), TrackSeed::MaxSurfaces / 2);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), TrackSeed::MaxSurfaces / 2);
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     if (position % 2 == 0) {
       BOOST_CHECK(seed.hasCluster(position));
@@ -128,13 +128,13 @@ BOOST_AUTO_TEST_CASE(SupportsHolesAndAllActiveSlotsAtFullCapacity)
 
   // All MaxSurfaces positions active at once (no holes): the full-capacity
   // boundary itself, not just "some slots".
-  SurfaceMask full;
+  LayerMask full;
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     seed.setCluster(position, position);
-    full.set(LayerId{static_cast<uint16_t>(position)});
+    full.set(static_cast<uint16_t>(position));
   }
-  seed.setSurfaceMask(full);
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), TrackSeed::MaxSurfaces);
+  seed.setHitLayerMask(full);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), TrackSeed::MaxSurfaces);
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     BOOST_CHECK(seed.hasCluster(position));
     BOOST_CHECK_EQUAL(seed.getCluster(position), position);
@@ -174,13 +174,13 @@ BOOST_AUTO_TEST_CASE(SlotAccessorsReturnUnusedIndexBeyondActiveCount)
   BOOST_CHECK_EQUAL(seed.getFirstClusterIndex(), 100);
   BOOST_CHECK_EQUAL(seed.getSecondClusterIndex(), 200);
   BOOST_CHECK_EQUAL(seed.getThirdClusterIndex(), 300);
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 3);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), 3);
 
   // An empty seed (no active slots at all) safely returns UnusedIndex for
   // every requested slot rather than reading past an empty mask.
   TrackSeed empty{};
   BOOST_CHECK_EQUAL(empty.getFirstClusterIndex(), o2::its::constants::UnusedIndex);
-  BOOST_CHECK_EQUAL(empty.getActiveSurfaceCount(), 0);
+  BOOST_CHECK_EQUAL(empty.getActiveLayerCount(), 0);
 }
 
 // --- getQOverPt: same raw-signed-value convention as CellSeed -------------

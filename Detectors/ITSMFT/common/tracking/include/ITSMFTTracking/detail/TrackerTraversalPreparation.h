@@ -31,13 +31,6 @@ struct DiskLayerScatteringInputs {
 float cylinderLayerMultipleScatteringAngle(const CylinderLayerScatteringInputs& inputs, float trackletMinPt);
 float diskLayerMultipleScatteringAngle(const DiskLayerScatteringInputs& inputs, float trackletMinPt);
 
-struct DiskReferenceCoordinateView {
-  gsl::span<const float> perLayerReferenceZ;
-  bool isValid(size_t expectedLayers) const noexcept { return perLayerReferenceZ.size() >= expectedLayers; }
-};
-
-DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept;
-
 float clampEdgeCurvature(float oneOverR, float outerRadius) noexcept;
 
 struct EdgeScatteringBendingPrep {

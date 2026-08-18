@@ -2,6 +2,7 @@
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 
 #include "ITSMFTTracking/TraversalTopology.h"
+#include "ITSMFTTracking/Configuration.h"
 
 #include <algorithm>
 #include <limits>
@@ -19,17 +20,14 @@ uint16_t componentForPosition(gsl::span<const uint16_t> componentOffsets, uint16
   return static_cast<uint16_t>(std::distance(componentOffsets.begin(), upper) - 1);
 }
 
-SurfaceMask skippedBetween(gsl::span<const LayerId> orderedSurfaces, uint16_t fromPosition, uint16_t toPosition) noexcept
+LayerMask skippedBetween(uint16_t fromPosition, uint16_t toPosition) noexcept
 {
-  SurfaceMask skipped;
-  for (uint16_t position = fromPosition + 1; position < toPosition; ++position) {
-    skipped.set(orderedSurfaces[position]);
-  }
-  return skipped;
+  return LayerMask::skipped(fromPosition, toPosition);
 }
 } // namespace
 
-TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout, SurfaceMask disabledSurfaces)
+TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout,
+                                                     const o2::itsmft::IterationParameters& parameters)
 {
   TraversalTopologyBuildResult result;
   if (!layout.valid()) {
@@ -38,23 +36,25 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
   }
 
   const auto orderedSurfaces = layout.getOrderedSurfaces();
-  SurfaceMask layoutSurfaces;
-  for (const auto surface : orderedSurfaces) {
-    layoutSurfaces.set(surface);
-  }
-  if (!disabledSurfaces.isSubsetOf(layoutSurfaces)) {
-    result.error = TraversalTopologyError::DisabledSurfaceOutsideLayout;
+  if (parameters.NLayers != 0 && parameters.NLayers != orderedSurfaces.size()) {
+    result.error = TraversalTopologyError::LayerCountMismatch;
     return result;
   }
+  if (parameters.MaxHoles < 0) {
+    result.error = TraversalTopologyError::NegativeMaxHoles;
+    return result;
+  }
+  const auto seedingLayers = parameters.SeedingLayers;
+  const auto roadStartLayers = parameters.StartLayerMask;
+  const auto disabledLayers = parameters.InactiveLayerMask;
 
   TraversalTopology topology;
   topology.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  topology.seedingSurfaces = layout.getSeedingSurfaces();
   topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
   for (uint16_t position = 0; position < orderedSurfaces.size(); ++position) {
     topology.surfacePositionById[orderedSurfaces[position].value()] = static_cast<int16_t>(position);
-    if (!disabledSurfaces.has(orderedSurfaces[position])) {
-      topology.activeSurfaces.set(orderedSurfaces[position]);
+    if (!disabledLayers.has(position)) {
+      topology.activeLayers.set(position);
       topology.activeSurfaceList.push_back(orderedSurfaces[position]);
     }
   }
@@ -62,25 +62,25 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
     result.error = TraversalTopologyError::NoActiveSurfaces;
     return result;
   }
+  topology.seedingLayers = seedingLayers.empty() ? topology.activeLayers : (seedingLayers & topology.activeLayers);
 
   const auto componentOffsets = layout.getComponentOffsets();
-  const auto holeSurfaces = layout.getHoleSurfaces();
-  const auto maxHoles = layout.getMaxHoles();
+  const auto holeLayers = layout.getHoleLayers();
   const auto componentOf = [componentOffsets](uint16_t position) {
     return componentForPosition(componentOffsets, position);
   };
 
   for (uint16_t fromPosition = 0; fromPosition + 1 < orderedSurfaces.size(); ++fromPosition) {
-    if (!topology.activeSurfaces.has(orderedSurfaces[fromPosition])) {
+    if (!topology.seedingLayers.has(fromPosition)) {
       continue;
     }
     for (uint16_t toPosition = fromPosition + 1; toPosition < orderedSurfaces.size(); ++toPosition) {
-      if (!topology.activeSurfaces.has(orderedSurfaces[toPosition]) ||
+      if (!topology.seedingLayers.has(toPosition) ||
           componentOf(fromPosition) != componentOf(toPosition)) {
         continue;
       }
-      const auto skipped = skippedBetween(orderedSurfaces, fromPosition, toPosition);
-      if (skipped.count() > maxHoles || !skipped.isSubsetOf(holeSurfaces)) {
+      const auto skipped = skippedBetween(fromPosition, toPosition) & topology.seedingLayers;
+      if (skipped.count() > parameters.MaxHoles || !skipped.isSubsetOf(holeLayers)) {
         continue;
       }
       if (topology.edges.size() >= MaxLayoutEdges) {
@@ -102,9 +102,10 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
       const auto firstTo = topology.surfacePositionById[firstEdge.to.value()];
       const auto secondFrom = topology.surfacePositionById[secondEdge.from.value()];
       const auto secondTo = topology.surfacePositionById[secondEdge.to.value()];
-      const auto skipped = skippedBetween(orderedSurfaces, static_cast<uint16_t>(firstFrom), static_cast<uint16_t>(firstTo)) |
-                           skippedBetween(orderedSurfaces, static_cast<uint16_t>(secondFrom), static_cast<uint16_t>(secondTo));
-      if (skipped.count() > maxHoles || !skipped.isSubsetOf(holeSurfaces)) {
+      const auto skipped = (skippedBetween(static_cast<uint16_t>(firstFrom), static_cast<uint16_t>(firstTo)) |
+                            skippedBetween(static_cast<uint16_t>(secondFrom), static_cast<uint16_t>(secondTo))) &
+                           topology.seedingLayers;
+      if (skipped.count() > parameters.MaxHoles || !skipped.isSubsetOf(holeLayers)) {
         continue;
       }
       if (topology.paths.size() >= MaxLayoutPaths) {
@@ -144,7 +145,7 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
   topology.roadStartPaths.reserve(topology.paths.size());
   for (const auto path : topology.scheduledPaths) {
     const auto target = topology.edges[topology.paths[path.value()].second.value()].to;
-    if (layout.getSeedingSurfaces().has(target)) {
+    if (roadStartLayers.has(topology.surfacePositionById[target.value()])) {
       topology.roadStartPaths.push_back(path);
     }
   }

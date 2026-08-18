@@ -23,11 +23,12 @@
 #include "TraversalTestSupport.h"
 
 using namespace o2::itsmft::tracking;
+using o2::itsmft::IterationParameters;
 using o2::itsmft::TrackingParameters;
 
 namespace
 {
-bool noopSeedRefit(const TrackSeed&, const TimeFrame&, const TrackingParameters&, float,
+bool noopSeedRefit(const TrackSeed&, const TimeFrame&, const IterationParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
 {
@@ -54,7 +55,9 @@ std::vector<SurfaceDescriptor> catalog(size_t count, SurfaceKind kind, o2::detec
   result.reserve(count);
   for (uint16_t id = 0; id < count; ++id) {
     const float xOverX0 = nominalXOverX0(detector, id);
-    SurfaceDescriptor descriptor{LayerId{id}, id, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(id + 1), 0.f, 100.f};
+    SurfaceDescriptor descriptor{LayerId{id}, id, static_cast<uint8_t>(detector), kind};
+    descriptor.referenceCoordinate = static_cast<float>(id + 1);
+    descriptor.chartRange = {0.f, 100.f};
     descriptor.material.xOverX0 = xOverX0;
     descriptor.material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
     result.push_back(descriptor);
@@ -71,19 +74,13 @@ TrackingParameters parameters(o2::detectors::DetID::ID detector)
 
 void configure(TimeFrame& frame, Tracker& tracker, const std::shared_ptr<BoundedMemoryResource>& pool,
                gsl::span<const SurfaceDescriptor> surfaces, gsl::span<const LayerId> ordered,
-               const std::vector<TrackingParameters>& parameters)
+               const std::vector<TrackingParameters>& parameters, LayerMask holeLayers = {})
 {
   TrackerInitialization configuration;
   configuration.catalog = {surfaces.data(), static_cast<uint32_t>(surfaces.size())};
   configuration.memoryPool = pool;
-  for (const auto& params : parameters) {
-    TrackerIterationConfiguration iteration;
-    iteration.layout = makeSurfaceLayoutChain(ordered, params.MaxHoles,
-                                              positionalSurfaceMask(params.HoleLayerMask, ordered, params.NLayers),
-                                              positionalSurfaceMask(params.StartLayerMask, ordered, params.NLayers));
-    iteration.parameters = params;
-    configuration.iterations.push_back(std::move(iteration));
-  }
+  configuration.layout = makeSurfaceLayoutChain(ordered, holeLayers);
+  configuration.parameters = parameters;
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
 }
 } // namespace
@@ -100,9 +97,9 @@ BOOST_AUTO_TEST_CASE(surfaceLayoutsRejectInvalidDefinitions)
   BOOST_CHECK(!invalidSurface.valid());
   BOOST_CHECK_EQUAL(static_cast<int>(invalidSurface.getError()), static_cast<int>(SurfaceLayoutError::InvalidSurface));
 
-  const auto invalidHoleLayout = SurfaceLayout{catalogSpan, makeSurfaceLayoutChain(ordered, -1)};
+  const auto invalidHoleLayout = SurfaceLayout{catalogSpan, makeSurfaceLayoutChain(ordered, LayerMask{1u << 7})};
   BOOST_CHECK(!invalidHoleLayout.valid());
-  BOOST_CHECK_EQUAL(static_cast<int>(invalidHoleLayout.getError()), static_cast<int>(SurfaceLayoutError::NegativeMaxHoles));
+  BOOST_CHECK_EQUAL(static_cast<int>(invalidHoleLayout.getError()), static_cast<int>(SurfaceLayoutError::HoleLayersOutsideLayout));
 }
 
 BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_topology)
@@ -111,16 +108,13 @@ BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_topology)
   auto params = parameters(o2::detectors::DetID::ITS);
   params.NLayers = 7;
   params.MaxHoles = 1;
-  params.HoleLayerMask = uint16_t{1} << 1;
   params.StartLayerMask = (uint16_t{1} << 0) | (uint16_t{1} << 4);
   const auto surfaces = catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS);
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
   const auto layout = SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
-                                    makeSurfaceLayoutChain(ordered, params.MaxHoles,
-                                                           positionalSurfaceMask(params.HoleLayerMask, ordered, params.NLayers),
-                                                           positionalSurfaceMask(params.StartLayerMask, ordered, params.NLayers))};
+                                    makeSurfaceLayoutChain(ordered, LayerMask{1u << 1})};
   BOOST_REQUIRE(layout.valid());
-  const auto result = deriveTraversalTopology(layout);
+  const auto result = deriveTraversalTopology(layout, params);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.orderedSurfaces.size(), 7u);
@@ -140,20 +134,17 @@ BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iterati
   auto first = parameters(o2::detectors::DetID::MFT);
   auto second = first;
   second.MaxHoles = 1;
-  second.HoleLayerMask = uint16_t{1} << 3;
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
-  configure(frame, tracker, pool, surfaces, ordered, {first, second});
+  configure(frame, tracker, pool, surfaces, ordered, {first, second}, LayerMask{1u << 3});
 
-  auto& workspace = frame.getWorkspace();
-  BOOST_CHECK_EQUAL(frame.getNIterations(), 2u);
-  BOOST_CHECK(!workspace.getTraversalWorkspace(0).valid);
-  BOOST_CHECK(!workspace.getTraversalWorkspace(1).valid);
-  BOOST_CHECK_NE(&workspace.getTraversalWorkspace(0), &workspace.getTraversalWorkspace(1));
-  TrackerTestAccess::preparePlan(tracker, workspace.getTraversalWorkspace(0), frame.getLayout(0));
-  TrackerTestAccess::preparePlan(tracker, workspace.getTraversalWorkspace(1), frame.getLayout(1));
-  BOOST_CHECK_NE(workspace.getTraversalWorkspace(0).getTopologyView().nEdges,
-                 workspace.getTraversalWorkspace(1).getTopologyView().nEdges);
+  auto& scratch = frame.getScratch();
+  BOOST_CHECK_EQUAL(tracker.getIterationConfigurations().size(), 2u);
+  BOOST_CHECK(!scratch.getIteration(0).valid);
+  BOOST_CHECK(!scratch.getIteration(1).valid);
+  BOOST_CHECK_NE(&scratch.getIteration(0), &scratch.getIteration(1));
+  BOOST_CHECK_NE(tracker.getIterationConfigurations()[0].topology.edges.size(),
+                 tracker.getIterationConfigurations()[1].topology.edges.size());
 }
 
 BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)
@@ -165,11 +156,10 @@ BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
-  TrackerTestAccess::preparePlan(tracker, workspace, frame.getLayout(0));
-  BOOST_CHECK_EQUAL(workspace.orderedSurfaces.size(), 10u);
+  const auto& configuration = tracker.getIterationConfigurations()[0];
+  BOOST_CHECK_EQUAL(configuration.topology.orderedSurfaces.size(), 10u);
   for (size_t position = 0; position < ordered.size(); ++position) {
-    BOOST_CHECK_EQUAL(workspace.orderedSurfaces[position].value(), ordered[position].value());
+    BOOST_CHECK_EQUAL(configuration.topology.orderedSurfaces[position].value(), ordered[position].value());
   }
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
@@ -184,8 +174,7 @@ BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_workspace_plan)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
-  TrackerTestAccess::preparePlan(tracker, workspace, frame.getLayout(0));
-  BOOST_CHECK(workspace.roadStartCells.empty());
+  const auto& configuration = tracker.getIterationConfigurations()[0];
+  BOOST_CHECK(configuration.topology.roadStartPaths.empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
 }

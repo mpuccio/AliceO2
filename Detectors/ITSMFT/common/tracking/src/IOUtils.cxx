@@ -5,13 +5,14 @@
 #include "ITSMFTTracking/IOUtils.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <limits>
 #include <vector>
 
-#include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "MFTBase/GeometryTGeo.h"
@@ -120,53 +121,91 @@ template o2::itsmft::tracking::ClusterDecodeResult decodeCluster<o2::detectors::
 namespace o2::itsmft::tracking
 {
 
+namespace
+{
+class FailedTimeFrameLoadGuard
+{
+ public:
+  explicit FailedTimeFrameLoadGuard(TimeFrame& frame) noexcept : mFrame{&frame} {}
+  ~FailedTimeFrameLoadGuard()
+  {
+    if (mFrame != nullptr) {
+      mFrame->resetTimeFrame();
+    }
+  }
+  void release() noexcept { mFrame = nullptr; }
+
+ private:
+  TimeFrame* mFrame;
+};
+
+void clearFrameAndSidecars(TimeFrame& frame,
+                           std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                           std::vector<std::vector<uint32_t>>* clusterSizesBySurface) noexcept
+{
+  frame.resetTimeFrame();
+  if (externalIndicesBySurface != nullptr) {
+    externalIndicesBySurface->clear();
+  }
+  if (clusterSizesBySurface != nullptr) {
+    clusterSizesBySurface->clear();
+  }
+}
+
+LoadSourcesResult decodeSources(TimeFrame& frame, const SurfaceCatalogView& catalog,
+                                gsl::span<const ClusterSourceInput> sources,
+                                const o2::InteractionRecord& origin,
+                                std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                                std::vector<std::vector<uint32_t>>* clusterSizesBySurface);
+} // namespace
+
 LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const ClusterSourceInput> sources,
                                        SurfaceCatalogView catalog, const o2::InteractionRecord& origin,
                                        std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
                                        std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
+  clearFrameAndSidecars(frame, externalIndicesBySurface, clusterSizesBySurface);
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
-  // Stage all source measurements before committing the event.
-  TimeFrame stagedMeasurements;
-  stagedMeasurements.resetBeamXY(frame.getBeamX(), frame.getBeamY());
-  std::vector<std::vector<uint32_t>> stagedExternalIndices;
-  std::vector<std::vector<uint32_t>> stagedClusterSizes;
-  const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin,
-                                      &stagedExternalIndices, &stagedClusterSizes);
+  if (sources.empty()) {
+    return {MultiSourceLoadError::OtherMalformedInput};
+  }
+  FailedTimeFrameLoadGuard failedLoad{frame};
+  std::vector<std::vector<uint32_t>> loadedExternalIndices;
+  std::vector<std::vector<uint32_t>> loadedClusterSizes;
+  const auto loadResult = decodeSources(frame, catalog, sources, origin,
+                                        &loadedExternalIndices, &loadedClusterSizes);
   if (!loadResult.ok()) {
     return loadResult;
   }
 
-  if (frame.getNIterations() == 0) {
-    return {MultiSourceLoadError::FrameNotConfigured};
-  }
-  const auto layout = frame.getLayout(0);
+  const auto& layout = frame.getLayout();
   const auto orderedSurfaces = layout.getOrderedSurfaces();
   if (orderedSurfaces.empty()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
-  SurfaceMask configuredSurfaces;
+  std::array<bool, MaxLayoutSurfaces> configuredSurfaces{};
   for (const auto surface : orderedSurfaces) {
-    configuredSurfaces.set(surface);
+    configuredSurfaces[surface.value()] = true;
   }
-  SurfaceMask mappedSurfaces;
+  std::array<bool, MaxLayoutSurfaces> mappedSurfaces{};
   for (const auto& source : sources) {
     for (const auto surface : source.layerToSurface) {
-      if (!surface.isValid() || mappedSurfaces.has(surface) || !configuredSurfaces.has(surface)) {
+      if (!surface.isValid() || surface.value() >= MaxLayoutSurfaces ||
+          mappedSurfaces[surface.value()] || !configuredSurfaces[surface.value()]) {
         return {MultiSourceLoadError::InvalidLayerMapping, source.id};
       }
       if (catalog.getSurface(surface).detectorId != static_cast<uint8_t>(source.detector)) {
         return {MultiSourceLoadError::DetectorSurfaceMismatch, source.id};
       }
-      mappedSurfaces.set(surface);
+      mappedSurfaces[surface.value()] = true;
     }
   }
   if (mappedSurfaces != configuredSurfaces) {
     // Attribute an omitted surface only when one source owns its detector.
     for (const auto surface : orderedSurfaces) {
-      if (mappedSurfaces.has(surface)) {
+      if (mappedSurfaces[surface.value()]) {
         continue;
       }
       ClusterSourceId owner;
@@ -206,7 +245,7 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
       return {MultiSourceLoadError::InvalidLayerMapping};
     }
 
-    const auto globals = stagedMeasurements.getGlobalMeasurements(surface);
+    const auto globals = frame.getGlobalMeasurements(surface);
     auto& boundaries = rofBoundaries[position];
     boundaries.assign(owner->rofs.size() + 1, 0);
     std::size_t measurement = 0;
@@ -215,12 +254,12 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
       const auto endEntry = firstEntry + static_cast<uint32_t>(owner->rofs[rof].getNEntries());
       while (measurement < globals.size()) {
         const auto clusterId = globals[measurement].clusterId;
-        if (surface.value() >= stagedExternalIndices.size() ||
-            clusterId >= stagedExternalIndices[surface.value()].size()) {
+        if (surface.value() >= loadedExternalIndices.size() ||
+            clusterId >= loadedExternalIndices[surface.value()].size()) {
           return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
                   static_cast<uint32_t>(rof), clusterId};
         }
-        const auto externalIndex = stagedExternalIndices[surface.value()][clusterId];
+        const auto externalIndex = loadedExternalIndices[surface.value()][clusterId];
         if (externalIndex >= endEntry) {
           break;
         }
@@ -239,17 +278,15 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     localLayerBySurface[position] = localLayer;
   }
 
-  stagedMeasurements.assignLoadedEventNavigation(std::move(rofBoundaries), sources.front().rofViews,
-                                                 std::move(viewsBySurface), std::move(localLayerBySurface));
-  if (!frame.commitLoadedEvent(stagedMeasurements)) {
-    return {MultiSourceLoadError::OtherMalformedInput};
-  }
+  detail::TimeFrameLoadAccess::setNavigation(frame, std::move(rofBoundaries), sources.front().rofViews,
+                                             std::move(viewsBySurface), std::move(localLayerBySurface));
   if (externalIndicesBySurface != nullptr) {
-    *externalIndicesBySurface = std::move(stagedExternalIndices);
+    *externalIndicesBySurface = std::move(loadedExternalIndices);
   }
   if (clusterSizesBySurface != nullptr) {
-    *clusterSizesBySurface = std::move(stagedClusterSizes);
+    *clusterSizesBySurface = std::move(loadedClusterSizes);
   }
+  failedLoad.release();
   return {};
 }
 
@@ -272,9 +309,11 @@ LoadSourcesResult loadTimeFrameSource(
 {
   constexpr ClusterSourceId sourceId{0};
   if (detector != o2::detectors::DetID::ITS && detector != o2::detectors::DetID::MFT) {
+    clearFrameAndSidecars(frame, externalIndicesBySurface, clusterSizesBySurface);
     return {MultiSourceLoadError::UnsupportedDetector, sourceId};
   }
   if (catalog.surfaces == nullptr || catalog.nSurfaces == 0) {
+    clearFrameAndSidecars(frame, externalIndicesBySurface, clusterSizesBySurface);
     return {MultiSourceLoadError::SurfaceCatalogNotConfigured, sourceId};
   }
   ClusterSourceInput source;
@@ -380,12 +419,14 @@ MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
 }
 } // namespace
 
-LoadSourcesResult loadSources(TimeFrame& frame,
-                              const SurfaceCatalogView& catalog,
-                              gsl::span<const ClusterSourceInput> sources,
-                              const o2::InteractionRecord& origin,
-                              std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
-                              std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
+namespace
+{
+LoadSourcesResult decodeSources(TimeFrame& frame,
+                                const SurfaceCatalogView& catalog,
+                                gsl::span<const ClusterSourceInput> sources,
+                                const o2::InteractionRecord& origin,
+                                std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                                std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   const auto nSources = static_cast<uint32_t>(sources.size());
 
@@ -422,10 +463,11 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     }
   }
 
-  std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
-  std::vector<std::vector<SurfaceMeasurement>> perSurfaceMeasurements(catalog.nSurfaces);
+  detail::TimeFrameLoadAccess::prepareMeasurements(frame, catalog.nSurfaces);
+  auto& perSurfaceGlobal = detail::TimeFrameLoadAccess::globalMeasurements(frame);
+  auto& perSurfaceMeasurements = detail::TimeFrameLoadAccess::surfaceMeasurements(frame);
+  auto& perSurfaceLabels = detail::TimeFrameLoadAccess::clusterLabels(frame);
   std::vector<std::vector<uint32_t>> perSurfaceClusterSizes(catalog.nSurfaces);
-  std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>> perSurfaceLabels(catalog.nSurfaces);
   std::vector<std::vector<uint32_t>> stagedExternalIndices(catalog.nSurfaces);
   bool hasMCInformation = false;
 
@@ -514,8 +556,7 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     }
   }
 
-  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurfaceMeasurements),
-                                 std::move(perSurfaceLabels), hasMCInformation);
+  detail::TimeFrameLoadAccess::finishMeasurements(frame, hasMCInformation);
   if (externalIndicesBySurface != nullptr) {
     *externalIndicesBySurface = std::move(stagedExternalIndices);
   }
@@ -523,6 +564,23 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     *clusterSizesBySurface = std::move(perSurfaceClusterSizes);
   }
   return {};
+}
+} // namespace
+
+LoadSourcesResult loadSources(TimeFrame& frame, const SurfaceCatalogView& catalog,
+                              gsl::span<const ClusterSourceInput> sources,
+                              const o2::InteractionRecord& origin,
+                              std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
+                              std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
+{
+  clearFrameAndSidecars(frame, externalIndicesBySurface, clusterSizesBySurface);
+  FailedTimeFrameLoadGuard failedLoad{frame};
+  const auto result = decodeSources(frame, catalog, sources, origin,
+                                    externalIndicesBySurface, clusterSizesBySurface);
+  if (result.ok()) {
+    failedLoad.release();
+  }
+  return result;
 }
 
 namespace

@@ -130,6 +130,9 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "src/Tracker.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "adapter-edge NLayers/active-surface validation"};
   }
+  if (relative == "src/TraversalTopology.cxx") {
+    return ResidualClassification{ResidualKind::AdapterCompatibility, "iteration configuration layer-count validation"};
+  }
   if (relative == "include/ITSMFTTracking/detail/DetectorPublicationAdapter.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "typed publication sidecar adapter"};
   }
@@ -317,14 +320,14 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityAuthoritiesRemainExplicit)
   const auto root = trackingRoot();
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
   const auto scratch = readFile(root / "include/ITSMFTTracking/detail/TimeFrameScratch.h");
-  const auto workspace = readFile(root / "include/ITSMFTTracking/detail/TimeFrameScratch.h");
+  const auto configuration = readFile(root / "include/ITSMFTTracking/IterationConfiguration.h");
   const auto tracker = readFile(root / "src/Tracker.cxx");
   const auto seed = readFile(root / "include/ITSMFTTracking/Cell.h");
-  BOOST_CHECK(traits.find("context.workspace.orderedSurfaces") != std::string::npos);
-  BOOST_CHECK(scratch.find("getNOwnedSurfaces()") != std::string::npos);
-  BOOST_CHECK(workspace.find("getSurfaceSlot") != std::string::npos);
-  BOOST_CHECK(workspace.find("std::vector<EdgeId> edges") != std::string::npos);
-  BOOST_CHECK(tracker.find("buildTraversalPlan") != std::string::npos);
+  BOOST_CHECK(traits.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(scratch.find("getNOwnedSurfaces()") == std::string::npos);
+  BOOST_CHECK(configuration.find("getSurfaceSlot") != std::string::npos);
+  BOOST_CHECK(configuration.find("std::vector<EdgeId> edges") != std::string::npos);
+  BOOST_CHECK(tracker.find("deriveTraversalTopology") != std::string::npos);
   BOOST_CHECK(seed.find("MaxLayoutSurfaces") != std::string::npos);
   BOOST_CHECK(seed.find("class CellSeed") != std::string::npos);
 }

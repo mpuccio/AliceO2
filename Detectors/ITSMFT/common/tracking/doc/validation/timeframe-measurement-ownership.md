@@ -1,13 +1,9 @@
 # TimeFrame measurement ownership
 
-`TimeFrame` owns per-surface event measurements and non-owning MC-label lookup
-pointers. Per-surface measurement access returns non-owning spans directly over
-the owning vectors. `loadTimeFrameSources()` decodes into a non-movable staged
-`TimeFrame` and swaps only its measurement payload after workspace backfill
-succeeds. Source ROF identity remains in each measurement's `sourceROF` and
-`ClusterRef`; the application retains the raw ROFs and timing tables. Detector
-identity remains input validation provenance; tracking dispatch uses surface
-kind.
+Status: historical validation. The current loader resets and fills the
+configured TimeFrame directly; failures leave it empty. TimeFrame still owns
+its per-surface measurements, while adapters retain raw inputs, publication
+sidecars, and the storage behind non-owning timing views.
 
 The reusable macro-off build completed after the follow-up correction. Its
 serial ITS/MFT CTest gate passed 87/87 tests (split into 44 and 43 tests only

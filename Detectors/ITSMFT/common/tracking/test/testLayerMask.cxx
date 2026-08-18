@@ -14,7 +14,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <boost/test/unit_test.hpp>
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 
 /// Baseline characterization of o2::itsmft::tracking::LayerMask (Wave 0).
 /// These tests record the *current* behavior of the shared 16-bit mask

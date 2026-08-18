@@ -11,6 +11,7 @@
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/GenericTrack.h"
+#include "ITSMFTTracking/IterationConfiguration.h"
 #include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/Constants.h"
@@ -19,12 +20,13 @@ namespace o2::itsmft::tracking::detail
 {
 
 inline void configureITSBeamPosition(TimeFrame& frame,
-                                     const TrackingParameters& params,
+                                     const IterationParameters& params,
+                                     const DetectorConfiguration& detector,
                                      const o2::dataformats::MeanVertexObject* meanVertex,
                                      bool overrideBeamEstimation)
 {
-  const float systErrY2 = params.SystError2Row.empty() ? 0.f : params.SystError2Row[0];
-  const float layerRes = params.LayerResolution.empty() ? 0.f : params.LayerResolution[0];
+  const float systErrY2 = detector.systError2Row.empty() ? 0.f : detector.systError2Row[0];
+  const float layerRes = detector.layerResolution.empty() ? 0.f : detector.layerResolution[0];
   if (overrideBeamEstimation && meanVertex != nullptr) {
     frame.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
   } else if (params.UseDiamond) {
@@ -32,10 +34,11 @@ inline void configureITSBeamPosition(TimeFrame& frame,
   }
 }
 
-inline void configureMFTBeamPosition(TimeFrame& frame, const TrackingParameters& params)
+inline void configureMFTBeamPosition(TimeFrame& frame, const IterationParameters& params,
+                                     const DetectorConfiguration& detector)
 {
-  const float systErrY2 = params.SystError2Row.empty() ? 0.f : params.SystError2Row[0];
-  const float layerRes = params.LayerResolution.empty() ? 0.f : params.LayerResolution[0];
+  const float systErrY2 = detector.systError2Row.empty() ? 0.f : detector.systError2Row[0];
+  const float layerRes = detector.layerResolution.empty() ? 0.f : detector.layerResolution[0];
   frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
 }
 
@@ -61,7 +64,7 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 
 inline bool refitSurfaceSeed(const TrackSeed& seed,
                              const TimeFrame& frame,
-                             const TrackingParameters& params,
+                             const IterationParameters& params,
                              float bz,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              SurfaceCatalogView surfaceCatalog,

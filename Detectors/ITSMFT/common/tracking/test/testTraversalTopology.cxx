@@ -10,11 +10,13 @@
 #include <type_traits>
 #include <vector>
 
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
+using o2::itsmft::TrackingParameters;
 
 std::vector<SurfaceDescriptor> catalog(uint16_t count)
 {
@@ -28,17 +30,13 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count)
 
 SurfaceLayout makeLayout(std::vector<LayerId> ordered,
                          std::vector<uint16_t> componentOffsets = {0},
-                         int maxHoles = 0,
-                         SurfaceMask holeSurfaces = {},
-                         SurfaceMask seedingSurfaces = {})
+                         LayerMask holeLayers = {})
 {
   const auto surfaces = catalog(static_cast<uint16_t>(std::max<uint16_t>(4, ordered.size())));
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = std::move(ordered);
   definition.componentOffsets = std::move(componentOffsets);
-  definition.maxHoles = maxHoles;
-  definition.holeSurfaces = holeSurfaces;
-  definition.seedingSurfaces = seedingSurfaces;
+  definition.holeLayers = holeLayers;
   return SurfaceLayout{surfaces, std::move(definition)};
 }
 
@@ -52,12 +50,29 @@ std::vector<LayerId> chain(std::initializer_list<uint16_t> ids)
   return result;
 }
 
-SurfaceMask mask(std::initializer_list<uint16_t> ids)
+LayerMask mask(std::initializer_list<uint16_t> ids)
 {
-  SurfaceMask result;
+  LayerMask result;
   for (const auto id : ids) {
-    result.set(LayerId{id});
+    result.set(id);
   }
+  return result;
+}
+
+LayerMask layerMask(std::initializer_list<uint16_t> positions)
+{
+  LayerMask result;
+  for (const auto position : positions) {
+    result.set(position);
+  }
+  return result;
+}
+
+TrackingParameters parametersFor(const SurfaceLayout& layout)
+{
+  TrackingParameters result;
+  result.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  result.StartLayerMask = LayerMask::span(0, result.NLayers - 1);
   return result;
 }
 
@@ -93,7 +108,7 @@ BOOST_AUTO_TEST_CASE(EdgeContainsOnlySurfaceEndpoints)
 BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
 {
   const auto layout = makeLayout(chain({0, 1, 2, 3}), {0, 2});
-  const auto result = deriveTraversalTopology(layout);
+  const auto result = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.topology->edges.size(), 2u);
   BOOST_CHECK(findEdge(*result.topology, LayerId{1}, LayerId{2}) == nullptr);
@@ -102,7 +117,7 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
 BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
 {
   const auto layout = makeLayout(chain({0, 1, 2, 3}));
-  const auto result = deriveTraversalTopology(layout);
+  const auto result = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.orderedSurfaces.size(), 4u);
@@ -121,10 +136,50 @@ BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
   BOOST_CHECK(topology.paths[1].second == EdgeId{2});
 }
 
+BOOST_AUTO_TEST_CASE(SeedingLayersBuildTheGraphWhileStartLayersOnlySelectRoadStarts)
+{
+  const auto layout = makeLayout(chain({0, 1, 2, 3, 4}));
+  const auto seeding = mask({0, 2, 4});
+  auto outerStartParameters = parametersFor(layout);
+  outerStartParameters.SeedingLayers = layerMask({0, 2, 4});
+  outerStartParameters.StartLayerMask = layerMask({4});
+  const auto startsAtOuterSurface = deriveTraversalTopology(
+    layout, outerStartParameters);
+  BOOST_REQUIRE(startsAtOuterSurface.ok());
+  const auto& topology = *startsAtOuterSurface.topology;
+  BOOST_CHECK(topology.seedingLayers == seeding);
+  BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 5u);
+  BOOST_REQUIRE_EQUAL(topology.edges.size(), 2u);
+  BOOST_CHECK(findEdge(topology, LayerId{0}, LayerId{2}) != nullptr);
+  BOOST_CHECK(findEdge(topology, LayerId{2}, LayerId{4}) != nullptr);
+  BOOST_REQUIRE_EQUAL(topology.paths.size(), 1u);
+  BOOST_REQUIRE_EQUAL(topology.roadStartPaths.size(), 1u);
+
+  auto middleStartParameters = outerStartParameters;
+  middleStartParameters.StartLayerMask = layerMask({2});
+  const auto startsAtMiddleSurface = deriveTraversalTopology(
+    layout, middleStartParameters);
+  BOOST_REQUIRE(startsAtMiddleSurface.ok());
+  BOOST_REQUIRE_EQUAL(startsAtMiddleSurface.topology->edges.size(), topology.edges.size());
+  BOOST_REQUIRE_EQUAL(startsAtMiddleSurface.topology->paths.size(), topology.paths.size());
+  for (std::size_t i = 0; i < topology.edges.size(); ++i) {
+    BOOST_CHECK(startsAtMiddleSurface.topology->edges[i].from == topology.edges[i].from);
+    BOOST_CHECK(startsAtMiddleSurface.topology->edges[i].to == topology.edges[i].to);
+  }
+  for (std::size_t i = 0; i < topology.paths.size(); ++i) {
+    BOOST_CHECK(startsAtMiddleSurface.topology->paths[i].first == topology.paths[i].first);
+    BOOST_CHECK(startsAtMiddleSurface.topology->paths[i].second == topology.paths[i].second);
+  }
+  BOOST_CHECK(startsAtMiddleSurface.topology->roadStartPaths.empty());
+}
+
 BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, 1, mask({1}));
-  const auto result = deriveTraversalTopology(layout, mask({1}));
+  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, mask({1}));
+  auto parameters = parametersFor(layout);
+  parameters.MaxHoles = 1;
+  parameters.InactiveLayerMask = layerMask({1});
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 3u);
@@ -141,8 +196,11 @@ BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
 
 BOOST_AUTO_TEST_CASE(DisabledEndpointOmitsItsEdges)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, 1, mask({1}));
-  const auto result = deriveTraversalTopology(layout, mask({0}));
+  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, mask({1}));
+  auto parameters = parametersFor(layout);
+  parameters.MaxHoles = 1;
+  parameters.InactiveLayerMask = layerMask({0});
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   for (const auto& edge : result.topology->edges) {
     BOOST_CHECK(edge.from != LayerId{0});
@@ -154,13 +212,15 @@ BOOST_AUTO_TEST_CASE(DisabledEndpointOmitsItsEdges)
 BOOST_AUTO_TEST_CASE(InvalidDerivationIsTransactional)
 {
   const auto layout = makeLayout(chain({0, 1, 2, 3}));
-  const auto result = deriveTraversalTopology(layout, mask({7}));
+  auto parameters = parametersFor(layout);
+  parameters.NLayers = 7;
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(!result.topology.has_value());
-  BOOST_CHECK(result.error == TraversalTopologyError::DisabledSurfaceOutsideLayout);
+  BOOST_CHECK(result.error == TraversalTopologyError::LayerCountMismatch);
 
   SurfaceLayout invalid;
-  const auto invalidResult = deriveTraversalTopology(invalid);
+  const auto invalidResult = deriveTraversalTopology(invalid, TrackingParameters{});
   BOOST_CHECK(!invalidResult.ok());
   BOOST_CHECK(!invalidResult.topology.has_value());
   BOOST_CHECK(invalidResult.error == TraversalTopologyError::InvalidLayout);

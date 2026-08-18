@@ -20,6 +20,7 @@
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -76,7 +77,7 @@ struct MixedRefitFixture {
       seed.getClusters()[position] = 0;
     }
     refreshFrame();
-    seed.setSurfaceMask(SurfaceMask{0x7});
+    seed.setHitLayerMask(LayerMask{0x7});
     auto& state = seed.state();
     state.parameters[0] = 1.25f;
     state.parameters[1] = -0.75f;
@@ -104,8 +105,9 @@ struct MixedRefitFixture {
       globalsBySurface[position] = globalsStorage[position];
       measurementsBySurface[position] = measurementsStorage[position];
     }
-    frame.assignLoadedMeasurements(std::move(globalsBySurface), std::move(measurementsBySurface),
-                                   std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(3), false);
+    detail::TimeFrameLoadAccess::setMeasurements(
+      frame, std::move(globalsBySurface), std::move(measurementsBySurface),
+      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(3), false);
   }
 
   SurfaceCatalogView catalog() { return {surfaces.data(), static_cast<uint32_t>(surfaces.size())}; }
@@ -161,7 +163,7 @@ BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
   TrackingCandidate result;
   result.genericTrackIndex = 7;
   result.seed.state().parameters[4] = -0.25f;
-  result.seed.setSurfaceMask(SurfaceMask{0x02a5});
+  result.seed.setHitLayerMask(LayerMask{0x02a5});
 
   std::vector<TrackingCandidate> results{result};
   MFTPublicationCompatibility sidecar;
@@ -182,7 +184,7 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   TrackSeed seed;
   seed.state().kind = SurfaceKind::Undefined;
   seed.state().parameters[4] = 0.2f;
-  seed.setSurfaceMask(SurfaceMask{0x007f});
+  seed.setHitLayerMask(LayerMask{0x007f});
 
   TrackingCandidate candidate;
   o2::itsmft::TrackingParameters params;
@@ -214,7 +216,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
     BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.frame, fixture.parameters, 0.5f,
                                           fixture.globals, fixture.catalog(), fixture.ordered, candidate));
     BOOST_CHECK_EQUAL(candidate.track.chi2, before.track.chi2);
-    BOOST_CHECK_EQUAL(candidate.seed.getSurfaceMask().value(), before.seed.getSurfaceMask().value());
+    BOOST_CHECK_EQUAL(candidate.seed.getHitLayerMask().value(), before.seed.getHitLayerMask().value());
   };
 
   {

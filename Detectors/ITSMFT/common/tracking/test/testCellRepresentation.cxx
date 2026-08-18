@@ -126,14 +126,14 @@ BOOST_AUTO_TEST_CASE(TrackSeedUsesOneFixedCapacity)
   static_assert(TrackSeed::MaxSurfaces == static_cast<int>(MaxLayoutSurfaces));
 
   TrackSeed seed;
-  SurfaceMask mask;
-  mask.set(LayerId{static_cast<uint16_t>(TrackSeed::MaxSurfaces - 1)});
-  seed.setSurfaceMask(mask);
+  LayerMask mask;
+  mask.set(static_cast<uint16_t>(TrackSeed::MaxSurfaces - 1));
+  seed.setHitLayerMask(mask);
   seed.setCluster(TrackSeed::MaxSurfaces - 1, 42);
 
   BOOST_CHECK(seed.hasCluster(TrackSeed::MaxSurfaces - 1));
   BOOST_CHECK_EQUAL(seed.getCluster(TrackSeed::MaxSurfaces - 1), 42);
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 1);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), 1);
   BOOST_CHECK_EQUAL(seed.getCluster(TrackSeed::MaxSurfaces), o2::its::constants::UnusedIndex);
 
   seed.setCluster(TrackSeed::MaxSurfaces, 99);

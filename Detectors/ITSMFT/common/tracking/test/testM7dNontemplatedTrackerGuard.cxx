@@ -47,7 +47,6 @@ concept HasParametersByKindMember = requires(T value) { value.parametersByKind; 
 template <typename T>
 concept HasParametersByKindAccessor = requires(const T& value) { value.getTrackingParametersByKind(); };
 
-static_assert(!HasParametersByKindMember<TrackerIterationConfiguration>);
 static_assert(!HasParametersByKindAccessor<TimeFrame>);
 
 std::string readFile(const std::filesystem::path& path)
@@ -99,7 +98,7 @@ std::filesystem::path trackingRoot()
 
 bool noopSeedRefit(const TrackSeed&,
                    const TimeFrame&,
-                   const o2::itsmft::TrackingParameters&,
+                   const o2::itsmft::IterationParameters&,
                    float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    SurfaceCatalogView,
@@ -152,8 +151,9 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   std::vector<SurfaceDescriptor> catalog;
   catalog.reserve(12);
   for (uint16_t id = 0; id < 12; ++id) {
-    SurfaceDescriptor surface{LayerId{id}, id, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk,
-                              0, static_cast<float>(id + 1), 0.f, 100.f};
+    SurfaceDescriptor surface{LayerId{id}, id, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    surface.referenceCoordinate = static_cast<float>(id + 1);
+    surface.chartRange = {0.f, 100.f};
     const auto position = std::find(orderedIds.begin(), orderedIds.end(), id);
     if (position != orderedIds.end()) {
       const auto layer = static_cast<std::size_t>(position - orderedIds.begin());
@@ -167,7 +167,6 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   o2::itsmft::resetDetectorDefaults(parameters, o2::detectors::DetID::MFT);
   parameters.NLayers = 4;
   parameters.StartLayerMask = 0x0f;
-  parameters.HoleLayerMask = 0;
   parameters.MaxHoles = 0;
   for (std::size_t position = 0; position < orderedIds.size(); ++position) {
     parameters.LayerxX0[position] = catalog[orderedIds[position]].material.xOverX0;
@@ -180,34 +179,28 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   TrackerInitialization configuration;
   configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = pool;
-  TrackerIterationConfiguration iteration;
-  iteration.layout = makeSurfaceLayoutChain(ordered, parameters.MaxHoles,
-                                            positionalSurfaceMask(parameters.HoleLayerMask, ordered, ordered.size()),
-                                            positionalSurfaceMask(parameters.StartLayerMask, ordered, ordered.size()));
-  iteration.parameters = parameters;
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.layout = makeSurfaceLayoutChain(ordered);
+  configuration.parameters.push_back(parameters);
   const auto configured = tracker.initialize(frame, configuration);
   BOOST_REQUIRE(configured.ok());
 
-  const auto& layout = frame.getLayout(0);
-  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
-  TrackerTestAccess::preparePlan(tracker, workspace, layout);
-  const auto topology = workspace.getTopologyView();
+  const auto& layout = frame.getLayout();
+  const auto topology = tracker.getIterationConfigurations()[0].getTopologyView(layout.getSurfaceCatalog());
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), 4u);
+  BOOST_REQUIRE_EQUAL(tracker.getIterationConfigurations()[0].topology.orderedSurfaces.size(), 4u);
   BOOST_CHECK(topology.orderedSurfaces[0] == LayerId{1});
   BOOST_CHECK(topology.orderedSurfaces[2] == LayerId{7});
 
   TrackSeed seed;
-  SurfaceMask activePositions;
+  LayerMask activePositions;
   for (uint16_t position = 0; position < ordered.size(); ++position) {
-    activePositions.set(LayerId{position});
+    activePositions.set(position);
     seed.setCluster(position, static_cast<int>(100 + position));
   }
-  seed.setSurfaceMask(activePositions);
-  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 4);
+  seed.setHitLayerMask(activePositions);
+  BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), 4);
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
   // Static layout configuration retains the sparse, non-identity order. The

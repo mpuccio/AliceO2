@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
+using o2::itsmft::TrackingParameters;
 
 std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 {
@@ -49,12 +51,14 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogDerivesDisconnectedHoleTopology)
   const auto mft = ordered(ITSNLayers, MFTNLayers);
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mft.begin(), mft.end());
   definition.componentOffsets = {0, ITSNLayers};
-  definition.maxHoles = 1;
-  definition.holeSurfaces.set(LayerId{3});
-  definition.holeSurfaces.set(LayerId{static_cast<uint16_t>(ITSNLayers + 5)});
+  definition.holeLayers.set(3);
+  definition.holeLayers.set(static_cast<uint16_t>(ITSNLayers + 5));
 
   const auto layout = SurfaceLayout{kITSMFTCombinedStaticSurfaceCatalog, std::move(definition)};
-  const auto result = deriveTraversalTopology(layout);
+  TrackingParameters parameters;
+  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  parameters.MaxHoles = 1;
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.edges.size(), 17u);

@@ -23,9 +23,14 @@ namespace
 {
 std::vector<SurfaceDescriptor> makeCatalog()
 {
-  return {SurfaceDescriptor{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{LayerId{1}, 1, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{LayerId{2}, 2, 0, SurfaceKind::Cylinder}};
+  std::vector<SurfaceDescriptor> catalog;
+  for (uint16_t layer = 0; layer < 3; ++layer) {
+    SurfaceDescriptor descriptor{LayerId{layer}, layer, 0, SurfaceKind::Cylinder};
+    descriptor.referenceCoordinate = static_cast<float>(layer + 1);
+    descriptor.chartRange = {-10.f, 10.f};
+    catalog.push_back(descriptor);
+  }
+  return catalog;
 }
 
 TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& catalog,
@@ -35,14 +40,18 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = std::move(pool);
-  for (const auto [holes, seeds] : {std::pair{uint32_t{1u << 1}, uint32_t{1u << 2}},
-                                    std::pair{uint32_t{1u << 2}, uint32_t{1u << 0}}}) {
-    TrackerIterationConfiguration iteration;
+  configuration.layout = makeSurfaceLayoutChain(ordered, LayerMask{1u << 1});
+  for (const auto seeds : {uint32_t{1u << 2}, uint32_t{1u << 0}}) {
     TrackingParameters parameters;
-    parameters.NLayers = 0;
-    iteration.layout = makeSurfaceLayoutChain(ordered, 1, SurfaceMask{holes}, SurfaceMask{seeds});
-    iteration.parameters = parameters;
-    configuration.iterations.push_back(std::move(iteration));
+    parameters.NLayers = 3;
+    parameters.LayerxX0.assign(3, 0.f);
+    parameters.LayerRadii = {1.f, 2.f, 3.f};
+    parameters.LayerResolution.assign(3, 0.001f);
+    parameters.SystError2Row.assign(3, 0.f);
+    parameters.SystError2Col.assign(3, 0.f);
+    parameters.MaxHoles = 1;
+    parameters.StartLayerMask = seeds;
+    configuration.parameters.push_back(parameters);
   }
   return configuration;
 }
@@ -67,29 +76,31 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
                                                                            << " layout=" << static_cast<int>(initialResult.layoutError));
   BOOST_REQUIRE(frame.isConfigured());
-  BOOST_REQUIRE_EQUAL(frame.getNIterations(), 2u);
-  BOOST_CHECK(frame.getLayout(0).getOrderedSurfaces()[0] == LayerId{2});
-  BOOST_CHECK(frame.getLayout(1).getOrderedSurfaces()[0] == LayerId{2});
-  BOOST_CHECK(frame.getLayout(0).getSeedingSurfaces().has(LayerId{2}));
-  BOOST_CHECK(frame.getLayout(1).getSeedingSurfaces().has(LayerId{0}));
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
-  BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(0).valid);
-  BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(1).valid);
-  const auto* oldLayout = &frame.getLayout(0);
+  BOOST_REQUIRE(tracker.isConfiguredFor(frame));
+  BOOST_REQUIRE_EQUAL(tracker.getIterationConfigurations().size(), 2u);
+  BOOST_CHECK(frame.getLayout().getOrderedSurfaces()[0] == LayerId{2});
+  BOOST_CHECK(tracker.getIterationConfigurations()[0].parameters.StartLayerMask.has(2));
+  BOOST_CHECK(tracker.getIterationConfigurations()[1].parameters.StartLayerMask.has(0));
+  BOOST_CHECK(!frame.getScratch().getIteration(0).valid);
+  BOOST_CHECK(!frame.getScratch().getIteration(1).valid);
+  const auto* oldLayout = &frame.getLayout();
   const auto* oldPool = frame.getMemoryPool().get();
 
   TrackerInitialization invalid;
   invalid.catalog = configuration.catalog;
   invalid.memoryPool = std::make_shared<BoundedMemoryResource>();
-  invalid.iterations.push_back(TrackerIterationConfiguration{});
+  invalid.parameters.push_back(TrackingParameters{});
   BOOST_CHECK(!tracker.initialize(frame, invalid).ok());
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(&frame.getLayout(0) == oldLayout);
+  BOOST_CHECK(tracker.isConfiguredFor(frame));
+  BOOST_CHECK(&frame.getLayout() == oldLayout);
   BOOST_CHECK(frame.getMemoryPool().get() == oldPool);
 
-  auto replacement = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
+  const auto replacementPool = std::make_shared<BoundedMemoryResource>();
+  auto replacement = makeConfiguration(catalog, replacementPool);
   BOOST_REQUIRE(tracker.initialize(frame, replacement).ok());
-  BOOST_CHECK(&frame.getLayout(0) != oldLayout);
+  BOOST_CHECK(&frame.getLayout() == oldLayout);
+  BOOST_CHECK(frame.getMemoryPool().get() == replacementPool.get());
 }
 
 BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
@@ -101,14 +112,13 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
   const auto initialResult = tracker.initialize(frame, configuration);
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
                                                                            << " layout=" << static_cast<int>(initialResult.layoutError));
-  const auto* layout = &frame.getLayout(0);
-  const auto capacity = *frame.getWorkspaceCapacity(0);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
+  const auto* layout = &frame.getLayout();
+  const auto cellCapacity = frame.getScratch().getNCells();
   frame.getGenericTracks().push_back(GenericTrack{});
   frame.resetTimeFrame();
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(&frame.getLayout(0) == layout);
-  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, capacity.cells);
+  BOOST_CHECK(&frame.getLayout() == layout);
+  BOOST_CHECK_EQUAL(frame.getScratch().getNCells(), cellCapacity);
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
 

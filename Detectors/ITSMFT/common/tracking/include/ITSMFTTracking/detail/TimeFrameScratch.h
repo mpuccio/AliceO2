@@ -28,78 +28,29 @@
 #include <gsl/gsl>
 
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GenericTrack.h"
-#include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITSMFTTracking/TrackingPrimitives.h"
-#include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
-#include <optional>
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
 {
 
-// Per-iteration derived traversal state. The TimeFrame workspace owns this
-// storage; Tracker builds a short-lived view for a traversal call.
-struct TraversalWorkspace {
-  TrackingKernelParameters kernelParameters{};
-  AttachHitConfigView attachHitConfig{};
-  std::vector<NominalSurfaceMaterial> layerMaterial;
-  std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurements;
-  std::vector<float> diskLayerReferenceZ;
-  gsl::span<const float> diskLayerReferenceZView{};
+// Frame-specific state retained for one tracking iteration. Immutable graph
+// and kernel instructions belong to Tracker::IterationConfiguration.
+struct IterationScratch {
   o2::its::bounded_vector<TrackingCandidate> acceptedTracks;
-  // Per-pass traversal plan. The graph remains immutable configuration; the
-  // tracker derives this selected topology and its compact scratch mapping.
-  SurfaceMask activeSurfaces{};
-  std::vector<LayerId> orderedSurfaces;
-  std::vector<int16_t> surfaceSlotById;
-  std::vector<int16_t> edgeSlotById;
-  std::vector<int16_t> cellSlotById;
-  std::vector<EdgeId> edges;
-  std::vector<CellPathId> cells;
-  std::vector<CellPathId> roadStartCells;
-  std::vector<uint32_t> roadStartComponentOffsets;
-  std::vector<CellPathId> scheduledCells;
-  SurfaceCatalogView topologyCatalog{};
-  TraversalTopology topology;
   bool valid{false};
-
-  std::optional<uint16_t> getSurfaceSlot(LayerId id) const noexcept;
-  std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept;
-  std::optional<uint16_t> getCellSlot(CellPathId id) const noexcept;
-  TraversalTopologyView getTopologyView() const noexcept { return topology.getView(topologyCatalog); }
 
   void reset(std::pmr::memory_resource* resource) noexcept
   {
-    kernelParameters = {};
-    attachHitConfig = {};
-    layerMaterial.clear();
-    layerGlobalMeasurements.clear();
-    diskLayerReferenceZ.clear();
-    diskLayerReferenceZView = {};
     o2::its::deepVectorClear(acceptedTracks, resource);
-    activeSurfaces = {};
-    orderedSurfaces = {};
-    surfaceSlotById.clear();
-    edgeSlotById.clear();
-    cellSlotById.clear();
-    edges.clear();
-    cells.clear();
-    roadStartCells.clear();
-    roadStartComponentOffsets.clear();
-    scheduledCells.clear();
-    topologyCatalog = {};
-    topology = {};
     valid = false;
   }
 };
 
-/// Detector-neutral CA state rebuilt for each tracking iteration.
+/// Detector-neutral CA state rebuilt for each tracking iteration. Operations
+/// receive scalar sizes and spans; this type never depends on TimeFrame.
 class TimeFrameScratch
 {
  private:
@@ -114,14 +65,20 @@ class TimeFrameScratch
   TimeFrameScratch(TimeFrameScratch&&) = delete;
   TimeFrameScratch& operator=(TimeFrameScratch&&) = delete;
 
-  /// Size surface, edge and cell storage; setMemoryPool() comes first.
-  void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells);
-  void configureTraversalWorkspaces(std::size_t nIterations);
-  TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) { return mTraversalWorkspaces.at(iteration); }
-  const TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) const { return mTraversalWorkspaces.at(iteration); }
-  std::size_t getNTraversalWorkspaces() const noexcept { return mTraversalWorkspaces.size(); }
+  /// Size reusable edge and cell storage; setMemoryPool() comes first.
+  void configureStorage(std::size_t nEdges, std::size_t nCells);
+  void beginIteration(std::size_t nEdges, std::size_t nCells,
+                      gsl::span<const std::size_t> trackletLookupSizes);
+  IterationScratch& getIteration(std::size_t iteration)
+  {
+    if (iteration >= mIterations.size()) {
+      mIterations.resize(iteration + 1);
+    }
+    return mIterations[iteration];
+  }
+  const IterationScratch& getIteration(std::size_t iteration) const { return mIterations.at(iteration); }
+  std::size_t getNMaterializedIterations() const noexcept { return mIterations.size(); }
 
-  std::size_t getNOwnedSurfaces() const noexcept { return mNOwnedSurfaces; }
   std::size_t getNEdges() const noexcept { return mNEdges; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
@@ -135,22 +92,8 @@ class TimeFrameScratch
   float getEdgeMSAngle(int edgeId) const { return mEdgeMSAngles[edgeId]; }
   auto& getEdgePhiCuts() { return mEdgePhiCuts; }
   auto& getEdgeMSAngles() { return mEdgeMSAngles; }
-  float getPositionResolution(int layer) const { return mPositionResolution[layer]; }
-  auto& getPositionResolutions() { return mPositionResolution; }
-
   auto& getTrackletsLabel(int layer) { return mTrackletLabels[layer]; }
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
-
-  void initialise(TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
-                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                  gsl::span<const LayerId> orderedSurfaces,
-                  gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
-  void initialise(TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
-                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                  gsl::span<const LayerId> orderedSurfaces,
-                  gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 
   auto& getTracklets() { return mTracklets; }
   auto& getTrackletsLookupTable() { return mTrackletsLookupTable; }
@@ -167,7 +110,6 @@ class TimeFrameScratch
   size_t getNumberOfNeighbours() const;
 
   // ---- Per-iteration surface and CA construction state ----
-  o2::its::bounded_vector<float> mPositionResolution;
   std::vector<o2::its::bounded_vector<Tracklet>> mTracklets;
   std::vector<o2::its::bounded_vector<int>> mTrackletsLookupTable;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mTrackletLabels;
@@ -179,10 +121,9 @@ class TimeFrameScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursTopology;
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
-  std::vector<TraversalWorkspace> mTraversalWorkspaces;
+  std::vector<IterationScratch> mIterations;
 
  private:
-  std::size_t mNOwnedSurfaces{0};
   std::size_t mNEdges{0};
   std::size_t mNCells{0};
 };

@@ -32,6 +32,7 @@ namespace fs = std::filesystem;
 namespace
 {
 using namespace o2::itsmft::tracking;
+using o2::itsmft::TrackingParameters;
 
 std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 {
@@ -79,16 +80,17 @@ struct SyntheticChain {
   }
   static SurfaceLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
   {
-    SurfaceMask seed;
-    seed.set(LayerId{static_cast<uint16_t>(surfaces.size() - 1)});
     const auto orderedSurfaces = ordered(0, static_cast<uint16_t>(surfaces.size()));
     return SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
-                         makeSurfaceLayoutChain(orderedSurfaces, 0, SurfaceMask{}, seed)};
+                         makeSurfaceLayoutChain(orderedSurfaces)};
   }
 
   static TraversalTopology buildTopology(const SurfaceLayout& layout)
   {
-    auto built = deriveTraversalTopology(layout);
+    TrackingParameters parameters;
+    parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+    parameters.StartLayerMask = LayerMask{1u << (parameters.NLayers - 1)};
+    auto built = deriveTraversalTopology(layout, parameters);
     BOOST_REQUIRE(built.ok());
     return std::move(*built.topology);
   }
@@ -101,7 +103,7 @@ std::shared_ptr<o2::its::BoundedMemoryResource> makePool()
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerCountAssumption)
+BOOST_AUTO_TEST_CASE(ConfiguresStorageWithDistinctRuntimeCountsWithoutDetectorOrLayerCountAssumption)
 {
   // Two synthetic plans of deliberately different owned-surface/edge/
   // cell cardinality -- 4 surfaces (3 edges, 2 cells) and 6 surfaces (5
@@ -122,21 +124,17 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
   TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
 
-  scratch.adoptPlan(small.nOwnedSurfaces(), small.nEdges(), small.nCells());
-  BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 4u);
+  scratch.configureStorage(small.nEdges(), small.nCells());
   BOOST_CHECK_EQUAL(scratch.getNEdges(), 3u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 2u);
-  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 4u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 3u);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), 2u);
 
-  // Re-adopting a differently-shaped plan on the same instance must fully
+  // Reconfiguring differently-shaped storage on the same instance must fully
   // re-size every container -- no residue from the previous plan.
-  scratch.adoptPlan(large.nOwnedSurfaces(), large.nEdges(), large.nCells());
-  BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 6u);
+  scratch.configureStorage(large.nEdges(), large.nCells());
   BOOST_CHECK_EQUAL(scratch.getNEdges(), 5u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 4u);
-  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 6u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 5u);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), 4u);
 }
@@ -146,14 +144,10 @@ BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
   SyntheticChain chain{5};
   TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
-  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
+  scratch.configureStorage(chain.nEdges(), chain.nCells());
 
-  const auto nSurf = chain.nOwnedSurfaces();
   const auto nTr = chain.nEdges();
   const auto nCe = chain.nCells();
-
-  // Per-surface state is limited to values recomputed for each iteration.
-  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), nSurf);
 
   // Group B: sparse edge/cell counts.
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), nTr);
@@ -174,12 +168,12 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   SyntheticChain chain{4};
   TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
-  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
+  scratch.configureStorage(chain.nEdges(), chain.nCells());
 
   // Populate a handful of containers with observable content.
   scratch.mTracklets[0].emplace_back();
   scratch.mCells[0].emplace_back();
-  scratch.mPositionResolution[0] = 7.f;
+  scratch.getEdgePhiCuts()[0] = 7.f;
 
   // An unrelated, populated TimeFrame: reset() takes no TimeFrame parameter
   // at all, so it structurally cannot reach it -- this proves that
@@ -191,20 +185,18 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   scratch.reset();
 
   // Vector-of-bounded_vector containers: outer element
-  // count -- the adopted plan size -- survives reset(); only each element's
+  // count -- the configured storage size -- survives reset(); only each element's
   // *contents* are cleared. Mirrors TimeFrameScratch::reset()
   // exactly (it never shrinks its own NLayers-wide outer arrays either).
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), chain.nEdges());
   BOOST_CHECK(scratch.mTracklets[0].empty());
   BOOST_CHECK_EQUAL(scratch.mCells.size(), chain.nCells());
   BOOST_CHECK(scratch.mCells[0].empty());
-  BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), chain.nOwnedSurfaces());
   BOOST_CHECK_EQUAL(scratch.getNEdges(), chain.nEdges());
   BOOST_CHECK_EQUAL(scratch.getNCells(), chain.nCells());
 
-  // Flat bounded_vector containers are fully cleared to empty, not
-  // preserved at the adopted plan size -- mirrors reset()'s
-  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 0u);
+  // Flat bounded_vector containers are fully cleared to empty.
+  BOOST_CHECK(scratch.getEdgePhiCuts().empty());
 
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
@@ -227,29 +219,8 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 }
 } // namespace
 
-// M6d revision: TimeFrameScratch is now wired into production for
-// MFT specifically (SurfacePlanTrackingParticipantMFT), so it legitimately
-// knows a handful of things M6c's own additive-only version could not yet:
-// o2::detectors::DetID::MFT (loadNormalizedSource()'s own detector
-// preflight), the literal "MFT" token (MFTNLayers,
-// o2::mft::constants::mft::LayersNumber -- the M6c design note's own
-// explicitly-flagged narrow exception for the auxiliary NLayers-templated
-// types this milestone hardcodes, see the header's file-level doc), and
-// TimeFrame.h (initialise()/loadNormalizedSource()/getPrimaryVertices()/
-// updateROFVertexLookupTable() all cooperate with TimeFrame directly now --
-// M6c's "never touches TimeFrame" framing applied only to that milestone's
-// unwired scope).
-//
-// M6e2 revision: this scratch type became shared by ITS too (the combined
-// and standalone ITS common-CA participants now both back onto
-// TimeFrameScratch, not just MFT's), so o2::detectors::DetID::ITS is
-// now a legitimate mention too (loadNormalizedSource()'s preflight accepts
-// both), removed from the forbidden list below. What remains genuinely
-// forbidden: workflow/DPL/output-layer naming, and the detail/-confined
-// SurfaceKind/SurfaceKind dispatch-key types -- TimeFrameScratch
-// itself must still never reintroduce those, and no detector-specific
-// *switch* (as opposed to a DetID::ITS/DetID::MFT preflight/comparison) may
-// appear here.
+// Scratch is deliberately unaware of TimeFrame, detector configuration and
+// workflow/output types. Tracker translates those domains into plain sizes.
 BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
 {
   const std::string testFile = __FILE__;
@@ -280,6 +251,7 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
     "DetectorTraversalBinding.h",
     "IOUtils.h",
     "LegacyTrackerScratch.h",
+    "TimeFrame.h",
     "SurfacePlanTrackingParticipant.h"};
   for (const auto& path : newFiles) {
     std::ifstream input{path};

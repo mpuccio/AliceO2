@@ -72,7 +72,13 @@ std::string TrackingParameters::asString() const
     str += std::format(" ShaClsDPhi:{} ShaClsDEta:{} ShaClsSign:{}", SharedClusterMaxDeltaPhi, SharedClusterMaxDeltaEta, SharedClusterOppositeSign);
   }
   if (MaxHoles) {
-    str += std::format(" MaxHoles:{} HoleMask:{}", MaxHoles, HoleLayerMask.asString());
+    str += std::format(" MaxHoles:{}", MaxHoles);
+  }
+  if (!InactiveLayerMask.empty()) {
+    str += std::format(" InactiveMask:{}", InactiveLayerMask.asString());
+  }
+  if (!SeedingLayers.empty()) {
+    str += std::format(" SeedingLayers:{}", SeedingLayers.asString());
   }
   if (std::numeric_limits<size_t>::max() != MaxMemory) {
     str += std::format(" MemLimit {:.2f} GB", double(MaxMemory) / (1024.f * 1024.f * 1024.f));
@@ -303,7 +309,6 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     const auto iter = &p - trackParams.data();
     if (iter < o2::its::constants::MaxIter) {
       p.MaxHoles = tc.maxHolesIter[iter];
-      p.HoleLayerMask = tc.holeLayerMaskIter[iter];
     }
 
     if (tc.useMatCorrTGeo) {

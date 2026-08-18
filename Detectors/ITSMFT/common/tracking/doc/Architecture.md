@@ -382,7 +382,7 @@ struct InternalTrack {
   TrackState state;
   float chi2;
   TimeEstBC timestamp;
-  SurfaceMask hitMask;
+  LayerMask hitMask;
   bounded_vector<SurfaceHitRef> hits;
   TrackFlags flags;
 };
@@ -515,7 +515,7 @@ Physics comparisons must define tolerances rather than requiring bitwise equalit
 
 The following must be resolved and recorded in the decision log:
 
-1. Accepted: a 32-bit `SurfaceMask` supports at most 32 global surfaces in the initial shared layout.
+1. Accepted: a 32-bit `LayerMask` supports at most 32 global surfaces in the initial shared layout.
 2. Compile-time maximum layout versus fully runtime-sized host storage.
 3. Exact normalized measurement representation.
 4. Ownership boundary between tracking TimeFrame and ITS vertexing state.

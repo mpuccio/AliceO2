@@ -36,7 +36,7 @@ class DetectorPublicationAdapter
   MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate>,
-                        const TrackingParameters&,
+                        const IterationParameters&,
                         const TimeFrame&,
                         bool) const noexcept
   {
@@ -55,7 +55,7 @@ class DetectorPublicationAdapter<ITSNLayers>
   MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
-                        const TrackingParameters& params,
+                        const IterationParameters& params,
                         const TimeFrame& frame,
                         bool final)
   {
@@ -78,7 +78,7 @@ class DetectorPublicationAdapter<ITSNLayers>
 
  private:
   bool stageSharedClusterFlags(gsl::span<const TrackingCandidate> candidates,
-                               const TrackingParameters& params,
+                               const IterationParameters& params,
                                const TimeFrame& frame)
   {
     uint32_t maxIndex = 0;
@@ -140,7 +140,7 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
   MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return mSidecar; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
-                        const TrackingParameters&,
+                        const IterationParameters&,
                         const TimeFrame&,
                         bool) const
   {

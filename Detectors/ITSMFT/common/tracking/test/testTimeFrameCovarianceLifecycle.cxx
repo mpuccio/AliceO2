@@ -201,17 +201,10 @@ struct Rig {
     TrackerInitialization configuration;
     configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
     configuration.memoryPool = pool;
-    for (const auto& parameter : parameters) {
-      TrackerIterationConfiguration iteration;
-      iteration.layout = makeSurfaceLayoutChain(
-        orderedSurfaces, parameter.MaxHoles,
-        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, NLayers),
-        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, NLayers));
-      iteration.parameters = parameter;
-      configuration.iterations.push_back(std::move(iteration));
-    }
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.parameters.assign(parameters.begin(), parameters.end());
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
-    tf = &frame.getWorkspace();
+    tf = &frame.getScratch();
   }
 
   void load(bool applySysErrors)
@@ -220,7 +213,7 @@ struct Rig {
       CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& layout = frame.getLayout(0);
+    const auto& layout = frame.getLayout();
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             clusters, patterns, rofs, &dictionary(), nullptr, detector,
@@ -274,7 +267,7 @@ void checkPositionResolution(const Rig<NLayers>& rig,
   const float expected = o2::gpu::CAMath::Sqrt(
     0.5f * (columnIncrement + rowIncrement) +
     parameters.LayerResolution[0] * parameters.LayerResolution[0]);
-  checkBitIdentical(rig.tf->getPositionResolution(0), expected);
+  checkBitIdentical(rig.tracker.getDetectorConfiguration().positionResolutions[0], expected);
 }
 
 template <int NLayers>

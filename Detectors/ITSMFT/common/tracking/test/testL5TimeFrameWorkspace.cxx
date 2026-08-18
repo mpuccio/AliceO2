@@ -23,9 +23,14 @@ namespace
 {
 std::vector<SurfaceDescriptor> makeCatalog()
 {
-  return {SurfaceDescriptor{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{LayerId{1}, 1, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{LayerId{2}, 2, 0, SurfaceKind::Cylinder}};
+  std::vector<SurfaceDescriptor> catalog;
+  for (uint16_t layer = 0; layer < 3; ++layer) {
+    SurfaceDescriptor descriptor{LayerId{layer}, layer, 0, SurfaceKind::Cylinder};
+    descriptor.referenceCoordinate = static_cast<float>(layer + 1);
+    descriptor.chartRange = {-10.f, 10.f};
+    catalog.push_back(descriptor);
+  }
+  return catalog;
 }
 
 TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& catalog,
@@ -35,12 +40,17 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = pool;
-  TrackerIterationConfiguration iteration;
   TrackingParameters parameters;
-  parameters.NLayers = 0;
-  iteration.layout = makeSurfaceLayoutChain(ordered, 1, SurfaceMask{1u << 1}, SurfaceMask{1u << 2});
-  iteration.parameters = parameters;
-  configuration.iterations.push_back(std::move(iteration));
+  parameters.NLayers = 3;
+  parameters.LayerxX0.assign(3, 0.f);
+  parameters.LayerRadii = {1.f, 2.f, 3.f};
+  parameters.LayerResolution.assign(3, 0.001f);
+  parameters.SystError2Row.assign(3, 0.f);
+  parameters.SystError2Col.assign(3, 0.f);
+  parameters.MaxHoles = 1;
+  parameters.StartLayerMask = 1u << 2;
+  configuration.layout = makeSurfaceLayoutChain(ordered, LayerMask{1u << 1});
+  configuration.parameters.push_back(parameters);
   return configuration;
 }
 
@@ -52,7 +62,7 @@ bool contains(const std::filesystem::path& path, const std::string& text)
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
+BOOST_AUTO_TEST_CASE(TimeFrameOwnsAndResetsWorkspace)
 {
   const auto catalog = makeCatalog();
   const auto pool = std::make_shared<BoundedMemoryResource>();
@@ -60,29 +70,23 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   Tracker tracker;
   BOOST_REQUIRE(tracker.initialize(frame, makeConfiguration(catalog, pool)).ok());
 
-  auto& workspace = frame.getWorkspace();
+  auto& workspace = frame.getScratch();
   auto* workspaceAddress = &workspace;
   const auto* allocator = frame.getMemoryPool().get();
-  const auto capacity = workspace.getNOwnedSurfaces();
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
+  const auto edgeCapacity = workspace.getNEdges();
   BOOST_REQUIRE(!workspace.getTracklets().empty());
   workspace.getTracklets().front().push_back(Tracklet{});
   frame.getGenericTracks().push_back(GenericTrack{});
 
   frame.resetTimeFrame();
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
-  BOOST_CHECK_EQUAL(&frame.getWorkspace(), workspaceAddress);
+  BOOST_CHECK_EQUAL(&frame.getScratch(), workspaceAddress);
   BOOST_CHECK_EQUAL(frame.getMemoryPool().get(), allocator);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), capacity);
-  BOOST_CHECK(frame.getWorkspace().getTracklets().front().empty());
+  BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), edgeCapacity);
+  BOOST_CHECK(frame.getScratch().getTracklets().front().empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.isConfigured());
 
-  // A frame-owned workspace is reset only through TimeFrame::resetTimeFrame().
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
-
   frame.resetTimeFrame();
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 2u);
   BOOST_CHECK(frame.isConfigured());
 }
 
@@ -92,19 +96,19 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationDoesNotReplaceWorkspace)
   TimeFrame frame;
   Tracker tracker;
   BOOST_REQUIRE(tracker.initialize(frame, makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>())).ok());
-  auto* oldWorkspace = &frame.getWorkspace();
+  auto* oldWorkspace = &frame.getScratch();
   const auto* oldAllocator = frame.getMemoryPool().get();
-  const auto oldCapacity = oldWorkspace->getNOwnedSurfaces();
+  const auto oldEdgeCapacity = oldWorkspace->getNEdges();
 
   TrackerInitialization invalid;
   invalid.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   invalid.memoryPool = std::make_shared<BoundedMemoryResource>();
-  invalid.iterations.push_back(TrackerIterationConfiguration{});
+  invalid.parameters.push_back(TrackingParameters{});
   BOOST_CHECK(!tracker.initialize(frame, invalid).ok());
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK_EQUAL(&frame.getWorkspace(), oldWorkspace);
+  BOOST_CHECK_EQUAL(&frame.getScratch(), oldWorkspace);
   BOOST_CHECK_EQUAL(frame.getMemoryPool().get(), oldAllocator);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), oldCapacity);
+  BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), oldEdgeCapacity);
 }
 
 BOOST_AUTO_TEST_CASE(ProductionHasOneFrameResetAndNoIndependentLiveScratchOwner)
@@ -120,6 +124,6 @@ BOOST_AUTO_TEST_CASE(ProductionHasOneFrameResetAndNoIndependentLiveScratchOwner)
     BOOST_CHECK_MESSAGE(!contains(source, "resetTimeFrameEvent"), source.string());
   }
   BOOST_CHECK(contains(trackingRoot / "src/Tracker.cxx", "frame.resetTimeFrame();"));
-  BOOST_CHECK(contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "mWorkspace"));
+  BOOST_CHECK(contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "mScratch"));
   BOOST_CHECK(!contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "virtual void wipe"));
 }

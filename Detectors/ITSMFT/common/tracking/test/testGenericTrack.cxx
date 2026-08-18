@@ -12,11 +12,11 @@
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
 //  - sorted global storage and source-indexed fitting-measurement lookup;
 //  - cross-surface and cross-source TrackClusterReference resolution;
-//  - that a completed track's hitSurfaces is the union of the LayerId of
+//  - that a completed track's hitLayers is the union of the LayerId of
 //    every measurement its range references, and that each resolved
 //    measurement's own surface matches the reference it was resolved from;
-//  - that a successful TimeFrame::loadNormalizedSource() reload clears
-//    GenericTrack/trackClusterIndices storage, and a failed one preserves it;
+//  - that TimeFrame loading clears GenericTrack/trackClusterIndices storage
+//    on both success and failure;
 //  - that TimeFrame::resetTimeFrame() invalidates GenericTrack/trackClusterIndices
 //    storage together;
 //  - that GenericTrack itself has no detector/public-output dependency.
@@ -71,7 +71,7 @@ using namespace o2::itsmft::tracking;
 // TrackITS.h/TrackITSExt.h, typed MFT output header, GeometryTGeo.h, or workflow
 // header, and GenericTrack/TrackClusterReference declare no
 // DetID/NLayers/publication-type field -- every field is either a plain
-// scalar, or one of the shared LayerId/SurfaceKinematicState/SurfaceMask/
+// scalar, or one of the shared LayerId/SurfaceKinematicState/LayerMask/
 // a dense source cluster ID, or a GenericTrackTimestamp device POD. This test case
 // exercises GenericTrack using exactly that narrow surface, so that if a
 // future edit to GenericTrack.h ever added such a dependency, the type
@@ -87,10 +87,10 @@ BOOST_AUTO_TEST_CASE(GenericTrackHasNoDetectorOrPublicationOutputDependency)
   track.outerState.kind = SurfaceKind::Cylinder;
   track.chi2 = 1.5f;
   track.timestamp = GenericTrackTimestamp{100, 140};
-  track.hitSurfaces.set(LayerId{0});
+  track.hitLayers.set(0);
   track.firstClusterRef = 0;
   track.clusterRefEnd = 1;
-  BOOST_CHECK(track.hitSurfaces.has(LayerId{0}));
+  BOOST_CHECK(track.hitLayers.has(0));
   BOOST_CHECK_EQUAL(trackClusterRefCount(track), 1u);
 
   const TrackClusterReference reference{LayerId{0}, 0, 17};
@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
   static_assert(std::is_standard_layout_v<GenericTrackTimestamp>);
   static_assert(std::is_trivially_copyable_v<GenericTrackTimestamp>);
 
-  static_assert(std::is_same_v<decltype(GenericTrack::hitSurfaces), SurfaceMask>);
+  static_assert(std::is_same_v<decltype(GenericTrack::hitLayers), LayerMask>);
   static_assert(std::is_same_v<decltype(GenericTrack::innerState), SurfaceKinematicState>);
   static_assert(std::is_same_v<decltype(GenericTrack::outerState), SurfaceKinematicState>);
   static_assert(std::is_same_v<decltype(GenericTrack::timestamp), GenericTrackTimestamp>);
@@ -133,7 +133,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
   const GenericTrack defaultTrack{};
   BOOST_CHECK_EQUAL(defaultTrack.firstClusterRef, 0u);
   BOOST_CHECK_EQUAL(defaultTrack.clusterRefEnd, 0u);
-  BOOST_CHECK(defaultTrack.hitSurfaces.empty());
+  BOOST_CHECK(defaultTrack.hitLayers.empty());
   BOOST_CHECK_EQUAL(defaultTrack.chi2, 0.f);
   BOOST_CHECK(!defaultTrack.timestamp.isValid()); // default {0,0}: begin < end is false
 }
@@ -167,18 +167,18 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
 
   // Hole-containing: the range itself is a dense [first,end) span of
   // *present* references (holes are never stored as sentinel entries); a
-  // hole instead shows up as a gap in hitSurfaces' LayerId numbering. A
+  // hole instead shows up as a gap in hitLayers' LayerId numbering. A
   // 2-hit track on surfaces {0,2} (skipping surface 1) is a valid,
   // completed, hole-containing track: its range is still contiguous and
   // valid, only its mask has a gap.
   GenericTrack withHole{};
   withHole.firstClusterRef = 0;
   withHole.clusterRefEnd = 2;
-  withHole.hitSurfaces.set(LayerId{0});
-  withHole.hitSurfaces.set(LayerId{2});
+  withHole.hitLayers.set(0);
+  withHole.hitLayers.set(2);
   BOOST_CHECK(isValidTrackRange(withHole, 2));
-  BOOST_CHECK_EQUAL(withHole.hitSurfaces.count(), 2);
-  BOOST_CHECK(!withHole.hitSurfaces.has(LayerId{1})); // the hole
+  BOOST_CHECK_EQUAL(withHole.hitLayers.count(), 2);
+  BOOST_CHECK(!withHole.hitLayers.has(1)); // the hole
 }
 
 BOOST_AUTO_TEST_CASE(OutOfRangeAndReversedRangesAreRejected)
@@ -389,9 +389,9 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
   GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = static_cast<uint32_t>(trackClusterIndices.size());
-  track.hitSurfaces.set(LayerId{0});
-  track.hitSurfaces.set(LayerId{1});
-  track.hitSurfaces.set(LayerId{3});
+  track.hitLayers.set(0);
+  track.hitLayers.set(1);
+  track.hitLayers.set(3);
   BOOST_REQUIRE(isValidTrackRange(track, static_cast<uint32_t>(trackClusterIndices.size())));
 
   bool foundITSZero = false, foundITSOne = false, foundMFT = false;
@@ -427,19 +427,19 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = static_cast<uint32_t>(trackClusterIndices.size());
-  track.hitSurfaces.set(LayerId{0});
-  track.hitSurfaces.set(LayerId{1});
-  track.hitSurfaces.set(LayerId{3});
+  track.hitLayers.set(0);
+  track.hitLayers.set(1);
+  track.hitLayers.set(3);
 
-  SurfaceMask observed{};
+  LayerMask observed{};
   BOOST_REQUIRE(isValidTrackRange(track, static_cast<uint32_t>(trackClusterIndices.size())));
   for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
     const auto& reference = trackClusterIndices[i];
     const auto* measurement = frame.getSurfaceMeasurement(reference.layer, reference.clusterId);
     BOOST_REQUIRE(measurement != nullptr);
-    observed.set(reference.layer);
+    observed.set(reference.layer.value());
   }
-  BOOST_CHECK(observed == track.hitSurfaces);
+  BOOST_CHECK(observed == track.hitLayers);
 
   // A hole-containing sub-track referencing only surfaces 0 and 3 (skipping
   // 1): still a valid, completed track, mask still matches exactly the
@@ -451,19 +451,19 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   GenericTrack holeTrack{};
   holeTrack.firstClusterRef = 0;
   holeTrack.clusterRefEnd = 2;
-  holeTrack.hitSurfaces.set(LayerId{0});
-  holeTrack.hitSurfaces.set(LayerId{3});
+  holeTrack.hitLayers.set(0);
+  holeTrack.hitLayers.set(3);
 
-  SurfaceMask observedHole{};
+  LayerMask observedHole{};
   BOOST_REQUIRE(isValidTrackRange(holeTrack, static_cast<uint32_t>(holeIndices.size())));
   for (uint32_t i = holeTrack.firstClusterRef; i < holeTrack.clusterRefEnd; ++i) {
     const auto& reference = holeIndices[i];
     const auto* measurement = frame.getSurfaceMeasurement(reference.layer, reference.clusterId);
     BOOST_REQUIRE(measurement != nullptr);
-    observedHole.set(reference.layer);
+    observedHole.set(reference.layer.value());
   }
-  BOOST_CHECK(observedHole == holeTrack.hitSurfaces);
-  BOOST_CHECK(!observedHole.has(LayerId{1})); // the hole
+  BOOST_CHECK(observedHole == holeTrack.hitLayers);
+  BOOST_CHECK(!observedHole.has(1)); // the hole
 }
 
 // --- TimeFrame reload/wipe lifecycle --------------------------------------
@@ -532,10 +532,9 @@ struct TimeFrameFixture {
   TimeFrame tf;
   std::vector<std::vector<uint32_t>> externalIndicesBySurface;
   std::vector<std::vector<uint32_t>> clusterSizesBySurface;
-  // Keep the catalog with the graph fixture so initialization inputs have one
+  // Keep the catalog with the layout fixture so initialization inputs have one
   // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
-  std::optional<std::vector<SurfaceLayout>> plan;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   o2::InteractionRecord origin{50, 5};
   ROFTimingConfig timing{40, 0, 0, 0};
@@ -543,16 +542,9 @@ struct TimeFrameFixture {
   TimeFrameFixture()
   {
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    SurfaceLayout graph{gsl::span<const SurfaceDescriptor>{catalog}, makeSurfaceLayoutChain(orderedSurfaces)};
-    BOOST_REQUIRE(graph.valid());
-    plan.emplace();
-    plan->push_back(std::move(graph));
-    std::vector<SurfaceLayout> layouts;
-    layouts.emplace_back(gsl::span<const SurfaceDescriptor>{catalog}, makeSurfaceLayoutChain(orderedSurfaces));
-    std::vector<TrackingParameters> parameters(1);
-    std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
-    BOOST_REQUIRE(tf.commitConfiguration(std::move(layouts), std::move(parameters),
-                                         std::move(capacities), std::make_shared<BoundedMemoryResource>()));
+    SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{catalog}, makeSurfaceLayoutChain(orderedSurfaces)};
+    BOOST_REQUIRE(tf.configure(std::move(layout), 0, 0,
+                               std::make_shared<BoundedMemoryResource>()));
   }
 
   // One cluster on layer 0, one ROF: the minimal input that succeeds.
@@ -561,9 +553,9 @@ struct TimeFrameFixture {
     const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
     const auto patterns = makePatternBytes(clusters.size());
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
+    const auto& orderedSurfaces = tf.getLayout().getOrderedSurfaces();
     return loadTimeFrameSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                               gsl::span<const LayerId>{orderedSurfaces}, plan->front().getSurfaceCatalog(), true,
+                               gsl::span<const LayerId>{orderedSurfaces}, tf.getLayout().getSurfaceCatalog(), true,
                                &externalIndicesBySurface, &clusterSizesBySurface);
   }
 };
@@ -592,7 +584,7 @@ TestGenericTrack makeTestGenericTrack()
   record.track.innerState.kind = SurfaceKind::Cylinder;
   record.track.outerState.kind = SurfaceKind::Cylinder;
   record.track.timestamp = {100, 140};
-  record.track.hitSurfaces.set(LayerId{0});
+  record.track.hitLayers.set(0);
   record.references.push_back({LayerId{0}, 0, 0});
   return record;
 }
@@ -616,8 +608,8 @@ void populateCommonResults(TimeFrame& tf)
   GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = 2;
-  track.hitSurfaces.set(LayerId{0});
-  track.hitSurfaces.set(LayerId{1});
+  track.hitLayers.set(0);
+  track.hitLayers.set(1);
   tf.getGenericTracks().push_back(track);
 }
 
@@ -670,7 +662,7 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   // Scratch-only reset has no authority over the shared TimeFrame or this
   // MFT bridge-owned sidecar; a future combined owner decides detector-local
   // GenericTrack removal/marking separately.
-  fixture.tf.getWorkspace().reset();
+  fixture.tf.getScratch().reset();
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
 }
@@ -717,7 +709,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   // Scratch-only reset has no authority over TimeFrame-owned GenericTracks
   // or the bridge-owned compatibility result they index.
-  fixture.tf.getWorkspace().reset();
+  fixture.tf.getScratch().reset();
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 3u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 3u);
 
@@ -759,7 +751,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_CHECK(sidecar.entries().empty());
 }
 
-BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchanged)
+BOOST_AUTO_TEST_CASE(FailedLoadClearsGenericTrackAndTrackClusterIndices)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
@@ -767,30 +759,23 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchan
   populateCommonResults(fixture.tf);
   BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
-  const auto measurementsBefore = fixture.tf.getTotalMeasurements();
-  BOOST_REQUIRE(measurementsBefore > 0u);
+  BOOST_REQUIRE(fixture.tf.getTotalMeasurements() > 0u);
 
   // Deliberately fail: the frame loader preflight rejects an
   // unsupported detector before touching anything.
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
-  const auto& orderedSurfaces = fixture.plan->front().getOrderedSurfaces();
+  const auto& orderedSurfaces = fixture.tf.getLayout().getOrderedSurfaces();
   const auto failed = loadTimeFrameSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
                                           &dict(), nullptr, o2::detectors::DetID::TPC,
-                                          gsl::span<const LayerId>{orderedSurfaces}, fixture.plan->front().getSurfaceCatalog());
+                                          gsl::span<const LayerId>{orderedSurfaces}, fixture.tf.getLayout().getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
-  // Normalized frame, GenericTrack storage and trackClusterIndices are all
-  // exactly as they were before the failed call.
-  BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurementsBefore);
-  BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
-  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].firstClusterRef, 0u);
-  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].clusterRefEnd, 2u);
-  BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
-  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[0].layer == LayerId{0});
-  BOOST_CHECK(fixture.tf.getTrackClusterIndices()[1].layer == LayerId{1});
+  BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), 0u);
+  BOOST_CHECK(fixture.tf.getGenericTracks().empty());
+  BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }
 
 BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndicesTogether)
@@ -919,7 +904,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   const auto clock = makeFixtureClockTiming();
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   auto output = stageITSGenericTrackOutput(fixture.tf, source,
-                                           gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
+                                           gsl::span<const LayerId>{fixture.tf.getLayout().getOrderedSurfaces()}, timing, shared,
                                            true, error, &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface);
   BOOST_REQUIRE(output);
   BOOST_CHECK_EQUAL(output->tracks.size(), 1u);
@@ -938,7 +923,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   // explicit at this boundary.
   const GenericTrackPublicationContext publicationContext{
     o2::detectors::DetID::ITS, source, rofs, ClockTimingPublicationView{clock},
-    gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()},
+    gsl::span<const LayerId>{fixture.tf.getLayout().getOrderedSurfaces()},
     &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface};
   const auto contextOutput = stageITSGenericTrackOutput(fixture.tf, publicationContext, shared, true, error);
   BOOST_REQUIRE(contextOutput);
@@ -978,7 +963,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
   const GenericTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
   const auto mismatchedOutput = stageITSGenericTrackOutput(fixture.tf, source,
-                                                           gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error,
+                                                           gsl::span<const LayerId>{fixture.tf.getLayout().getOrderedSurfaces()}, mismatchedROF, shared, false, error,
                                                            &fixture.externalIndicesBySurface, &fixture.clusterSizesBySurface);
   BOOST_REQUIRE(mismatchedOutput);
   BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
@@ -1010,7 +995,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   }
   record.track.chi2 = 8.f;
   record.track.timestamp = {100, 124};
-  record.track.hitSurfaces.set(LayerId{3});
+  record.track.hitLayers.set(3);
   record.references.push_back({LayerId{3}, 0, 0});
   MFTPublicationCompatibility sidecar;
   MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
@@ -1077,7 +1062,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutat
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
-  const auto surfaces = gsl::span<const LayerId>{fixture.plan->front().getOrderedSurfaces()};
+  const auto surfaces = gsl::span<const LayerId>{fixture.tf.getLayout().getOrderedSurfaces()};
   const auto tracks = fixture.tf.getGenericTracks().size();
   const auto refs = fixture.tf.getTrackClusterIndices().size();
   const auto measurements = fixture.tf.getTotalMeasurements();

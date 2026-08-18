@@ -20,6 +20,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ROFViews.h"
+#include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 #include "ITStracking/ROFLookupTables.h"
@@ -27,6 +28,7 @@
 namespace fs = std::filesystem;
 
 using namespace o2::itsmft::tracking;
+using o2::itsmft::TrackingParameters;
 
 namespace
 {
@@ -187,7 +189,9 @@ BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
   }
   const std::vector<LayerId> ordered{LayerId{5}, LayerId{2}, LayerId{7}};
   const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)};
-  const auto result = deriveTraversalTopology(layout);
+  TrackingParameters parameters;
+  parameters.NLayers = static_cast<int>(ordered.size());
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_REQUIRE_EQUAL(topology.edges.size(), 2u);

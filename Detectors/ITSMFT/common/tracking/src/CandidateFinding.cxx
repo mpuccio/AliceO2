@@ -129,9 +129,6 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const TrackingKernelParameters& params,
                              TrackletSearchWindow& out)
 {
-  if (!edgeCache.hasReferenceCoordinates) {
-    return false;
-  }
   if (!(std::isfinite(edgeCache.targetMinZ) && std::isfinite(edgeCache.targetMaxZ) &&
         edgeCache.targetMinZ <= edgeCache.targetMaxZ)) {
     return false;
@@ -143,7 +140,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   const float vertexY = vertex.getY() - beamY;
   detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
                              vertexX, vertexY, vertex.getZ(),
-                             edgeCache.fromReferenceCoordinate, targetMeanZ, bz, params.trackletMinPt,
+                             sourceMeasurement.z, targetMeanZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
@@ -152,8 +149,8 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              sourceMeasurement.covariance[GlobalMeasurement::XX], sourceMeasurement.covariance[GlobalMeasurement::YY],
                              vertex.getSigmaX2() + beamPositionVariance,
                              vertex.getSigmaY2() + beamPositionVariance, vertex.getSigmaZ2(),
-                             edgeCache.fromReferenceCoordinate, targetMeanZ,
-                             edgeCache.fromRadius, targetMeanZ - edgeCache.fromReferenceCoordinate,
+                             sourceMeasurement.z, targetMeanZ,
+                             edgeCache.fromRadius, targetMeanZ - sourceMeasurement.z,
                              edgeCache.edgeMSAngle, edgeCache.edgePhiCut,
                              xProj, yProj, sigmaX, sigmaY);
 
@@ -163,11 +160,11 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   float yAtMaxZ = 0.f;
   detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
                              vertexX, vertexY, vertex.getZ(),
-                             edgeCache.fromReferenceCoordinate, edgeCache.targetMinZ, bz, params.trackletMinPt,
+                             sourceMeasurement.z, edgeCache.targetMinZ, bz, params.trackletMinPt,
                              xAtMinZ, yAtMinZ);
   detail::mftTrackletProject(sourceMeasurement.x, sourceMeasurement.y, sourceMeasurement.z,
                              vertexX, vertexY, vertex.getZ(),
-                             edgeCache.fromReferenceCoordinate, edgeCache.targetMaxZ, bz, params.trackletMinPt,
+                             sourceMeasurement.z, edgeCache.targetMaxZ, bz, params.trackletMinPt,
                              xAtMaxZ, yAtMaxZ);
   const float targetZVarianceScale = 1.f / 12.f;
   const float deltaX = xAtMaxZ - xAtMinZ;
@@ -208,7 +205,6 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
 bool bindTrackletProjectionCache(
   int fromLayer, int toLayer,
   gsl::span<const float> layerRadii,
-  gsl::span<const float> diskReferenceZ,
   float targetMinR, float targetMaxR, float targetMinZ, float targetMaxZ,
   float sourcePositionResolution,
   float edgeMSAngle, float edgePhiCut,
@@ -219,15 +215,10 @@ bool bindTrackletProjectionCache(
       static_cast<size_t>(toLayer) >= layerRadii.size()) {
     return false;
   }
-  const bool hasReferenceCoordinates = static_cast<size_t>(fromLayer) < diskReferenceZ.size();
-  const auto referenceCoordinate = [&](int layer) {
-    return static_cast<size_t>(layer) < diskReferenceZ.size() ? diskReferenceZ[layer] : 0.f;
-  };
   out = {fromLayer, toLayer,
          layerRadii[fromLayer], layerRadii[toLayer],
          targetMinR, targetMaxR, targetMinZ, targetMaxZ, sourcePositionResolution,
-         referenceCoordinate(fromLayer),
-         edgeMSAngle, edgePhiCut, hasReferenceCoordinates};
+         edgeMSAngle, edgePhiCut};
   return true;
 }
 

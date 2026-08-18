@@ -52,7 +52,7 @@ frozen-replay gate. The exact evidence is recorded in
 ### Campaign B: device/public consolidation
 
 - Merge `SurfaceMeasurementIndex` into `SurfaceId` and `LayerMask` into
-  `SurfaceMask`.
+  `LayerMask`.
 - Merge `SurfaceLinearizationReference` into `SurfaceKinematicState` and
   `RefitLegAssembly` into `RefitDriver`. Delete `SeedAnchor` only if the
   repository and downstream search is available and empty.

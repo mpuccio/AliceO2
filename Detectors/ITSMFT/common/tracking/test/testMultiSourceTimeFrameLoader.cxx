@@ -123,12 +123,9 @@ void configureFrame(TimeFrame& frame, const SurfaceLayout& layout)
       ordered.push_back(surface);
     }
   }
-  std::vector<SurfaceLayout> layouts;
-  layouts.push_back(layout);
-  std::vector<TrackingParameters> parameters(1);
-  std::vector<TrackingWorkspaceCapacity> capacities{{ordered.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
-                                          std::move(capacities), std::make_shared<BoundedMemoryResource>()));
+  auto configuredLayout = layout;
+  BOOST_REQUIRE(frame.configure(std::move(configuredLayout), 0, 0,
+                                std::make_shared<BoundedMemoryResource>()));
 }
 
 std::vector<ClusterSourceInput> makeSources(const std::array<OneClusterSource, 3>& sources)
@@ -137,7 +134,7 @@ std::vector<ClusterSourceInput> makeSources(const std::array<OneClusterSource, 3
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
+BOOST_AUTO_TEST_CASE(DirectThreeSourceLoadInstallsAllSources)
 {
   auto configuration = makeConfiguration();
   TimeFrame frame;
@@ -147,14 +144,13 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
 
   const auto result = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
     BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(id * 2)}).size(), 1u);
   }
   BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 }
 
-BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
+BOOST_AUTO_TEST_CASE(FailedSourcePartitionClearsTimeFrameAndRetrySucceeds)
 {
   auto configuration = makeConfiguration();
   TimeFrame frame;
@@ -163,19 +159,15 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   auto sources = makeSources(inputs);
   const auto baseline = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(baseline.ok(), "baseline load error=" << static_cast<int>(baseline.error) << " source=" << baseline.source.value());
-  const auto resetCount = frame.getEventResetCount();
-
   auto malformedInputs = inputs;
   malformedInputs[2].layerToSurface[0] = LayerId{0};
   const auto malformedSources = makeSources(malformedInputs);
   const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{4}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
+  BOOST_CHECK_EQUAL(frame.getTotalClusters(), 0);
 
   BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).ok());
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
+  BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 }
 
 BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
@@ -193,7 +185,6 @@ BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
   const auto result = loadTimeFrameSources(frame, wrong, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
 }
 
 namespace

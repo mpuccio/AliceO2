@@ -55,7 +55,6 @@ class GlobalTrackingStateGuard
     preserveArray(tc.minTrackLgtIter);
     preserveArray(tc.startLayerMask);
     preserveArray(tc.maxHolesIter);
-    preserveArray(tc.holeLayerMaskIter);
     preserveArray(tc.minPtIterLgt);
     preserveArray(tc.sysErrY2);
     preserveArray(tc.sysErrZ2);
@@ -169,9 +168,19 @@ void checkParity(const LegacyParameters& legacy, const CommonParameters& common)
 
   BOOST_CHECK_EQUAL(legacy.MinTrackLength, common.MinTrackLength);
   BOOST_CHECK_EQUAL(legacy.MaxHoles, common.MaxHoles);
-  BOOST_CHECK_EQUAL(legacy.HoleLayerMask.value(), common.HoleLayerMask.value());
   BOOST_CHECK_EQUAL(legacy.InactiveLayerMask.value(), common.InactiveLayerMask.value());
   BOOST_CHECK_EQUAL(legacy.SeedingLayers.value(), common.SeedingLayers.value());
+  BOOST_CHECK_EQUAL(legacy.getActiveLayerMask().value(), common.getActiveLayerMask().value());
+  BOOST_CHECK_EQUAL(legacy.getSeedingLayerMask().value(), common.getSeedingLayerMask().value());
+  const auto configuredLayerSpan = o2::itsmft::tracking::LayerMask::span(0, legacy.NLayers - 1);
+  BOOST_CHECK_EQUAL(legacy.getNonSeedingLayerMask().value() & configuredLayerSpan.value(),
+                    common.getNonSeedingLayerMask().value());
+  BOOST_CHECK_EQUAL(legacy.getNSeedingLayers(), common.getNSeedingLayers());
+  BOOST_CHECK_EQUAL(legacy.getMinSeedingClusters(), common.getMinSeedingClusters());
+  BOOST_CHECK_EQUAL(legacy.CellMinimumLevel(), common.CellMinimumLevel());
+  BOOST_CHECK_EQUAL(legacy.NeighboursPerRoad(), common.NeighboursPerRoad());
+  BOOST_CHECK_EQUAL(legacy.CellsPerRoad(), common.CellsPerRoad());
+  BOOST_CHECK_EQUAL(legacy.TrackletsPerRoad(), common.TrackletsPerRoad());
   BOOST_CHECK_EQUAL(legacy.NSigmaCut, common.NSigmaCut);
   BOOST_CHECK_EQUAL(legacy.PVres, common.PVres);
   BOOST_CHECK_EQUAL(legacy.TrackletMinPt, common.TrackletMinPt);
@@ -224,7 +233,6 @@ void resetGlobals(float bz = 5.0066791f)
   std::fill(std::begin(tc.minTrackLgtIter), std::end(tc.minTrackLgtIter), 0);
   std::fill(std::begin(tc.startLayerMask), std::end(tc.startLayerMask), 0);
   std::fill(std::begin(tc.maxHolesIter), std::end(tc.maxHolesIter), 0);
-  std::fill(std::begin(tc.holeLayerMaskIter), std::end(tc.holeLayerMaskIter), 0);
   std::fill(std::begin(tc.minPtIterLgt), std::end(tc.minPtIterLgt), 0.f);
   std::fill(std::begin(tc.sysErrY2), std::end(tc.sysErrY2), 0.f);
   std::fill(std::begin(tc.sysErrZ2), std::end(tc.sysErrZ2), 0.f);
@@ -278,7 +286,6 @@ void setSentinelOverrides()
     tc.minTrackLgtIter[iteration] = 4 + iteration;
     tc.startLayerMask[iteration] = static_cast<uint8_t>(1u << iteration);
     tc.maxHolesIter[iteration] = iteration;
-    tc.holeLayerMaskIter[iteration] = static_cast<uint16_t>(0x10u << iteration);
     tc.trackFollowerTop[iteration] = (iteration % 2) == 0;
     tc.trackFollowerBot[iteration] = (iteration % 2) != 0;
     for (int slot = 0; slot < 4; ++slot) {
@@ -395,7 +402,6 @@ BOOST_AUTO_TEST_CASE(ArbitraryLegacyObjectIsTranslatedFieldByField)
   std::copy(covariance.begin(), covariance.end(), std::begin(legacy.DiamondCov));
   legacy.MinTrackLength = 5;
   legacy.MaxHoles = 2;
-  legacy.HoleLayerMask = 0x12;
   legacy.InactiveLayerMask = 0x24;
   legacy.SeedingLayers = 0x5a;
   legacy.NSigmaCut = 3.1f;
@@ -456,7 +462,6 @@ BOOST_AUTO_TEST_CASE(DistinctSentinelOverridesPreserveConstructionSemantics)
   for (size_t iteration = 0; iteration < async.size(); ++iteration) {
     BOOST_CHECK_EQUAL(async[iteration].StartLayerMask.value(), uint16_t{1} << iteration);
     BOOST_CHECK_EQUAL(async[iteration].MaxHoles, iteration);
-    BOOST_CHECK_EQUAL(async[iteration].HoleLayerMask.value(), uint16_t{0x10} << iteration);
   }
   BOOST_CHECK(async[0].PassFlags[o2::itsmft::IterationStep::TrackFollowerTop]);
   BOOST_CHECK(async[1].PassFlags[o2::itsmft::IterationStep::TrackFollowerBot]);

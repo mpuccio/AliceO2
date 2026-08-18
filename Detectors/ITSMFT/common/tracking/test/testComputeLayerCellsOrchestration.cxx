@@ -309,16 +309,11 @@ struct Rig : RigFrameStorage {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    TrackerIterationConfiguration iteration;
-    iteration.layout = makeSurfaceLayoutChain(
-      orderedSurfaces, params[0].MaxHoles,
-      positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, NLayers),
-      positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, NLayers));
-    iteration.parameters = params[0];
-    configuration.iterations.push_back(std::move(iteration));
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces, holeLayers);
+    configuration.parameters.push_back(params[0]);
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
-    tf = &frame.getWorkspace();
-    const auto& layout = frame.getLayout(0);
+    tf = &frame.getScratch();
+    const auto& layout = frame.getLayout();
 
     NeverDecodedDecoder decoder{mDet};
     const o2::InteractionRecord origin{50, 5};
@@ -336,6 +331,7 @@ struct Rig : RigFrameStorage {
   SurfaceKind kind() const noexcept { return mKind; }
 
   std::vector<TrackingParameters> params;
+  LayerMask holeLayers{};
   // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
   // destroyed last (see TimeFrameScratch's own lifetime-contract doc).
   TimeFrameScratch* tf{nullptr};
@@ -351,9 +347,15 @@ struct Rig : RigFrameStorage {
 };
 
 template <int NLayers>
-TraversalWorkspaceView prepare(Rig<NLayers>& rig)
+IterationContext prepare(Rig<NLayers>& rig)
 {
   return TrackerTestAccess::prepare(rig.tracker, rig.frame, 0);
+}
+
+template <int NLayers>
+TraversalTopologyView topologyView(const Rig<NLayers>& rig)
+{
+  return rig.tracker.getIterationConfigurations()[0].getTopologyView(rig.frame.getLayout().getSurfaceCatalog());
 }
 
 // Loads exactly the three supplied {cluster, hit} candidates at legacy
@@ -385,9 +387,9 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 3}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.frame.getLayout(0).getOrderedSurfaces();
+  const auto& orderedSurfaces = rig.frame.getLayout().getOrderedSurfaces();
   const auto result = loadTimeFrameSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
+                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -418,7 +420,7 @@ int findCellIndex(const TopologyView& topology, int inner, int middle, int outer
 template <int NLayers>
 void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array<GlobalMeasurement, 3>& clusters)
 {
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(cellIndex)});
   const auto& first = topology.getEdge(cell.first);
   const auto& second = topology.getEdge(cell.second);
@@ -474,9 +476,9 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, static_cast<int>(N)}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.frame.getLayout(0).getOrderedSurfaces();
+  const auto& orderedSurfaces = rig.frame.getLayout().getOrderedSurfaces();
   const auto result = loadTimeFrameSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
+                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -508,7 +510,7 @@ template <int NLayers, size_t N>
 void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<GlobalMeasurement, N>& clusters)
 {
   static_assert(N >= 3, "a chain needs at least 3 layers to form one cell");
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   for (size_t i = 0; i < N; ++i) {
     BOOST_REQUIRE_EQUAL(rig.frame.getClusters()[layers[i]].size(), 1u);
     BOOST_CHECK_EQUAL(rig.frame.getClusters()[layers[i]][0].x, clusters[i].x);
@@ -551,7 +553,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
   auto view = TrackerTestAccess::prepare(rig.tracker, rig.frame, 0);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   const int cellIndex = findCellIndex(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellIndex, 0);
 
@@ -593,7 +595,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
   // Oracle: independently resolve the stable source-local cluster IDs through
   // the TimeFrame and use the same generic seed construction contract.
-  const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.workspace.layerGlobalMeasurements};
+  const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.layerGlobalMeasurements};
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
@@ -641,7 +643,7 @@ BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
                            makeBarrelHit(5.f, 0.f, 0.201f, 1.22f, 1.e-6f, 1.e-6f)});
 
     auto view = prepare(rig);
-    const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+    const auto topology = topologyView(rig);
     const int cellIndex = findCellIndex(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellIndex, 0);
     injectCandidateTracklets(rig, cellIndex, clusters);
@@ -675,7 +677,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 
   auto view = prepare(rig);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   const int cellIndex = findCellIndex(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellIndex, 0);
 
@@ -692,7 +694,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
     BOOST_CHECK_EQUAL(reference.clusterIndex, producedCell.getClusters()[slot]);
   }
 
-  const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.workspace.layerGlobalMeasurements};
+  const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.layerGlobalMeasurements};
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
@@ -748,7 +750,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
 
     auto view = prepare(rig);
 
-    const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+    const auto topology = topologyView(rig);
     const int cellIndex = findCellIndex(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellIndex, 0);
 
@@ -805,7 +807,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
 
     auto view = prepare(rig);
 
-    const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+    const auto topology = topologyView(rig);
     const int cellIndex = findCellIndex(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellIndex, 0);
 
@@ -854,7 +856,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   auto view = prepare(rig);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   const int cellIndex = findCellIndex(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellIndex, 0);
 
@@ -919,7 +921,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
 
   auto view = prepare(rig);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   injectChainCandidateTracklets(rig, layers, clusters);
 
   TrackerTestAccess::computeCells(rig.traits, view);
@@ -991,7 +993,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
 
   auto view = prepare(rig);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   injectChainCandidateTracklets(rig, layers, clusters);
 
   TrackerTestAccess::computeCells(rig.traits, view);
@@ -1046,7 +1048,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].MaxHoles = 1;
-  rig.params[0].HoleLayerMask = LayerMask{static_cast<uint16_t>(1u << 1)};
+  rig.holeLayers = LayerMask{static_cast<uint16_t>(1u << 1)};
   rig.establishLayout();
 
   constexpr std::array<int, 3> layers{0, 2, 3};
@@ -1062,7 +1064,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
 
   auto view = prepare(rig);
 
-  const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  const auto topology = topologyView(rig);
   injectChainCandidateTracklets(rig, layers, clusters);
 
   TrackerTestAccess::computeCells(rig.traits, view);

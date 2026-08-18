@@ -99,7 +99,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
   if (name == "Cell.h") {
     return CountBoundary::FixedDeviceABI;
   }
-  if ((name == "TrackerTraits.cxx" || name == "Tracker.cxx") && codeLine.find(".NLayers") != std::string_view::npos) {
+  if ((name == "TrackerTraits.cxx" || name == "Tracker.cxx" || name == "TraversalTopology.cxx") && codeLine.find(".NLayers") != std::string_view::npos) {
     return CountBoundary::AdapterEdge;
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
@@ -198,9 +198,9 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
   const auto scratch = readFile(root / "src/TimeFrameScratch.cxx");
   const auto refit = readFile(root / "include/ITSMFTTracking/RefitDriver.h");
-  BOOST_CHECK(traits.find("context.workspace.orderedSurfaces") != std::string::npos);
-  BOOST_CHECK(traits.find("context.workspace.edges") != std::string::npos);
-  BOOST_CHECK(scratch.find("mNOwnedSurfaces") != std::string::npos);
+  BOOST_CHECK(traits.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(traits.find("context.configuration.edges") != std::string::npos);
+  BOOST_CHECK(scratch.find("mNOwnedSurfaces") == std::string::npos);
   BOOST_CHECK(refit.find("std::vector<detail::RefitMeasurementSlot>") != std::string::npos);
   BOOST_CHECK(refit.find("std::array<SurfaceMeasurement, NLayers>") == std::string::npos);
 }

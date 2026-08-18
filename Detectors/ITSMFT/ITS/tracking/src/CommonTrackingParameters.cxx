@@ -58,7 +58,6 @@ o2::itsmft::TrackingParameters translateTrackingParameters(const o2::its::Tracki
 
   translated.MinTrackLength = legacy.MinTrackLength;
   translated.MaxHoles = legacy.MaxHoles;
-  translated.HoleLayerMask = legacy.HoleLayerMask.value();
   translated.InactiveLayerMask = legacy.InactiveLayerMask.value();
   translated.SeedingLayers = legacy.SeedingLayers.value();
   translated.NSigmaCut = legacy.NSigmaCut;

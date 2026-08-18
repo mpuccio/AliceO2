@@ -14,7 +14,12 @@
 
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
+
+namespace o2::itsmft
+{
+struct IterationParameters;
+}
 
 namespace o2::itsmft::tracking
 {
@@ -46,7 +51,7 @@ struct TraversalTopologyView {
   uint32_t nActiveSurfaces{0};
   const int16_t* surfacePositionById{nullptr};
   uint32_t nSurfacePositions{0};
-  SurfaceMask activeSurfaces{};
+  LayerMask activeLayers{};
   const Edge* edges{nullptr};
   uint32_t nEdges{0};
   const CellPath* paths{nullptr};
@@ -59,7 +64,7 @@ struct TraversalTopologyView {
   uint32_t nRoadStartPaths{0};
   const uint32_t* roadStartComponentOffsets{nullptr};
   uint32_t nRoadStartComponentOffsets{0};
-  SurfaceMask seedingSurfaces{};
+  LayerMask seedingLayers{};
 
   const SurfaceDescriptor& getSurface(LayerId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
   SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
@@ -77,8 +82,8 @@ struct TraversalTopology {
   std::vector<LayerId> orderedSurfaces;
   std::vector<LayerId> activeSurfaceList;
   std::vector<int16_t> surfacePositionById;
-  SurfaceMask activeSurfaces{};
-  SurfaceMask seedingSurfaces{};
+  LayerMask activeLayers{};
+  LayerMask seedingLayers{};
   std::vector<Edge> edges;
   std::vector<CellPath> paths;
   std::vector<uint32_t> pathsByFirstEdgeOffsets;
@@ -93,21 +98,22 @@ struct TraversalTopology {
             orderedSurfaces.data(), static_cast<uint32_t>(orderedSurfaces.size()),
             activeSurfaceList.data(), static_cast<uint32_t>(activeSurfaceList.size()),
             surfacePositionById.data(), static_cast<uint32_t>(surfacePositionById.size()),
-            activeSurfaces,
+            activeLayers,
             edges.data(), static_cast<uint32_t>(edges.size()),
             paths.data(), static_cast<uint32_t>(paths.size()),
             pathsByFirstEdgeOffsets.data(), pathsByFirstEdge.data(),
             scheduledPaths.data(), static_cast<uint32_t>(scheduledPaths.size()),
             roadStartPaths.data(), static_cast<uint32_t>(roadStartPaths.size()),
             roadStartComponentOffsets.data(), static_cast<uint32_t>(roadStartComponentOffsets.size()),
-            seedingSurfaces};
+            seedingLayers};
   }
 };
 
 enum class TraversalTopologyError : uint8_t {
   None,
   InvalidLayout,
-  DisabledSurfaceOutsideLayout,
+  LayerCountMismatch,
+  NegativeMaxHoles,
   NoActiveSurfaces,
   TooManyEdges,
   TooManyPaths
@@ -120,9 +126,10 @@ struct TraversalTopologyBuildResult {
   bool ok() const noexcept { return topology.has_value(); }
 };
 
-// Derive one pass's topology from immutable layout policy and disabled
-// surfaces. The result is transactional: failed derivation has no topology.
-TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout, SurfaceMask disabledSurfaces = {});
+// Derive one iteration's topology from the invariant detector layout and the
+// Tracker-owned iteration parameters.
+TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout,
+                                                     const o2::itsmft::IterationParameters& parameters);
 
 #endif // GPUCA_GPUCODE
 

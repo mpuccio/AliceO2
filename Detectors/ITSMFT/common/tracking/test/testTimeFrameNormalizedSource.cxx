@@ -16,16 +16,13 @@
 // not yet workflow-wired -- for ITS) and exercise
 // TimeFrameScratch::loadNormalizedSource(TimeFrame&, ...), the
 // owner-level load operation which loads one single-detector cluster stream
-// through TimeFrame event measurement storage (ITSMFTTracking/
-// IOUtils.h) and then backfills the scratch's existing legacy
-// retired compatibility structures (unsorted clusters, TrackingFrameInfo, external
-// indices, cluster sizes, ROF boundaries, label lookup) from the committed
-// normalized measurements.
+// through TimeFrame measurement storage (ITSMFTTracking/IOUtils.h) and then
+// backfills the detector adapter's compatibility views from the loaded
+// measurements.
 //
 // Gate 2 (Slice B3): loadNormalizedSource() no longer accepts an externally
-// supplied topology view or layer-to-surface mapping. TimeFrame owns no
-// catalog/plan of its own; every test passes the immutable catalog/order
-// explicitly to loadNormalizedSource().
+// supplied topology view or layer-to-surface mapping. The immutable
+// catalog/order is passed explicitly at the adapter boundary.
 //
 // Deterministic adapter parity (this test) vs. real decode parity: like
 // every other Gate 1 test in this directory (see testMultiSourceLoading.cxx),
@@ -74,6 +71,7 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -144,12 +142,9 @@ const TopologyDictionary& dict()
 
 void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog, gsl::span<const LayerId> orderedSurfaces)
 {
-  std::vector<SurfaceLayout> layouts;
-  layouts.push_back(catalogGraph(catalog, orderedSurfaces));
-  std::vector<TrackingParameters> parameters(1);
-  std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
-                                          std::move(capacities), std::make_shared<o2::its::BoundedMemoryResource>()));
+  auto layout = catalogGraph(catalog, orderedSurfaces);
+  BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0,
+                                std::make_shared<o2::its::BoundedMemoryResource>()));
 }
 
 // Explicit (non-grouped, InvalidPatternID) patterns: header {rowSpan,columnSpan}
@@ -285,12 +280,8 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   std::vector<LayerId> combinedSurfaces{itsSurfaces.begin(), itsSurfaces.end()};
   combinedSurfaces.insert(combinedSurfaces.end(), mftSurfaces.begin(), mftSurfaces.end());
   auto layout = catalogGraph(view, combinedSurfaces);
-  std::vector<SurfaceLayout> layouts;
-  layouts.push_back(std::move(layout));
-  std::vector<TrackingParameters> parameters(1);
-  std::vector<TrackingWorkspaceCapacity> capacities{{combinedSurfaces.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
-                                          std::move(capacities), std::make_shared<BoundedMemoryResource>()));
+  BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0,
+                                std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   std::vector<std::vector<uint32_t>> externalIndicesBySurface;
   std::vector<std::vector<uint32_t>> clusterSizesBySurface;
@@ -473,7 +464,6 @@ BOOST_AUTO_TEST_CASE(ConfiguredCatalogLoadingSucceeds)
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureFrame(frame, catalogView, plan.getOrderedSurfaces());
-  BOOST_CHECK_EQUAL(frame.getNIterations(), 1u);
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -735,7 +725,7 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
 }
 
-BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
+BOOST_AUTO_TEST_CASE(FailedNormalizedLoadClearsTheTimeFrame)
 {
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
   const auto catalog = makeITSTestCatalog();
@@ -775,26 +765,14 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
 
-  // Both the normalized owner and the legacy compatibility structures retain
-  // exactly their pre-failure (baseline) content.
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].clusterId, 0);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).empty());
 }
 
 // Every preflight failure -- not only a loadSources()-internal one -- must
-// also preserve a prior successful normalized and legacy load. Gate 4 B2
-// Slice 2 removed this test's original mechanism (invalidate the
-// TimeFrame-owned catalog between the baseline load and the failing one, to
-// produce SurfaceCatalogStale): loadNormalizedSource() now receives its
-// SurfaceCatalogView explicitly on every call, with no TimeFrame-owned
-// currency to invalidate. The second call below instead passes an
-// empty/unconfigured view directly, producing SurfaceCatalogNotConfigured --
-// still a preflight-only failure, caught entirely in loadNormalizedSource()'s
-// own preflight, before loadSources() is ever called, exactly like the
-// removed mechanism.
-BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
+// A preflight failure must clear a prior successful load as well as failures
+// encountered after decoding begins.
+BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadClearsState)
 {
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
   const auto catalog = makeITSTestCatalog();
@@ -823,10 +801,8 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
 
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].clusterId, 0);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).empty());
 }
 
 // Normalized loading must match the configured covariance default and honor

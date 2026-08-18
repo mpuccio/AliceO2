@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TripletFitting.h"
 #include "ITStracking/Constants.h"
 #include "GPUCommonDef.h"
@@ -132,9 +132,6 @@ static_assert(std::is_trivially_copyable_v<CellSeed>);
 /// adopted-plan position. Fixed MaxLayoutSurfaces capacity is required for
 /// device use, where heap allocation is unavailable.
 ///
-/// TrackSeed uses SurfaceMask rather than CellSeed's positional LayerMask:
-/// each set bit is a position in its fixed array, not a global LayerId.
-///
 /// This fixed-capacity value is the sole common-CA whole-track seed
 /// representation.
 class TrackSeed final
@@ -158,18 +155,16 @@ class TrackSeed final
     for (int position = 0; position < MaxSurfaces; ++position) {
       if (hitMask.has(position)) {
         mClusters[position] = cs.getClusters()[slot++];
-        mSurfaceMask.set(LayerId{static_cast<uint16_t>(position)});
+        mHitLayerMask.set(position);
       }
     }
   }
 
-  GPUhd() SurfaceMask getSurfaceMask() const noexcept { return mSurfaceMask; }
-  GPUhd() void setSurfaceMask(SurfaceMask mask) noexcept { mSurfaceMask = mask; }
-  GPUhd() int getActiveSurfaceCount() const noexcept { return mSurfaceMask.count(); }
-  GPUhd() int getInnerLayer() const noexcept { return mSurfaceMask.first(); }
+  GPUhd() int getActiveLayerCount() const noexcept { return mHitLayerMask.count(); }
+  GPUhd() int getInnerLayer() const noexcept { return mHitLayerMask.first(); }
   GPUhd() bool hasCluster(int position) const noexcept
   {
-    return position >= 0 && position < MaxSurfaces && mSurfaceMask.has(LayerId{static_cast<uint16_t>(position)});
+    return position >= 0 && position < MaxSurfaces && mHitLayerMask.has(position);
   }
 
   // Bounds-checked: an out-of-[0, MaxSurfaces) position safely
@@ -179,12 +174,8 @@ class TrackSeed final
     return (position >= 0 && position < MaxSurfaces) ? mClusters[position] : o2::its::constants::UnusedIndex;
   }
 
-  // Keep a LayerMask view for the positional hole/acceptance code while
-  // SurfaceMask remains the authoritative fixed-capacity representation.
-  GPUhd() LayerMask getHitLayerMask() const noexcept
-  {
-    return LayerMask{mSurfaceMask.value()};
-  }
+  GPUhd() LayerMask getHitLayerMask() const noexcept { return mHitLayerMask; }
+  GPUhd() void setHitLayerMask(LayerMask mask) noexcept { mHitLayerMask = mask; }
   GPUhd() void setCluster(int position, int clusterIndex) noexcept
   {
     if (position >= 0 && position < MaxSurfaces) {
@@ -232,7 +223,7 @@ class TrackSeed final
   }
 
   SurfaceKinematicState mState{};
-  SurfaceMask mSurfaceMask{};
+  LayerMask mHitLayerMask{};
   float mChi2{o2::its::constants::UnsetValue};
   int mLevel{o2::its::constants::UnusedIndex};
   std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();

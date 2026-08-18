@@ -151,7 +151,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // ITS's own source is structurally valid (correctly-sized layerToSurface);
   // MFT's is deliberately malformed (9 entries instead of MFTNLayers=10) --
   // TimeFrameScratch::loadNormalizedSource()'s own preflight
-  // (orderedSurfaces.size() != mNOwnedSurfaces) must reject it before any
+  // mismatched topology extents must be rejected before any
   // commit.
   std::vector<LayerId> itsLayerToSurfaceStorage;
   std::vector<LayerId> mftLayerToSurfaceStorage;
@@ -197,7 +197,6 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   auto& itsParticipantScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
   auto& mftParticipantScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
   itsParticipantScratch.getTracklets()[0].emplace_back();
@@ -205,13 +204,10 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   mftParticipantScratch.getTracklets()[7].emplace_back();
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 2);
 
-  const auto resetCount = frame.getEventResetCount();
   frame.resetTimeFrame();
 
   BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 0);
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getNOwnedSurfaces(), 17u);
 
-  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
   BOOST_CHECK(itsParticipantScratch.getTracklets()[0].empty());
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
@@ -225,7 +221,6 @@ BOOST_AUTO_TEST_CASE(ProductionMFTWorkspaceMatchesConfiguredTopologyAtRealParame
   TimeFrame frame;
   participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
-  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNEdges(), 15u);
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNCells(), 13u);
 }
@@ -283,7 +278,6 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   auto& itsScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
   auto& mftScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsScratch, &mftScratch);
-  BOOST_CHECK_EQUAL(itsScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsScratch.getNCells(), 13u);
   itsScratch.getTracklets()[0].emplace_back();
@@ -295,6 +289,5 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   frame.resetTimeFrame();
   BOOST_CHECK_EQUAL(itsScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(mftScratch.getNumberOfTracklets(), 0);
-  BOOST_CHECK_EQUAL(mftScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(frame.getBz(), 9.f);
 }

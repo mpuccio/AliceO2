@@ -8,11 +8,13 @@
 #include <algorithm>
 #include <vector>
 
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
+using o2::itsmft::TrackingParameters;
 
 std::vector<SurfaceDescriptor> catalog(uint16_t count, SurfaceKind kind = SurfaceKind::Cylinder)
 {
@@ -32,25 +34,33 @@ std::vector<LayerId> order(uint16_t first, uint16_t count)
   return result;
 }
 
-SurfaceMask mask(std::initializer_list<uint16_t> ids)
+LayerMask mask(std::initializer_list<uint16_t> ids)
 {
-  SurfaceMask result;
+  LayerMask result;
   for (const auto id : ids) {
-    result.set(LayerId{id});
+    result.set(id);
   }
   return result;
 }
+
+TrackingParameters parametersFor(const SurfaceLayout& layout)
+{
+  TrackingParameters parameters;
+  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  parameters.StartLayerMask = LayerMask::span(0, parameters.NLayers - 1);
+  return parameters;
+}
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SurfaceMaskCoversThirtyTwoGlobalSurfaces)
+BOOST_AUTO_TEST_CASE(LayerMaskCoversThirtyTwoLayoutPositions)
 {
-  SurfaceMask surfaces;
-  surfaces.set(LayerId{0});
-  surfaces.set(LayerId{16});
-  surfaces.set(LayerId{31});
-  BOOST_CHECK(surfaces.has(LayerId{0}));
-  BOOST_CHECK(surfaces.has(LayerId{16}));
-  BOOST_CHECK(surfaces.has(LayerId{31}));
+  LayerMask surfaces;
+  surfaces.set(0);
+  surfaces.set(16);
+  surfaces.set(31);
+  BOOST_CHECK(surfaces.has(0));
+  BOOST_CHECK(surfaces.has(16));
+  BOOST_CHECK(surfaces.has(31));
   BOOST_CHECK_EQUAL(surfaces.count(), 3);
 }
 
@@ -82,7 +92,7 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesAndKindIndependentCatalogs)
   BOOST_CHECK(layout.sameComponent(0, 1));
   BOOST_CHECK(!layout.sameComponent(1, 2));
 
-  const auto topology = deriveTraversalTopology(layout);
+  const auto topology = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(topology.ok());
   BOOST_CHECK_EQUAL(topology.topology->edges.size(), 2u);
   BOOST_CHECK(std::all_of(topology.topology->edges.begin(), topology.topology->edges.end(), [](const Edge& edge) {
@@ -94,12 +104,14 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
 {
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = order(0, 4);
-  definition.maxHoles = 1;
-  definition.holeSurfaces = mask({1});
-  definition.seedingSurfaces = mask({3});
+  definition.holeLayers = mask({1});
   const std::vector<SurfaceDescriptor> surfaces = catalog(4);
   const auto layout = SurfaceLayout{surfaces, std::move(definition)};
-  const auto result = deriveTraversalTopology(layout, mask({1}));
+  auto parameters = parametersFor(layout);
+  parameters.MaxHoles = 1;
+  parameters.StartLayerMask = LayerMask{1u << 3};
+  parameters.InactiveLayerMask = LayerMask{1u << 1};
+  const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 3u);
@@ -111,16 +123,18 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
   BOOST_CHECK(topology.getView(layout.getSurfaceCatalog()).getPath(topology.roadStartPaths.front()).first == EdgeId{0});
 }
 
-BOOST_AUTO_TEST_CASE(InvalidLayoutAndDisabledSurfaceDerivationIsTransactional)
+BOOST_AUTO_TEST_CASE(InvalidLayoutAndLayerCountDerivationIsTransactional)
 {
   const auto surfaces = catalog(4);
   const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(order(0, 4))};
-  const auto invalidDisabled = deriveTraversalTopology(layout, mask({7}));
-  BOOST_CHECK(!invalidDisabled.ok());
-  BOOST_CHECK(!invalidDisabled.topology.has_value());
-  BOOST_CHECK(invalidDisabled.error == TraversalTopologyError::DisabledSurfaceOutsideLayout);
+  auto wrongLayerCount = parametersFor(layout);
+  wrongLayerCount.NLayers = 7;
+  const auto invalidCount = deriveTraversalTopology(layout, wrongLayerCount);
+  BOOST_CHECK(!invalidCount.ok());
+  BOOST_CHECK(!invalidCount.topology.has_value());
+  BOOST_CHECK(invalidCount.error == TraversalTopologyError::LayerCountMismatch);
 
-  const auto invalidLayout = deriveTraversalTopology(SurfaceLayout{});
+  const auto invalidLayout = deriveTraversalTopology(SurfaceLayout{}, TrackingParameters{});
   BOOST_CHECK(!invalidLayout.ok());
   BOOST_CHECK(!invalidLayout.topology.has_value());
 }

@@ -101,7 +101,7 @@ static_assert(!std::is_same_v<TimeFrame, TimeFrameScratch>,
 void populateScratch(TimeFrameScratch& scratch, float tag)
 {
   scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  scratch.adoptPlan(ITSNLayers, 1, 0);
+  scratch.configureStorage(1, 0);
   scratch.getTracklets()[0].emplace_back(0, 1, tag, tag, o2::its::TimeEstBC{});
 }
 

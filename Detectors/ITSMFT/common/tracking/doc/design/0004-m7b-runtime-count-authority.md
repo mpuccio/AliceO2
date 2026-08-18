@@ -23,7 +23,7 @@ runtime-sized common-core bounds:
 | Traversal order and extent | `SurfacePlanBinding::getOrderedSurfaces()` | Iterate the validated ordered positions. Never reconstruct order from numeric `SurfaceId` values. |
 | Active surface workspace | `SurfaceTrackingScratch::getNOwnedSurfaces()` | Size host caches, per-surface working vectors, and shared hot-loop bounds from the adopted plan. |
 | Transition and cell capacity | `SurfaceTrackingScratch::getNTransitions()` / `getNCells()` plus the binding's compact slot maps | Use runtime topology counts and binding positions; preserve fixed device storage only where its ABI requires it. |
-| Whole-track membership | positional `TrackSeed::SurfaceMask` and binding position maps | A mask bit is a plan position, not a global `SurfaceId`. |
+| Whole-track membership | positional `TrackSeed::LayerMask` and binding position maps | A mask bit is a plan position, not a global `SurfaceId`. |
 | Normalized measurement order | `SurfacePlanBinding` order and source | Measurement spans are indexed by ordered position and retain their source-qualified `ClusterRef`. |
 | Index-table populated prefix | runtime active count and extent span | `IndexTableUtilsCore` retains its fixed maximum device capacity, but only the runtime prefix is configured and compared. |
 
@@ -92,7 +92,7 @@ and does not exempt any common-CA production file.
 Fixed capacities are deliberately not conflated with active counts:
 
 - `TrackSeed` keeps `MaxLayoutSurfaces` cluster slots and its positional
-  `SurfaceMask` because it is a trivially-copyable GPU-portable whole-track
+  `LayerMask` because it is a trivially-copyable GPU-portable whole-track
   value.
 - `CellSeed` keeps its three-measurement CA-cell representation and the live
   `SeedMetadataBase<N>` base.
@@ -111,7 +111,7 @@ application order `{5, 2, 7, 1}` and a source-qualified binding. It verifies:
 2. scratch surface, transition, and cell extents follow the binding/runtime
    topology counts;
 3. normalized measurement views retain both position order and source; and
-4. `TrackSeed::SurfaceMask` bits follow positions, so global surface 5 does
+4. `TrackSeed::LayerMask` bits follow positions, so global surface 5 does
    not accidentally become mask bit 5.
 
 The migrated index-table/refit fixtures continue to cover fixed-capacity

@@ -37,7 +37,7 @@
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TripletFitting.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -74,7 +74,7 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
                                            gsl::span<const LayerId> orderedSurfaces)
 {
   GenericTrack track = candidate.track;
-  track.hitSurfaces = {};
+  track.hitLayers = {};
   std::vector<TrackClusterReference> resolvedReferences;
   resolvedReferences.reserve(layerMeasurements.size());
   for (std::size_t position = 0; position < layerMeasurements.size(); ++position) {
@@ -94,7 +94,7 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
       return std::nullopt;
     }
     resolvedReferences.push_back(reference);
-    track.hitSurfaces.set(reference.layer);
+    track.hitLayers.set(static_cast<int>(position));
   }
   if (!track.innerState.hasRecognizedKind() || !track.outerState.hasRecognizedKind() ||
       !track.timestamp.isValid() || resolvedReferences.empty()) {
@@ -142,16 +142,16 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
 // Convert ROOT-visible parameters to the device-portable record once per iteration.
 } // namespace
 
-void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction refitFunction)
+void TrackerTraits::runTraversal(IterationContext view, SeedRefitFunction refitFunction)
 {
-  if (view.iteration < 0 || static_cast<std::size_t>(view.iteration) >= view.parameters.size()) {
+  if (view.iteration < 0) {
     throw TraversalException{view.iteration, TraversalFailureReason::IterationOutOfRange};
   }
-  if (!view.workspace.valid) {
+  if (!view.iterationScratch.valid) {
     throw TraversalException{view.iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   int maxNvertices{-1};
-  if (view.parameters[0].PerPrimaryVertexProcessing) {
+  if (view.configuration.parameters.PerPrimaryVertexProcessing) {
     maxNvertices = view.frame.getMaxVerticesPerROF();
   }
   int iVertex = std::min(maxNvertices, 0);
@@ -163,40 +163,40 @@ void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction 
   } while (++iVertex < maxNvertices);
 }
 
-int requireScratchEdgeSlot(const TraversalWorkspaceView& context, int iteration, EdgeId id)
+int requireScratchEdgeSlot(const IterationContext& context, int iteration, EdgeId id)
 {
-  const auto slot = context.workspace.getEdgeSlot(id);
+  const auto slot = context.configuration.getEdgeSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
   return static_cast<int>(*slot);
 }
 
-int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration, CellPathId id)
+int requireScratchCellSlot(const IterationContext& context, int iteration, CellPathId id)
 {
-  const auto slot = context.workspace.getCellSlot(id);
+  const auto slot = context.configuration.getCellSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
   return static_cast<int>(*slot);
 }
 
-int requireSurfacePosition(const TraversalWorkspaceView& context, int iteration, LayerId id)
+int requireSurfacePosition(const IterationContext& context, int iteration, LayerId id)
 {
   if (!id.isValid()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  const auto position = context.workspace.getSurfaceSlot(id);
-  if (!position || *position >= context.workspace.orderedSurfaces.size()) {
+  const auto position = context.configuration.getSurfaceSlot(id);
+  if (!position || *position >= context.configuration.topology.orderedSurfaces.size()) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
   return static_cast<int>(*position);
 }
 
-void TrackerTraits::computeLayerTracklets(TraversalWorkspaceView& context, const int iteration, int iVertex)
+void TrackerTraits::computeLayerTracklets(IterationContext& context, const int iteration, int iVertex)
 {
   auto& scratch = context.scratch;
-  auto& workspace = context.workspace;
+  auto& iterationScratch = context.iterationScratch;
   const auto scratchEdgeCount = scratch.getTracklets().size();
   for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
     scratch.getTracklets()[edgeId].clear();
@@ -204,15 +204,15 @@ void TrackerTraits::computeLayerTracklets(TraversalWorkspaceView& context, const
     std::fill(scratch.getTrackletsLookupTable()[edgeId].begin(), scratch.getTrackletsLookupTable()[edgeId].end(), 0);
   }
 
-  if (!workspace.valid) {
+  if (!iterationScratch.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  computeLayerTrackletsImpl(context, iteration, iVertex, context.workspace.edges);
+  computeLayerTrackletsImpl(context, iteration, iVertex, context.configuration.edges);
 }
 
 void TrackerTraits::computeLayerTrackletsImpl(
-  TraversalWorkspaceView& context,
+  IterationContext& context,
   const int iteration,
   const int iVertex,
   gsl::span<const EdgeId> edgeIds)
@@ -220,14 +220,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
   auto* mFrame = &context.frame;
-  const auto mTrkParams = context.parameters;
+  const auto& trkParam = context.configuration.parameters;
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
-  auto& mKernelParameters = context.workspace.kernelParameters;
-  const auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
+  const auto& mKernelParameters = context.configuration.kernelParameters;
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
+  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
   const auto& topology = mTraversalGraph;
-  const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
+  const Vertex diamondVert(trkParam.Diamond, trkParam.DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
     auto resolveEdgeLayers = [&](int edgeId) -> std::pair<int, int> {
@@ -245,7 +245,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
       // stack frame, so this is safe inside the parallel dispatch.
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
-      if (mTrkParams[iteration].UseDiamond) {
+      if (trkParam.UseDiamond) {
         diamondForROF = diamondVertexForROF(diamondVert, mFrame->getROFViews(fromLayer).overlap,
                                             mFrame->getROFLocalLayer(fromLayer), pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
@@ -285,7 +285,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
           if (!mFrame->isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
-          if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
+          if (pv.isFlagSet(Vertex::Flags::UPCMode) != trkParam.PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
           TrackletSearchWindow searchWindow{};
@@ -374,12 +374,11 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
         const auto kind = topology.getSurface(topology.getEdge(typedEdgeId).from).kind;
         TrackletProjectionCache edgeCache{};
-        const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
-                                                       mTrkParams[iteration].LayerRadii.size()};
-        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
+        const auto layerRadii = gsl::span<const float>{context.detectorConfiguration.layerRadii};
+        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii,
                                          mFrame->getMinR(toLayer), mFrame->getMaxR(toLayer),
                                          mFrame->getMinZ(toLayer), mFrame->getMaxZ(toLayer),
-                                         mScratch->getPositionResolution(fromLayer),
+                                         context.detectorConfiguration.positionResolutions[fromLayer],
                                          mScratch->getEdgeMSAngle(scratchEdgeId),
                                          mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
@@ -397,12 +396,11 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
         const auto kind = topology.getSurface(topology.getEdge(typedEdgeId).from).kind;
         TrackletProjectionCache edgeCache{};
-        const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
-                                                       mTrkParams[iteration].LayerRadii.size()};
-        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
+        const auto layerRadii = gsl::span<const float>{context.detectorConfiguration.layerRadii};
+        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii,
                                          mFrame->getMinR(toLayer), mFrame->getMaxR(toLayer),
                                          mFrame->getMinZ(toLayer), mFrame->getMaxZ(toLayer),
-                                         mScratch->getPositionResolution(fromLayer),
+                                         context.detectorConfiguration.positionResolutions[fromLayer],
                                          mScratch->getEdgeMSAngle(scratchEdgeId),
                                          mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
@@ -447,7 +445,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
     });
 
     /// Create tracklets labels
-    if (mFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+    if (mFrame->hasMCinformation() && trkParam.CreateArtefactLabels) {
       tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
         const auto typedEdgeId = edgeIds[edgeIndex];
         const int edgeId = typedEdgeId.value();
@@ -457,8 +455,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
           MCCompLabel label;
           const auto currentId = mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId;
           const auto nextId = mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId;
-          for (const auto& lab1 : mFrame->getLabels(context.workspace.orderedSurfaces[fromLayer], currentId)) {
-            for (const auto& lab2 : mFrame->getLabels(context.workspace.orderedSurfaces[toLayer], nextId)) {
+          for (const auto& lab1 : mFrame->getLabels(orderedSurfaces[fromLayer], currentId)) {
+            for (const auto& lab2 : mFrame->getLabels(orderedSurfaces[toLayer], nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
@@ -475,10 +473,10 @@ void TrackerTraits::computeLayerTrackletsImpl(
   });
 }
 
-void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int iteration)
+void TrackerTraits::computeLayerCells(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto& workspace = context.workspace;
+  const auto& iterationScratch = context.iterationScratch;
   const auto scratchCellCount = scratch.getCells().size();
   if (scratch.getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
@@ -486,19 +484,20 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
   for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
     deepVectorClear(scratch.getCells()[cellPathId]);
     deepVectorClear(scratch.getCellsLookupTable()[cellPathId]);
-    if (context.frame.hasMCinformation() && context.parameters[iteration].CreateArtefactLabels) {
+    if (context.frame.hasMCinformation() && context.configuration.parameters.CreateArtefactLabels) {
       deepVectorClear(scratch.getCellsLabel(cellPathId));
     }
   }
 
-  if (!workspace.valid) {
+  if (!iterationScratch.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  if (!workspace.attachHitConfig.isValid(static_cast<int>(workspace.orderedSurfaces.size()))) {
+  if (!bindAttachHitConfig(context.detectorConfiguration.layerMaterial, context.configuration.parameters)
+         .isValid(static_cast<int>(context.configuration.topology.orderedSurfaces.size()))) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
-  computeLayerCellsImpl(context, iteration, context.workspace.cells);
+  computeLayerCellsImpl(context, iteration, context.configuration.cells);
 
   const auto scratchEdgeCount = scratch.getTracklets().size();
   for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
@@ -508,19 +507,19 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
 }
 
 void TrackerTraits::computeLayerCellsImpl(
-  TraversalWorkspaceView& context,
+  IterationContext& context,
   const int iteration,
   gsl::span<const CellPathId> cellIds)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
-  const auto mTrkParams = context.parameters;
+  const auto& trkParam = context.configuration.parameters;
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
-  const auto& mKernelParameters = context.workspace.kernelParameters;
-  const auto& mAttachHitConfig = context.workspace.attachHitConfig;
-  const auto& mLayerMaterial = context.workspace.layerMaterial;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
+  const auto& mKernelParameters = context.configuration.kernelParameters;
+  const auto mAttachHitConfig = bindAttachHitConfig(context.detectorConfiguration.layerMaterial, trkParam);
+  const auto& mLayerMaterial = context.detectorConfiguration.layerMaterial;
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
@@ -692,7 +691,7 @@ void TrackerTraits::computeLayerCellsImpl(
       lut.resize(currentLayerTrackletsNum + 1);
       std::copy_n(perTrackletCount.begin(), currentLayerTrackletsNum + 1, lut.begin());
 
-      if (context.frame.hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+      if (context.frame.hasMCinformation() && trkParam.CreateArtefactLabels) {
         auto& labels = mScratch->getCellsLabel(cellPathId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
@@ -705,11 +704,11 @@ void TrackerTraits::computeLayerCellsImpl(
   });
 }
 
-void TrackerTraits::findCellsNeighbours(TraversalWorkspaceView& context, const int iteration)
+void TrackerTraits::findCellsNeighbours(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto& workspace = context.workspace;
-  if (!workspace.valid) {
+  const auto& iterationScratch = context.iterationScratch;
+  if (!iterationScratch.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   for (std::size_t slot = 0; slot < scratch.getCellsNeighbours().size(); ++slot) {
@@ -717,9 +716,9 @@ void TrackerTraits::findCellsNeighbours(TraversalWorkspaceView& context, const i
     deepVectorClear(scratch.getCellsNeighboursTopology()[slot]);
     deepVectorClear(scratch.getCellsNeighboursLUT()[slot]);
   }
-  const auto& scheduledCells = context.workspace.scheduledCells;
+  const auto& scheduledCells = context.configuration.topology.scheduledPaths;
   if (!scheduledCells.empty()) {
-    findCellsNeighboursForSchedule(context, iteration, scheduledCells, workspace.kernelParameters);
+    findCellsNeighboursForSchedule(context, iteration, scheduledCells, context.configuration.kernelParameters);
   }
   for (auto& cellLUT : scratch.getCellsLookupTable()) {
     deepVectorClear(cellLUT);
@@ -727,7 +726,7 @@ void TrackerTraits::findCellsNeighbours(TraversalWorkspaceView& context, const i
 }
 
 void TrackerTraits::findCellsNeighboursForSchedule(
-  TraversalWorkspaceView& context,
+  IterationContext& context,
   int iteration,
   gsl::span<const CellPathId> scheduledCells,
   const TrackingKernelParameters& params)
@@ -735,8 +734,8 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto& mTraversalGraph = context.topology;
-  const auto& mLayerMaterial = context.workspace.layerMaterial;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
+  const auto& mLayerMaterial = context.detectorConfiguration.layerMaterial;
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   const auto topology = mTraversalGraph;
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount ||
@@ -896,15 +895,17 @@ void TrackerTraits::findCellsNeighboursForSchedule(
 }
 
 template <typename InputSeed>
-void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsPathIds, const TrackingKernelParameters& params)
+void TrackerTraits::processNeighbours(IterationContext& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsPathIds, const TrackingKernelParameters& params)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mBz = context.bz;
-  const auto& mAttachHitConfig = context.workspace.attachHitConfig;
+  const auto mAttachHitConfig = bindAttachHitConfig(context.detectorConfiguration.layerMaterial,
+                                                    context.configuration.parameters);
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
-  const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
+  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
+  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
 
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
@@ -958,7 +959,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        const auto* measurement = context.frame.getSurfaceMeasurement(context.workspace.orderedSurfaces[neighbourLayer], neighbourGlobal.clusterId);
+        const auto* measurement = context.frame.getSurfaceMeasurement(orderedSurfaces[neighbourLayer], neighbourGlobal.clusterId);
         if (measurement == nullptr) {
           continue;
         }
@@ -977,15 +978,9 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
           if (neighbourLayer < 0 || neighbourLayer >= activeSurfaceCount) {
             throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
           }
-          // TrackSeed::SurfaceMask is the fixed-capacity compact plan
-          // position space used by the CA acceptance/refit loops. Global
-          // LayerIds stay on normalized measurements and GenericTrack
-          // references; mixing them into this local mask would make a
-          // combined sparse binding look like extra holes. The binding's
-          // ordered position is already `neighbourLayer` here.
-          auto surfaceMask = seed.getSurfaceMask();
-          surfaceMask.set(LayerId{static_cast<uint16_t>(neighbourLayer)});
-          seed.setSurfaceMask(surfaceMask);
+          auto hitLayerMask = seed.getHitLayerMask();
+          hitLayerMask.set(neighbourLayer);
+          seed.setHitLayerMask(hitLayerMask);
           seed.setLevel(neighbourCell.getLevel());
           seed.setFirstTrackletIndex(neighbourCell.getFirstTrackletIndex());
           seed.setSecondTrackletIndex(neighbourCell.getSecondTrackletIndex());
@@ -1039,28 +1034,29 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
   });
 }
 
-void TrackerTraits::findRoads(TraversalWorkspaceView& context, const int iteration, SeedRefitFunction refitFunction)
+void TrackerTraits::findRoads(IterationContext& context, const int iteration, SeedRefitFunction refitFunction)
 {
-  if (!context.workspace.valid) {
+  if (!context.iterationScratch.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  if (context.scratch.getCells().size() != context.workspace.cells.size()) {
+  if (context.scratch.getCells().size() != context.configuration.cells.size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   findRoadsImpl(context, iteration, refitFunction);
 }
 
-void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int iteration, SeedRefitFunction refitFunction)
+void TrackerTraits::findRoadsImpl(IterationContext& context, const int iteration, SeedRefitFunction refitFunction)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
-  const auto mTrkParams = context.parameters;
+  const auto& trkParam = context.configuration.parameters;
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
-  const auto& mKernelParameters = context.workspace.kernelParameters;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
-  const gsl::span<const CellPathId> roadStartCells = context.workspace.roadStartCells;
-  const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
+  const auto& mKernelParameters = context.configuration.kernelParameters;
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
+  const gsl::span<const CellPathId> roadStartCells = context.configuration.topology.roadStartPaths;
+  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
+  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
   // Road starts are the binding's seeding-eligible sparse-plan subsequence.
@@ -1068,20 +1064,28 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   // Filter roads by absolute q/pT in parameters[4]'s units, identically for
   // both families. Non-finite values fail the finite-bound comparison.
   constexpr float maxAbsQOverPt = 1.e3f;
-  const int cellsPerRoad = static_cast<int>(context.workspace.orderedSurfaces.size()) - 2;
-  const auto& componentOffsets = context.workspace.roadStartComponentOffsets;
+  const auto seedingLayerMask = context.topology.seedingLayers;
+  const auto nonSeedingLayerMask = ~seedingLayerMask;
+  const int cellsPerRoad = seedingLayerMask.count() - 2;
+  const auto& componentOffsets = context.configuration.topology.roadStartComponentOffsets;
+  const auto holeLayerMask = context.frame.getLayout().getHoleLayers();
   if (componentOffsets.empty() || componentOffsets.front() != 0 || componentOffsets.back() != roadStartCells.size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   for (size_t component = 0; component + 1 < componentOffsets.size(); ++component) {
     const auto componentRoadStarts = roadStartCells.subspan(componentOffsets[component],
                                                             componentOffsets[component + 1] - componentOffsets[component]);
-    for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
+    for (int startLevel{cellsPerRoad}; startLevel >= trkParam.CellMinimumLevel(); --startLevel) {
 
       auto seedFilter = [&](const auto& seed) {
-        return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
-               seed.getHitLayerMask().length() >= mTrkParams[iteration].MinTrackLength &&
-               std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
+        const auto hitLayerMask = seed.getHitLayerMask();
+        const int effectiveTrackLength = hitLayerMask.empty()
+                                           ? 0
+                                           : hitLayerMask.length() - (LayerMask::span(hitLayerMask.first(), hitLayerMask.last()) & nonSeedingLayerMask).count();
+        const auto effectiveHoleMask = hitLayerMask.holeMask() & ~nonSeedingLayerMask;
+        return effectiveHoleMask.isAllowedHoleMask(trkParam.MaxHoles, holeLayerMask) &&
+               effectiveTrackLength >= trkParam.getMinSeedingClusters() &&
+               std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= trkParam.MaxChi2NDF * ((startLevel + 2) * 2 - 5);
       };
 
       bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
@@ -1132,11 +1136,11 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
           temporaryTrack.seed = trackSeeds[iSeed];
           const bool refitSuccess = refitFunction(trackSeeds[iSeed],
                                                   context.frame,
-                                                  mTrkParams[iteration],
+                                                  trkParam,
                                                   mBz,
                                                   mLayerGlobalMeasurements,
                                                   mTraversalGraph.getSurfaceCatalogView(),
-                                                  context.workspace.orderedSurfaces,
+                                                  orderedSurfaces,
                                                   temporaryTrack);
           if (refitSuccess) {
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
@@ -1193,18 +1197,19 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   }
 }
 
-void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
+void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
                                  bounded_vector<TrackingCandidate>& tracks,
                                  bounded_vector<bounded_vector<int>>& firstClusters)
 {
   auto* mScratch = &context.scratch;
   auto* mFrame = &context.frame;
-  const auto mTrkParams = context.parameters;
-  auto& mAcceptedTracksForSharedStatus = context.workspace.acceptedTracks;
-  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
+  const auto& trkParam = context.configuration.parameters;
+  auto& mAcceptedTracksForSharedStatus = context.iterationScratch.acceptedTracks;
+  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   auto& trks = mAcceptedTracksForSharedStatus;
   trks.reserve(trks.size() + tracks.size());
-  const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
+  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
+  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
@@ -1218,13 +1223,13 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
       nShared += int(isShared);
       if (firstLayer < 0) {
         firstCluster = track.getClusterIndex(iLayer);
-        isFirstShared = isShared && mTrkParams[iteration].AllowSharingFirstCluster && std::find(firstClusters[iLayer].begin(), firstClusters[iLayer].end(), firstCluster) != firstClusters[iLayer].end();
+        isFirstShared = isShared && trkParam.AllowSharingFirstCluster && std::find(firstClusters[iLayer].begin(), firstClusters[iLayer].end(), firstCluster) != firstClusters[iLayer].end();
         firstLayer = iLayer;
       }
     }
 
     /// do not account for the first cluster in the shared clusters number if it is allowed
-    if (nShared - int(isFirstShared && mTrkParams[iteration].AllowSharingFirstCluster) > mTrkParams[iteration].SharedMaxClusters) {
+    if (nShared - int(isFirstShared && trkParam.AllowSharingFirstCluster) > trkParam.SharedMaxClusters) {
       continue;
     }
 
@@ -1270,13 +1275,13 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
 
     // acceptTracks() is the serial owner-thread publication boundary. Typed
     // sidecars are completed later by the application adapter.
-    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, context.workspace.orderedSurfaces);
+    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, orderedSurfaces);
     if (!genericTrackIndex) {
       LOGP(fatal, "GenericTrack publication failed for an accepted CA track");
     }
     trks.back().genericTrackIndex = *genericTrackIndex;
 
-    if (mTrkParams[iteration].AllowSharingFirstCluster) {
+    if (trkParam.AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
     }
   }

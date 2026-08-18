@@ -134,8 +134,8 @@ BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
 {
   const auto source = readTrackerTraitsSource();
   const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
-    {"computeLayerTracklets", "computeLayerTrackletsImpl", "context.workspace.edges"},
-    {"computeLayerCells", "computeLayerCellsImpl", "context.workspace.cells"},
+    {"computeLayerTracklets", "computeLayerTrackletsImpl", "context.configuration.edges"},
+    {"computeLayerCells", "computeLayerCellsImpl", "context.configuration.cells"},
   }};
   for (const auto& [method, implementation, globalIds] : methods) {
     const auto code = stripLineComments(extractMethodBody(source, method));
@@ -191,7 +191,7 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
 BOOST_AUTO_TEST_CASE(EdgePreparationUsesOneGraphSchedule)
 {
   const auto source = readTrackerSource();
-  const auto code = stripLineComments(extractMethodBody(source, "initializeTraversalWorkspace", "Tracker"));
+  const auto code = stripLineComments(extractMethodBody(source, "initializeIterationScratch", "Tracker"));
   BOOST_CHECK(code.find("prepareTraversalEdgeTolerances") != std::string::npos);
   BOOST_CHECK(code.find("mLinksByKind") == std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind") == std::string::npos);
@@ -229,7 +229,7 @@ BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
   BOOST_REQUIRE_GT(code.size(), 0u);
   BOOST_CHECK(code.find("refitSources") == std::string::npos);
   BOOST_CHECK(code.find("TraversalFailureReason::SurfaceKindMismatch") == std::string::npos);
-  BOOST_CHECK(code.find("context.workspace.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(code.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
 }
 

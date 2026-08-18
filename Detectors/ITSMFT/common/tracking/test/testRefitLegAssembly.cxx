@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "ITSMFTTracking/RefitDriver.h"
+#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -75,8 +76,9 @@ struct Fixture {
       globals[layer] = globalStorage[layer];
       measurements[layer] = storage[layer];
     }
-    frame.assignLoadedMeasurements(std::move(globals), std::move(measurements),
-                                   std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
+    detail::TimeFrameLoadAccess::setMeasurements(
+      frame, std::move(globals), std::move(measurements),
+      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
     seed.getClusters()[0] = 0;
     seed.getClusters()[2] = 1;
     seed.getClusters()[4] = 0;

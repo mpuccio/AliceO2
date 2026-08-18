@@ -50,12 +50,13 @@ using o2::itsmft::tracking::TrackingOutcome;
 template <int NLayers, o2::itsmft::tracking::SurfaceKind Kind>
 bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>& publication,
                          const o2::itsmft::tracking::TimeFrame& frame,
+                         const o2::itsmft::tracking::Tracker& tracker,
                          const o2::itsmft::tracking::TrackingResult& result)
 {
-  const auto& parameters = frame.getTrackingParameters();
-  const auto& scratch = frame.getWorkspace();
-  for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
-    const auto& candidates = scratch.getTraversalWorkspace(iteration).acceptedTracks;
+  const auto configurations = tracker.getIterationConfigurations();
+  const auto& scratch = frame.getScratch();
+  for (std::size_t iteration = 0; iteration < configurations.size(); ++iteration) {
+    const auto& candidates = scratch.getIteration(iteration).acceptedTracks;
     if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
       return false;
     }
@@ -65,7 +66,7 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
         selected.push_back(candidates[index]);
       }
     }
-    if (!publication.completeAccepted(selected, parameters[iteration], frame, iteration + 1 == parameters.size())) {
+    if (!publication.completeAccepted(selected, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
       return false;
     }
   }
@@ -75,7 +76,7 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
 // Derive one source-level timing configuration from per-layer parameters;
 // reject non-positive lengths and non-uniform staggering.
 template <o2::detectors::DetID::ID DetId, int NLayers>
-o2::itsmft::tracking::ROFTimingConfig deriveRofTimingConfigOrFatal(const o2::itsmft::TrackingParameters& params,
+o2::itsmft::tracking::ROFTimingConfig deriveRofTimingConfigOrFatal(gsl::span<const uint32_t> addTimeError,
                                                                    std::size_t surfaceOffset)
 {
   constexpr const char* detName = DetId == o2::detectors::DetID::ITS ? "ITS" : "MFT";
@@ -91,7 +92,7 @@ o2::itsmft::tracking::ROFTimingConfig deriveRofTimingConfigOrFatal(const o2::its
     layerTimings[iLayer].mROFLength = static_cast<uint32_t>(rofLengthInBC);
     layerTimings[iLayer].mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(iLayer));
     layerTimings[iLayer].mROFBias = static_cast<uint32_t>(par.getROFBiasInBC(iLayer));
-    layerTimings[iLayer].mROFAddTimeErr = static_cast<uint32_t>(params.AddTimeError[surfaceOffset + iLayer]);
+    layerTimings[iLayer].mROFAddTimeErr = addTimeError[surfaceOffset + iLayer];
   }
   const auto uniform = o2::itsmft::tracking::deriveUniformROFTimingConfig(layerTimings);
   if (!uniform.uniform) {
@@ -131,20 +132,11 @@ std::vector<o2::itsmft::tracking::LayerId> orderedSurfaceRange(uint16_t first, u
   return result;
 }
 
-o2::itsmft::tracking::SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
-{
-  o2::itsmft::tracking::SurfaceMask result;
-  for (uint16_t i = 0; i < count; ++i) {
-    result.set(o2::itsmft::tracking::LayerId{static_cast<uint16_t>(first + i)});
-  }
-  return result;
-}
-
 o2::itsmft::tracking::SurfaceLayoutDefinition combinedLayoutDefinition(
   gsl::span<const o2::itsmft::tracking::LayerId> itsSurfaces,
-  const o2::itsmft::TrackingParameters& itsParams,
+  o2::itsmft::tracking::LayerMask itsHoleLayers,
   gsl::span<const o2::itsmft::tracking::LayerId> mftSurfaces,
-  const o2::itsmft::TrackingParameters& mftParams)
+  o2::itsmft::tracking::LayerMask mftHoleLayers)
 {
   o2::itsmft::tracking::SurfaceLayoutDefinition definition;
   definition.orderedSurfaces.reserve(itsSurfaces.size() + mftSurfaces.size());
@@ -153,15 +145,8 @@ o2::itsmft::tracking::SurfaceLayoutDefinition combinedLayoutDefinition(
 
   definition.componentOffsets = {0, static_cast<uint16_t>(itsSurfaces.size())};
 
-  // MaxHoles is a graph-wide scalar. The combined workflow's scalar baseline
-  // is the ITS Sync configuration; detector-local masks are projected into
-  // the same global surface rank space below.
-  definition.maxHoles = itsParams.MaxHoles;
-  definition.holeSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
-    itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-  definition.holeSurfaces |= o2::itsmft::tracking::positionalSurfaceMask(
-    mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
-  definition.seedingSurfaces = surfaceRangeMask(0, static_cast<uint16_t>(definition.orderedSurfaces.size()));
+  definition.holeLayers = itsHoleLayers |
+                          o2::itsmft::tracking::LayerMask{mftHoleLayers.value() << itsSurfaces.size()};
   return definition;
 }
 
@@ -198,12 +183,19 @@ o2::itsmft::TrackingParameters combinedTrackingParameters(const o2::itsmft::Trac
   const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
   appendSurfaceValues(result.LayerColHalfExtent, itsColExtent, mftColExtent);
 
+  const auto configuredSeedingLayers = [](const auto& parameters) {
+    return parameters.SeedingLayers.empty()
+             ? o2::itsmft::tracking::LayerMask::span(0, parameters.NLayers - 1)
+             : parameters.SeedingLayers;
+  };
+  result.InactiveLayerMask = itsParams.InactiveLayerMask.value() |
+                             (mftParams.InactiveLayerMask.value() << itsParams.NLayers);
+  result.SeedingLayers = configuredSeedingLayers(itsParams).value() |
+                         (configuredSeedingLayers(mftParams).value() << itsParams.NLayers);
+
   // StartLayerMask is intentionally independent of either detector's local
   // defaults: all 17 combined surfaces are valid road starts.
   result.StartLayerMask = (1u << result.NLayers) - 1u;
-  result.HoleLayerMask = o2::itsmft::tracking::LayerMask{
-    itsParams.HoleLayerMask.value() |
-    (mftParams.HoleLayerMask.value() << o2::itsmft::tracking::ITSNLayers)};
   return result;
 }
 
@@ -241,12 +233,12 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
 
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();
+  configuration.layout = combinedLayoutDefinition(
+    itsSurfaces, o2::itsmft::tracking::LayerMask{o2::itsmft::ITSCommonCATrackerParam::Instance().holeLayerMask},
+    mftSurfaces, o2::itsmft::tracking::LayerMask{o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().holeLayerMask});
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(
     std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory));
-  o2::itsmft::tracking::TrackerIterationConfiguration iteration;
-  iteration.layout = combinedLayoutDefinition(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
-  iteration.parameters = combinedParams;
-  configuration.iterations.push_back(std::move(iteration));
+  configuration.parameters.push_back(combinedParams);
 
   const auto initialization = mTracker->initialize(mFrame, configuration);
   if (!initialization.ok()) {
@@ -282,9 +274,9 @@ o2::itsmft::tracking::SurfaceCatalogView CombinedCATrackerDPL::catalogView() con
 
 std::optional<bool> CombinedCATrackerDPL::dropTFUponFailureFor(ClusterSourceId source) const noexcept
 {
-  if (source == ClusterSourceId{0} || source == ClusterSourceId{1}) {
-    const auto& parameters = mFrame.getTrackingParameters();
-    return parameters.empty() ? std::optional<bool>{} : std::optional<bool>{parameters[0].DropTFUponFailure};
+  if (mTracker != nullptr && (source == ClusterSourceId{0} || source == ClusterSourceId{1})) {
+    const auto configurations = mTracker->getIterationConfigurations();
+    return configurations.empty() ? std::optional<bool>{} : std::optional<bool>{configurations[0].parameters.DropTFUponFailure};
   }
   return std::nullopt;
 }
@@ -409,7 +401,7 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     return outcome;
   }
 
-  // Loading commits the normalized multi-source event and the one global
+  // Loading fills the multi-source TimeFrame and the one global
   // workspace before the tracker executes the disconnected components.
   try {
     const auto result = mTracker->run(mFrame, *mTraits);
@@ -420,12 +412,12 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
       return result.outcome;
     }
     if (!completePublication<o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::SurfaceKind::Cylinder>(
-          mITSPublicationAdapter, mFrame, result)) {
+          mITSPublicationAdapter, mFrame, *mTracker, result)) {
       mITSPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal ITS tracking compatibility"};
     }
     if (!completePublication<o2::itsmft::tracking::MFTNLayers, o2::itsmft::tracking::SurfaceKind::Disk>(
-          mMFTPublicationAdapter, mFrame, result)) {
+          mMFTPublicationAdapter, mFrame, *mTracker, result)) {
       mMFTPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal MFT tracking compatibility"};
     }
@@ -486,7 +478,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   // Use the plan's ordered surfaces rather than re-deriving detector offsets.
   itsSource.layerToSurface = getITSOrderedSurfaces();
   itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(
-    *mFrame.getTrackingParameters(0), 0);
+    mTracker->getDetectorConfiguration().addTimeError, 0);
   itsSource.decoder = mITSDecoder.get();
 
   ClusterSourceInput mftSource{};
@@ -499,11 +491,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.labels = mftLabels;
   mftSource.layerToSurface = getMFTOrderedSurfaces();
   mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(
-    *mFrame.getTrackingParameters(0), o2::itsmft::tracking::ITSNLayers);
+    mTracker->getDetectorConfiguration().addTimeError, o2::itsmft::tracking::ITSNLayers);
   mftSource.decoder = mMFTDecoder.get();
 
   const auto origin = chooseOrigin(itsRofs, mftRofs);
-  const auto resetCount = mFrame.getEventResetCount();
   try {
     const auto outcome = trackFrame(itsSource, mftSource, origin);
 
@@ -569,11 +560,9 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     mFrame.resetTimeFrame();
     invalidatePublication();
   } catch (...) {
-    if (mFrame.getEventResetCount() == resetCount) {
-      mITSPublicationAdapter.reset();
-      mMFTPublicationAdapter.reset();
-      mFrame.resetTimeFrame();
-    }
+    mITSPublicationAdapter.reset();
+    mMFTPublicationAdapter.reset();
+    mFrame.resetTimeFrame();
     invalidatePublication();
     throw;
   }

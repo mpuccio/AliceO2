@@ -387,7 +387,7 @@ Common traversal now consumes the existing `DetectorLayoutView` sparse
 topology and `SurfacePlanBinding` IDs/compact positions. `TrackingTopology.h`,
 the old topology test, scratch topology members, templated scratch dispatchers,
 `checkSupportedNLayers()`, and the `IndexTableUtils<N>` alias are gone.
-`TrackSeed::SurfaceMask` remains in compact binding-position space.
+`TrackSeed::LayerMask` remains in compact binding-position space.
 
 `SurfaceTrackingScratch` receives one non-owning `RuntimeROFViews` value. The
 frozen fixed-capacity ROF builders are explicitly confined to the two

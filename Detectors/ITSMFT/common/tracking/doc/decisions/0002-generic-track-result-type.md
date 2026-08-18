@@ -46,7 +46,7 @@ struct GenericTrack {
   SurfaceKinematicState outerState{};
   float chi2{0.f};
   GenericTrackTimestamp timestamp{};
-  SurfaceMask hitSurfaces{};
+  LayerMask hitLayers{};
   uint32_t firstClusterRef{0};
   uint32_t clusterRefEnd{0};
 };
@@ -57,8 +57,8 @@ struct GenericTrack {
   `buildCellSeed`/`attachHit`/`refitHit`, `ITSMFTTracking/
   SurfaceKinematicState.h`). This is deliberately not a second state
   representation.
-- `hitSurfaces` is the global 32-bit `SurfaceMask` (`ITSMFTTracking/
-  SurfaceMask.h`), never the legacy 16-bit per-`NLayers` `LayerMask`.
+- `hitLayers` is the global 32-bit `LayerMask` (`ITSMFTTracking/
+  LayerMask.h`), never the legacy 16-bit per-`NLayers` `LayerMask`.
 - `timestamp` is `GenericTrackTimestamp` (`ITSMFTTracking/SurfaceTiming.h`): a
   new, common, `TFBC`-based half-open BC interval (`{TFBC begin; TFBC end;}`),
   standard-layout and trivially-copyable, with an `isValid()`/`isCompatible()`
@@ -103,7 +103,7 @@ struct GenericTrack {
 - For a valid, completed track: every `TrackClusterReference` in
   `[firstClusterRef, clusterRefEnd)` resolves to an existing measurement
   whose own `SurfaceMeasurement::surface` equals that reference's `surface`
-  field, and `hitSurfaces` is the union of those surfaces. This is a
+  field, and `hitLayers` is the union of those surfaces. This is a
   consumer-side invariant (exercised by `testCommonTrack.cxx`), not something
   `GenericTrack` enforces by construction -- no code populates it from real
   seeds in this slice.
@@ -231,7 +231,7 @@ storage they will later be adapted from.
   surface) is rejected on both the owner and the view
   (`testCommonTrack.cxx`, `testMultiSourceLoading.cxx`).
 - Cross-surface and cross-source `TrackClusterReference` resolution, and
-  `hitSurfaces`-equals-referenced-surfaces (including per-reference
+  `hitLayers`-equals-referenced-surfaces (including per-reference
   `SurfaceMeasurement::surface` consistency), checked both for a single ITS
   source and for combined ITS+MFT sources sharing one `MultiSourceFrame`
   (`testCommonTrack.cxx`).

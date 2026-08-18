@@ -339,7 +339,7 @@ The integration owner records accepted decisions here or links a dedicated follo
 | ID | Status | Decision | Rationale | Affected waves |
 |---|---|---|---|---|
 | D001 | Accepted | Use explicit detector-qualified `SurfaceId` metadata; never infer detector from surface count | Required for arbitrary layouts | 1+ |
-| D002 | Accepted | Use a 32-bit `SurfaceMask` with at most 32 global surfaces | Covers the 17-surface target with 15 spare bits while preserving a compact GPU-friendly POD | 1 |
+| D002 | Accepted | Use a 32-bit `LayerMask` with at most 32 global surfaces | Covers the 17-surface target with 15 spare bits while preserving a compact GPU-friendly POD | 1 |
 | D003 | Accepted | Use an explicit sparse directed topology with 16-bit strong IDs and CSR lookup views | Avoids combinatorial storage and numeric-order assumptions while remaining device-friendly | 1+ |
 | D004 | Accepted | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
 | D005 | Accepted | Use a 72-byte trivially-copyable `SurfaceMeasurement` with detector-qualified sensor/surface identity and `{ClusterSourceId, external index}` cluster identity | Gives CPU/device code one normalized measurement while keeping labels and detector decoding at the adapters; disk covariance must be decoded in explicit x/y surface axes rather than copied from synthetic MFT `TrackingFrameInfo` semantics | 1 |

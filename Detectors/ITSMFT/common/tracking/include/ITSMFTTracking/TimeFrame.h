@@ -10,10 +10,10 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file TimeFrame.h
-/// \brief Passive common event owner.
+/// \brief Passive common TimeFrame owner.
 ///
-/// TimeFrame owns configuration, event measurements and navigation, generic
-/// results, one tracking workspace, and allocator/capacity state. The
+/// TimeFrame owns the invariant detector layout, measurements and navigation,
+/// generic results, tracking scratch, and allocator state. The
 /// application owns raw ROFs, publication state, and workflow state.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -31,7 +31,6 @@
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "ITSMFTTracking/GenericTrack.h"
-#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
@@ -43,6 +42,11 @@
 namespace o2::itsmft::tracking
 {
 
+namespace detail
+{
+struct TimeFrameLoadAccess;
+}
+
 class TimeFrameScratch;
 
 using BoundedMemoryResource = o2::its::BoundedMemoryResource;
@@ -50,12 +54,6 @@ using Vertex = o2::its::Vertex;
 using VertexLabel = o2::its::VertexLabel;
 template <typename T>
 using bounded_vector = o2::its::bounded_vector<T>;
-
-struct TrackingWorkspaceCapacity {
-  std::size_t ownedSurfaces = 0;
-  std::size_t edges = 0;
-  std::size_t cells = 0;
-};
 
 struct TimeFrame {
   TimeFrame() = default;
@@ -145,39 +143,19 @@ struct TimeFrame {
   bool hasMCinformation() const noexcept;
   gsl::span<const MCCompLabel> getClusterLabels(int layer, int cluster) const;
 
-  // Loader staging; committed only after complete decoding and validation.
-  void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
-                                std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
-                                std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>&& perSurfaceLabels,
-                                bool hasMCInformation);
-  void assignLoadedEventNavigation(std::vector<std::vector<int>>&& rofBoundaries,
-                                   RuntimeROFViews defaultViews,
-                                   std::vector<RuntimeROFViews>&& viewsBySurface,
-                                   std::vector<uint16_t>&& localLayerBySurface);
-  void commitMeasurements(TimeFrame& staged) noexcept;
-
-  // Atomically replace the event after preflight.
-  bool commitLoadedEvent(TimeFrame& staged) noexcept;
-
-  // Clear event state while preserving configuration and allocator identity.
+  // Clear TimeFrame data while preserving configuration and allocator identity.
   void resetTimeFrame() noexcept;
-  std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
-  TimeFrameScratch& getWorkspace();
-  const TimeFrameScratch& getWorkspace() const;
+  TimeFrameScratch& getScratch();
+  const TimeFrameScratch& getScratch() const;
 
-  bool commitConfiguration(std::vector<SurfaceLayout>&& layouts,
-                           std::vector<TrackingParameters>&& parameters,
-                           std::vector<TrackingWorkspaceCapacity>&& capacities,
-                           std::shared_ptr<BoundedMemoryResource> memoryPool);
+  bool configure(SurfaceLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
+                 std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
-  std::size_t getNIterations() const noexcept { return mLayouts.size(); }
-  const SurfaceLayout& getLayout(std::size_t iteration) const { return mLayouts.at(iteration); }
-  const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
-  const TrackingParameters* getTrackingParameters(std::size_t iteration) const noexcept;
-  const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
+  const SurfaceLayout& getLayout() const noexcept { return mLayout; }
+  uint64_t getConfigurationGeneration() const noexcept { return mConfigurationGeneration; }
 
-  // Results are valid only with this event's normalized measurements.
+  // Results are valid only with this TimeFrame's measurements.
   auto& getGenericTracks() { return mGenericTracks; }
   const auto& getGenericTracks() const { return mGenericTracks; }
   // Flat inner-to-outer references; IDs are stable pre-sort positions in the
@@ -193,7 +171,7 @@ struct TimeFrame {
   // Must outlive containers allocated from it (reverse destruction order).
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
-  // Event and cross-iteration tracking state.
+  // TimeFrame and cross-iteration tracking state.
   std::vector<std::vector<int>> mROFramesClusters;
   std::vector<bounded_vector<int>> mIndexTables;
   std::vector<std::vector<uint8_t>> mLayerUsedClusters;
@@ -227,20 +205,18 @@ struct TimeFrame {
   bool mHasMCInformation{false};
 
   bool mConfigurationValid = false;
-  std::vector<SurfaceLayout> mLayouts;
-  std::vector<TrackingParameters> mTrackingParameters;
-  std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
-  struct WorkspaceDeleter {
-    void operator()(TimeFrameScratch* workspace) const noexcept;
+  uint64_t mConfigurationGeneration = 0;
+  SurfaceLayout mLayout;
+  struct ScratchDeleter {
+    void operator()(TimeFrameScratch* scratch) const noexcept;
   };
-  std::unique_ptr<TimeFrameScratch, WorkspaceDeleter> mWorkspace;
-  std::size_t mEventResetCount{0};
-
-  void swapMeasurements(TimeFrame& other) noexcept;
+  std::unique_ptr<TimeFrameScratch, ScratchDeleter> mScratch;
   void publishConfiguration(TimeFrame& staged) noexcept;
-  void configureEventStorage(std::size_t nOwnedSurfaces);
+  void configureTimeFrameStorage(std::size_t nOwnedSurfaces);
+  void prepareIndexTables(gsl::span<const IndexTableUtilsCore> indexTableConfigs);
   void prepareClusters(int maxLayers);
-  friend class TimeFrameScratch;
+  friend class Tracker;
+  friend struct detail::TimeFrameLoadAccess;
 };
 
 } // namespace o2::itsmft::tracking

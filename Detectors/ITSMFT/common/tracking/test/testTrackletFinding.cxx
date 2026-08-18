@@ -103,15 +103,15 @@ TrackletProjectionCache makeCylinderProjectionCache(int fromLayer, int toLayer, 
                                                     float edgeMSAngle, float edgePhiCut)
 {
   return {fromLayer, toLayer, fromRadius, toRadius, targetMinR, targetMaxR, 0.f, 0.f,
-          sourcePositionResolution, 0.f, edgeMSAngle, edgePhiCut, false};
+          sourcePositionResolution, edgeMSAngle, edgePhiCut};
 }
 
 TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, float fromRadius,
-                                                float fromReferenceCoordinate, float targetMinZ, float targetMaxZ,
+                                                float, float targetMinZ, float targetMaxZ,
                                                 float edgeMSAngle, float edgePhiCut)
 {
   return {fromLayer, toLayer, fromRadius, 0.f, 0.f, 0.f, targetMinZ, targetMaxZ,
-          0.f, fromReferenceCoordinate, edgeMSAngle, edgePhiCut, true};
+          0.f, edgeMSAngle, edgePhiCut};
 }
 
 // CandidateFinding exposes one descriptor-selected projection operation.
@@ -408,7 +408,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              fromLayer, toLayer, state.fromRadius,
-                             0.5f * (state.targetMinZ + state.targetMaxZ) - state.fromReferenceCoordinate,
+                             0.5f * (state.targetMinZ + state.targetMaxZ) - sourceMeasurement.z,
                              state.edgeMSAngle, state.edgePhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
 
@@ -756,7 +756,7 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleMatchesLegacyMftFormulaWithExplicitRefer
   // explicitly instead of calling mftLayerZ()/LayerZCoordinate() internally.
   // mftLayerZ() is used here only to construct the *expected* legacy value,
   // exactly as this operation's caller (TrackerTraits::initialiseTimeFrame(),
-  // via bindLegacyMFTReferenceCoordinates()) is required to do.
+  // from the detector layout is required to do.
   TrackingParameters legacy;
   resetDetectorDefaults(legacy, o2::detectors::DetID::MFT);
   for (int layer : {0, 3, o2::mft::constants::mft::LayersNumber - 1}) {

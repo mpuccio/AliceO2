@@ -15,12 +15,6 @@ o2_add_test(layermask
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(surfacemask
-            SOURCES testSurfaceMask.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 o2_add_test(mclabelaccumulator
             SOURCES testMCLabelAccumulator.cxx
             COMPONENT_NAME itsmft-tracking

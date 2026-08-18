@@ -231,17 +231,10 @@ struct Rig {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    for (const auto& parameter : params) {
-      TrackerIterationConfiguration iteration;
-      iteration.layout = makeSurfaceLayoutChain(
-        orderedSurfaces, parameter.MaxHoles,
-        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
-        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
-      iteration.parameters = parameter;
-      configuration.iterations.push_back(std::move(iteration));
-    }
+    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.parameters.assign(params.begin(), params.end());
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
-    tf = &frame.getWorkspace();
+    tf = &frame.getScratch();
   }
 
   // See testTrackerFailureContract.cxx's identical helper for why loading a
@@ -258,7 +251,7 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& layout = frame.getLayout(0);
+    const auto& layout = frame.getLayout();
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                             f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
@@ -308,8 +301,8 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   auto params = makeOneIterationITSParams();
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(LayerId{0}).chartRange.min == -20.f);
-  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(LayerId{0}).chartRange.max == 20.f);
+  BOOST_TEST(rig.frame.getLayout().getSurfaceCatalog().getSurface(LayerId{0}).chartRange.min == -20.f);
+  BOOST_TEST(rig.frame.getLayout().getSurfaceCatalog().getSurface(LayerId{0}).chartRange.max == 20.f);
   BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
 
   IndexTableUtilsCore expected;
@@ -381,25 +374,15 @@ BOOST_AUTO_TEST_CASE(InvalidBindingLeavesTimeFrameOwnedConfigurationUnchanged)
   Rig rig;
   auto params = makeOneIterationITSParams();
   params[0].RowBins = 0; // structurally invalid
-  rig.establishValidLayout(params);
-  rig.loadSource(emptyFixture());
-
-  // Default-constructed sentinel state (IndexTableUtils.h), before any call.
-  BOOST_REQUIRE_EQUAL(rig.frame.getIndexTableUtils().getNrowBins(), 0);
-  BOOST_REQUIRE_EQUAL(rig.frame.getIndexTableUtils().getNcolBins(), 0);
-
-  bool threw = false;
-  try {
-    TrackerTestAccess::prepare(rig.tracker, rig.frame, 0);
-  } catch (const TraversalException& e) {
-    threw = true;
-    BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
-  }
-  BOOST_CHECK(threw);
-
-  // TimeFrame::initialise() was never reached: still the untouched sentinel.
-  BOOST_CHECK_EQUAL(rig.frame.getIndexTableUtils().getNrowBins(), 0);
-  BOOST_CHECK_EQUAL(rig.frame.getIndexTableUtils().getNcolBins(), 0);
+  rig.catalog = makeITSTestCatalog();
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  TrackerInitialization configuration;
+  configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
+  configuration.memoryPool = rig.pool;
+  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.parameters = params;
+  BOOST_CHECK(!rig.tracker.initialize(rig.frame, configuration).ok());
+  BOOST_CHECK(!rig.frame.isConfigured());
 }
 
 // --- Non-FirstPass reuse -----------------------------------------------------
@@ -417,29 +400,21 @@ BOOST_AUTO_TEST_CASE(NonFirstPassMatchingReuseSucceedsWithoutRecommit)
   BOOST_CHECK(indexTableConfigurationsMatch(rig.frame.getIndexTableUtils(), committed, ITSNLayers));
 }
 
-BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
+BOOST_AUTO_TEST_CASE(IterationSpecificRowColBinsAreRejectedAtInitialization)
 {
   Rig rig;
   auto params = makeTwoIterationITSParams();
   params[1].RowBins = params[0].RowBins + 1;
-  rig.establishValidLayout(params);
-  rig.loadSource(makeFixture());
-  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  const IndexTableUtilsCore committedBefore = rig.frame.getIndexTableUtils();
-  const auto lutBefore = snapshotIndexTable(rig.frame, 0);
-
-  bool threw = false;
-  try {
-    TrackerTestAccess::prepare(rig.tracker, rig.frame, 1);
-  } catch (const TraversalException& e) {
-    threw = true;
-    BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
-  }
-  BOOST_CHECK(threw);
-
-  // Neither the owned configuration nor the already-populated LUT were touched.
-  BOOST_CHECK(indexTableConfigurationsMatch(rig.frame.getIndexTableUtils(), committedBefore, ITSNLayers));
-  BOOST_CHECK(snapshotIndexTable(rig.frame, 0) == lutBefore);
+  rig.catalog = makeITSTestCatalog();
+  TrackerInitialization configuration;
+  configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
+  configuration.memoryPool = rig.pool;
+  configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+  configuration.parameters = params;
+  const auto result = rig.tracker.initialize(rig.frame, configuration);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK_EQUAL(result.failedIteration, 1u);
+  BOOST_CHECK(!rig.frame.isConfigured());
 }
 
 BOOST_AUTO_TEST_CASE(ParameterSideExtentDoesNotOverrideDescriptorChartRange)
@@ -466,26 +441,22 @@ BOOST_AUTO_TEST_CASE(ParameterSideExtentDoesNotOverrideDescriptorChartRange)
   BOOST_CHECK(indexTableConfigurationsMatch(rig.frame.getIndexTableUtils(), committedBefore, ITSNLayers));
 }
 
-// --- FirstPass may legitimately change configuration ------------------------
-
-BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurationAndLUT)
+BOOST_AUTO_TEST_CASE(FirstPassCannotChangeInvariantIndexTableConfiguration)
 {
   Rig rig;
   auto params = makeOneIterationITSParams();
-  params.push_back(params[0]); // iteration 1: still FirstPass+RebuildClusterLUT (default PassFlags)
+  params.push_back(params[0]);
   params[1].RowBins = params[0].RowBins + 8;
-  rig.establishValidLayout(params);
-  rig.loadSource(makeFixture());
-  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  const int nRowBinsBefore = rig.frame.getIndexTableUtils().getNrowBins();
-
-  BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
-  BOOST_CHECK_EQUAL(rig.frame.getIndexTableUtils().getNrowBins(), params[1].RowBins);
-  BOOST_CHECK_NE(rig.frame.getIndexTableUtils().getNrowBins(), nRowBinsBefore);
-
-  // LUT storage was reallocated to the new, larger dimensions.
-  const int expectedTableSize = rig.frame.getIndexTableUtils().getNrowBins() * rig.frame.getIndexTableUtils().getNcolBins() + 1;
-  BOOST_CHECK_EQUAL(static_cast<int>(rig.frame.getIndexTable(0, 0).size()), expectedTableSize);
+  rig.catalog = makeITSTestCatalog();
+  TrackerInitialization configuration;
+  configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
+  configuration.memoryPool = rig.pool;
+  configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+  configuration.parameters = params;
+  const auto result = rig.tracker.initialize(rig.frame, configuration);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK_EQUAL(result.failedIteration, 1u);
+  BOOST_CHECK(!rig.frame.isConfigured());
 }
 
 // Gate 4 B2 Slice 2 removed the MissingLayout reordering-regression test that

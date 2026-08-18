@@ -1,10 +1,11 @@
 # P1 direct atomic TimeFrame-source loading
 
-`loadTimeFrameSources()` is the single public atomic loading operation. It
-stages normalized measurements and the frame workspace, then commits both
-through `TimeFrame::commitLoadedEvent()` only after all validation succeeds.
-`loadSources()` remains the lower-level decode/staging primitive; it is not a
-second public commit route.
+Status: historical P1 validation. The later TimeFrame ownership cleanup
+superseded the transaction contract below: loading now resets and fills the
+configured TimeFrame directly, and a failure leaves it empty.
+
+At P1, `loadTimeFrameSources()` was the single public atomic loading operation
+and published staged data through `TimeFrame::commitLoadedEvent()`.
 
 The former `MultiSourceTimeFrameLoader` was a one-method façade around this
 transaction. It was removed without changing source qualification, decoding,

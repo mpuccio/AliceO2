@@ -67,18 +67,19 @@ constexpr std::array<LayerId, NLayers> identitySurfaceOrder()
 template <int NLayers>
 bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
                          const TimeFrame& frame,
+                         const Tracker& tracker,
                          ClusterSourceId source,
                          const TrackingResult& result)
 {
-  const auto& parameters = frame.getTrackingParameters();
-  const auto& scratch = frame.getWorkspace();
-  for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
-    const auto& candidates = scratch.getTraversalWorkspace(iteration).acceptedTracks;
+  const auto configurations = tracker.getIterationConfigurations();
+  const auto& scratch = frame.getScratch();
+  for (std::size_t iteration = 0; iteration < configurations.size(); ++iteration) {
+    const auto& candidates = scratch.getIteration(iteration).acceptedTracks;
     if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
       return false;
     }
     const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
-    if (!publication.completeAccepted(iterationCandidates, parameters[iteration], frame, iteration + 1 == parameters.size())) {
+    if (!publication.completeAccepted(iterationCandidates, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
       return false;
     }
   }
@@ -97,7 +98,7 @@ CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool us
 
 void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs)
 {
-  const auto& params = mFrame.getTrackingParameters().at(0);
+  const auto& detector = mTracker->getDetectorConfiguration();
   const auto& alpParams = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::Instance();
   const int nOrbitsPerTF = o2::base::GRPGeomHelper::getNHBFPerTF();
   std::array<o2::its::LayerTiming, o2::itsmft::tracking::ITSNLayers> layerTimings{};
@@ -114,7 +115,7 @@ void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs
       .mROFLength = static_cast<uint32_t>(length),
       .mROFDelay = static_cast<uint32_t>(alpParams.getROFDelayInBC(layer)),
       .mROFBias = static_cast<uint32_t>(alpParams.getROFBiasInBC(layer)),
-      .mROFAddTimeErr = static_cast<uint32_t>(params.AddTimeError[layer])};
+      .mROFAddTimeErr = detector.addTimeError[layer]};
     if (layerTimings[layer].mNROFsTF == 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
         o2::itsmft::tracking::TimeFrameLoadFailureReason::ZeroROFCount,
@@ -184,18 +185,11 @@ void CATrackerDPL::initialiseTracking()
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = o2::itsmft::tracking::SurfaceCatalogView{o2::itsmft::tracking::kITSStaticSurfaceCatalog.data(),
                                                                    static_cast<uint32_t>(o2::itsmft::tracking::kITSStaticSurfaceCatalog.size())};
+  configuration.layout = o2::itsmft::tracking::makeSurfaceLayoutChain(
+    ordered, o2::itsmft::tracking::LayerMask{commonParams.holeLayerMask});
   const auto maxMemory = parameters.front().MaxMemory;
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory);
-  configuration.iterations.reserve(parameters.size());
-  for (const auto& params : parameters) {
-    o2::itsmft::tracking::TrackerIterationConfiguration iteration;
-    iteration.parameters = params;
-    iteration.layout = o2::itsmft::tracking::makeSurfaceLayoutChain(
-      ordered, params.MaxHoles,
-      o2::itsmft::tracking::positionalSurfaceMask(params.HoleLayerMask, ordered, o2::itsmft::tracking::ITSNLayers),
-      o2::itsmft::tracking::positionalSurfaceMask(params.StartLayerMask, ordered, o2::itsmft::tracking::ITSNLayers));
-    configuration.iterations.push_back(std::move(iteration));
-  }
+  configuration.parameters = parameters;
 
   mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
     &o2::itsmft::tracking::detail::refitSurfaceSeed);
@@ -216,9 +210,10 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     LOGP(info, "ITS CA tracking mode is off, skipping TimeFrame processing");
     return o2::itsmft::tracking::TrackingOutcome::Success;
   }
-  const auto& params = mFrame.getTrackingParameters().front();
+  const auto& params = mTracker->getIterationConfigurations().front().parameters;
+  const auto& detector = mTracker->getDetectorConfiguration();
   mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
-  o2::itsmft::tracking::detail::configureITSBeamPosition(mFrame, params, nullptr, false);
+  o2::itsmft::tracking::detail::configureITSBeamPosition(mFrame, params, detector, nullptr, false);
   const auto views = mFrame.getROFViews();
   if (views.overlap.mLayerCount > 0 && rofs.size() != views.overlap.getLayer(0).mNROFsTF) {
     LOGP(warn, "ITS CA ROF count differs from continuous timing expectation: received {} expected {}",
@@ -230,7 +225,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
         "ITS CA tracker cluster dictionary is not available"};
     }
-    const auto orderedSurfaces = mFrame.getLayout(0).getOrderedSurfaces();
+    const auto orderedSurfaces = mFrame.getLayout().getOrderedSurfaces();
     const auto rofViews = mFrame.getROFViews();
     if (rofViews.overlap.mLayerCount <= 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
@@ -252,7 +247,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     source.rofViews = rofViews;
     const auto origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
     const auto loaded = o2::itsmft::tracking::loadTimeFrameSources(
-      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getLayout(0).getSurfaceCatalog(), origin,
+      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getLayout().getSurfaceCatalog(), origin,
       &mExternalIndicesBySurface, &mClusterSizesBySurface);
     if (!loaded.ok()) {
       if (o2::itsmft::tracking::isRecoverableLoadError(loaded.error, loaded.timingDetail)) {
@@ -262,32 +257,32 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     }
   } catch (const o2::itsmft::tracking::RecoverableLoadFailure& error) {
     LOGP(error, "ITS CA loading recoverably failed: {}", error.what());
-    resetEvent();
+    resetTimeFrame();
     if (params.DropTFUponFailure) {
       return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
     }
     throw;
   } catch (const o2::itsmft::tracking::BoundedMemoryResource::MemoryLimitExceeded& error) {
     LOGP(error, "ITS CA loading exceeded memory limit: {}", error.what());
-    resetEvent();
+    resetTimeFrame();
     if (params.DropTFUponFailure) {
       return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
     }
     throw;
   } catch (const std::bad_alloc& error) {
     LOGP(error, "ITS CA loading allocation failed: {}", error.what());
-    resetEvent();
+    resetTimeFrame();
     if (params.DropTFUponFailure) {
       return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
     }
     throw;
   } catch (const o2::itsmft::tracking::TimeFrameLoadException& error) {
     LOGP(error, "ITS CA loading hit a structural failure: {}", error.what());
-    resetEvent();
+    resetTimeFrame();
     throw;
   } catch (const std::exception& error) {
     LOGP(error, "ITS CA loading failed with an unclassified exception: {}", error.what());
-    resetEvent();
+    resetTimeFrame();
     throw;
   }
 
@@ -296,7 +291,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     result = mTracker->run(mFrame, *mTrackerTraits);
     if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
       mPublicationAdapter.reset();
-    } else if (!completePublication(mPublicationAdapter, mFrame, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
+    } else if (!completePublication(mPublicationAdapter, mFrame, *mTracker, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
       mPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal ITS tracking compatibility"};
     }
@@ -312,7 +307,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
   return result.outcome;
 }
 
-void CATrackerDPL::resetEvent() noexcept
+void CATrackerDPL::resetTimeFrame() noexcept
 {
   mPublicationAdapter.reset();
   mExternalIndicesBySurface.clear();
@@ -361,7 +356,6 @@ void CATrackerDPL::run(ProcessingContext& pc)
   LOGP(info, "ITS CA input pulled {} compressed clusters in {} RO frames ({} pattern bytes)",
        compClusters.size(), rofsinput.size(), patterns.size());
 
-  const auto resetCount = mFrame.getEventResetCount();
   try {
     configureROFViews(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()));
     const auto trackingResult = processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
@@ -380,7 +374,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
       const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::ITS, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
-        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout(0).getOrderedSurfaces()},
+        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout().getOrderedSurfaces()},
         &mExternalIndicesBySurface, &mClusterSizesBySurface};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
       const auto staged = o2::itsmft::tracking::stageITSGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
@@ -401,14 +395,12 @@ void CATrackerDPL::run(ProcessingContext& pc)
       }
     }
   } catch (...) {
-    if (mFrame.getEventResetCount() == resetCount) {
-      resetEvent();
-    }
+    resetTimeFrame();
     invalidatePublication();
     throw;
   }
 
-  resetEvent();
+  resetTimeFrame();
   invalidatePublication();
 }
 
