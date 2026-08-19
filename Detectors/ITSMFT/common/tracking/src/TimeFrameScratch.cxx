@@ -15,49 +15,55 @@ namespace o2::itsmft::tracking
 using o2::its::clearResizeBoundedVector;
 using o2::its::deepVectorClear;
 
+namespace
+{
+template <typename Operation, typename... Containers>
+void applyToContainers(Operation&& operation, Containers&... containers)
+{
+  (operation(containers), ...);
+}
+} // namespace
+
+void TimeFrameScratch::clearResizeEdgeStorage(std::size_t nEdges)
+{
+  auto clearResize = [this, nEdges](auto& container) {
+    clearResizeBoundedVector(container, nEdges, mMemoryPool.get());
+  };
+  applyToContainers(clearResize, mTracklets, mTrackletsLookupTable, mTrackletLabels,
+                    mEdgePhiCuts, mEdgeMSAngles);
+}
+
+void TimeFrameScratch::clearResizeCellStorage(std::size_t nCells)
+{
+  auto clearResize = [this, nCells](auto& container) {
+    clearResizeBoundedVector(container, nCells, mMemoryPool.get());
+  };
+  applyToContainers(clearResize, mCells, mCellsLookupTable, mCellsNeighbours,
+                    mCellsNeighboursTopology, mCellsNeighboursLUT, mCellLabels);
+}
+
 void TimeFrameScratch::configureStorage(std::size_t nEdges, std::size_t nCells)
 {
   mNEdges = nEdges;
   mNCells = nCells;
-  clearResizeBoundedVector(mTracklets, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletsLookupTable, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletLabels, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mEdgePhiCuts, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mEdgeMSAngles, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mCells, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsLookupTable, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighbours, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursTopology, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursLUT, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellLabels, nCells, mMemoryPool.get());
+  clearResizeEdgeStorage(nEdges);
+  clearResizeCellStorage(nCells);
 }
 
 void TimeFrameScratch::reset()
 {
-  deepVectorClear(mTracklets);
-  deepVectorClear(mTrackletsLookupTable);
-  deepVectorClear(mTrackletLabels);
-  deepVectorClear(mCells);
-  deepVectorClear(mCellsLookupTable);
-  deepVectorClear(mCellsNeighbours);
-  deepVectorClear(mCellsNeighboursTopology);
-  deepVectorClear(mCellsNeighboursLUT);
-  deepVectorClear(mCellLabels);
-  deepVectorClear(mEdgePhiCuts);
-  deepVectorClear(mEdgeMSAngles);
+  applyToContainers([](auto& container) { deepVectorClear(container); },
+                    mTracklets, mTrackletsLookupTable, mTrackletLabels, mCells,
+                    mCellsLookupTable, mCellsNeighbours, mCellsNeighboursTopology,
+                    mCellsNeighboursLUT, mCellLabels, mEdgePhiCuts, mEdgeMSAngles);
 }
 
 void TimeFrameScratch::clearStorage() noexcept
 {
-  mTracklets.clear();
-  mTrackletsLookupTable.clear();
-  mTrackletLabels.clear();
-  mCells.clear();
-  mCellsLookupTable.clear();
-  mCellsNeighbours.clear();
-  mCellsNeighboursTopology.clear();
-  mCellsNeighboursLUT.clear();
-  mCellLabels.clear();
+  applyToContainers([](auto& container) { container.clear(); },
+                    mTracklets, mTrackletsLookupTable, mTrackletLabels, mCells,
+                    mCellsLookupTable, mCellsNeighbours, mCellsNeighboursTopology,
+                    mCellsNeighboursLUT, mCellLabels);
   deepVectorClear(mEdgePhiCuts);
   deepVectorClear(mEdgeMSAngles);
   mNEdges = 0;
@@ -67,23 +73,10 @@ void TimeFrameScratch::clearStorage() noexcept
 void TimeFrameScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool)
 {
   mMemoryPool = std::move(pool);
-  auto initVector = [&]<typename T>(o2::its::bounded_vector<T>& vector) { deepVectorClear(vector, mMemoryPool.get()); };
-  auto initContainers = [&]<typename Container>(Container& container) {
-    for (auto& vector : container) {
-      initVector(vector);
-    }
-  };
-  initVector(mEdgePhiCuts);
-  initVector(mEdgeMSAngles);
-  initContainers(mTracklets);
-  initContainers(mTrackletsLookupTable);
-  initContainers(mTrackletLabels);
-  initContainers(mCells);
-  initContainers(mCellsLookupTable);
-  initContainers(mCellsNeighbours);
-  initContainers(mCellsNeighboursTopology);
-  initContainers(mCellsNeighboursLUT);
-  initContainers(mCellLabels);
+  applyToContainers([this](auto& container) { deepVectorClear(container, mMemoryPool.get()); },
+                    mEdgePhiCuts, mEdgeMSAngles, mTracklets, mTrackletsLookupTable,
+                    mTrackletLabels, mCells, mCellsLookupTable, mCellsNeighbours,
+                    mCellsNeighboursTopology, mCellsNeighboursLUT, mCellLabels);
 }
 
 std::size_t TimeFrameScratch::getNumberOfCells() const
@@ -120,31 +113,11 @@ void TimeFrameScratch::beginIteration(std::size_t nEdges, std::size_t nCells,
     throw std::logic_error{"TimeFrameScratch::beginIteration(): requested storage exceeds configured capacity"};
   }
 
-  clearResizeBoundedVector(mCells, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsLookupTable, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighbours, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursTopology, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursLUT, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellLabels, nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mTracklets, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletLabels, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletsLookupTable, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mEdgePhiCuts, nEdges, mMemoryPool.get());
-  clearResizeBoundedVector(mEdgeMSAngles, nEdges, mMemoryPool.get());
+  clearResizeCellStorage(nCells);
+  clearResizeEdgeStorage(nEdges);
 
   for (std::size_t edge = 0; edge < nEdges; ++edge) {
-    deepVectorClear(mTracklets[edge]);
-    deepVectorClear(mTrackletLabels[edge]);
-    deepVectorClear(mTrackletsLookupTable[edge]);
     mTrackletsLookupTable[edge].resize(trackletLookupSizes[edge] + 1, 0);
-  }
-  for (std::size_t cell = 0; cell < nCells; ++cell) {
-    deepVectorClear(mCells[cell]);
-    deepVectorClear(mCellsLookupTable[cell]);
-    deepVectorClear(mCellsNeighbours[cell]);
-    deepVectorClear(mCellsNeighboursTopology[cell]);
-    deepVectorClear(mCellsNeighboursLUT[cell]);
-    deepVectorClear(mCellLabels[cell]);
   }
 }
 

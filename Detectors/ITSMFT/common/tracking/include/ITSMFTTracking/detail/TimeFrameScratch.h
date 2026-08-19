@@ -102,9 +102,11 @@ class TimeFrameScratch
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
 
  private:
+  void clearResizeEdgeStorage(std::size_t nEdges);
+  void clearResizeCellStorage(std::size_t nCells);
+
   std::size_t mNEdges{0};
   std::size_t mNCells{0};
-
 };
 
 } // namespace o2::itsmft::tracking
