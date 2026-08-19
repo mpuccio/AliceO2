@@ -592,7 +592,8 @@ void TrackerTraits::computeLayerCellsImpl(
           SurfaceKinematicState state{};
           float chi2{0.f};
           OperationFailureReason buildReason{};
-          const bool good = buildCellSeed(kind, *measurementInner, *measurementMiddle, *measurementOuter,
+          const bool good = buildCellSeed(kind, globalInner, globalMiddle,
+                                          *measurementInner, *measurementMiddle, *measurementOuter,
                                           material, mBz, kCompatibilityAbsCharge, kCompatibilityPID,
                                           state, chi2, mKernelParameters, buildReason);
 

@@ -97,6 +97,8 @@ bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              float& tanLambdaOut) noexcept;
 
 bool buildCellSeed(SurfaceKind kind,
+                   const GlobalMeasurement& globalInner,
+                   const GlobalMeasurement& globalMiddle,
                    const SurfaceMeasurement& measurementInner,
                    const SurfaceMeasurement& measurementMiddle,
                    const SurfaceMeasurement& measurementOuter,

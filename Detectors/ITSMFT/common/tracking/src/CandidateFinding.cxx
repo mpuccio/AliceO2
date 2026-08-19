@@ -583,6 +583,8 @@ namespace
 {
 
 bool buildCylinderCellSeed(
+  const GlobalMeasurement& globalInner,
+  const GlobalMeasurement& globalMiddle,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -596,14 +598,7 @@ bool buildCylinderCellSeed(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  const auto toGlobal = [](const SurfaceMeasurement& measurement) {
-    const float cosine = std::cos(measurement.frame.frameAngle);
-    const float sine = std::sin(measurement.frame.frameAngle);
-    return GlobalPoint3F{measurement.frame.q * cosine - measurement.frame.u * sine,
-                         measurement.frame.q * sine + measurement.frame.u * cosine,
-                         measurement.frame.v};
-  };
-  if (!detail::barrel::buildSeed(toGlobal(measurementInner), toGlobal(measurementMiddle), measurementOuter, bz, absCharge, pid, scratch, reason)) {
+  if (!detail::barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
     return false;
   }
 
@@ -662,6 +657,8 @@ bool buildDiskCellSeed(
 
 bool buildCellSeed(
   SurfaceKind kind,
+  const GlobalMeasurement& globalInner,
+  const GlobalMeasurement& globalMiddle,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -679,7 +676,7 @@ bool buildCellSeed(
       reason = OperationFailureReason::SourceSurfaceKindMismatch;
       return false;
     case SurfaceKind::Cylinder:
-      return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
+      return buildCylinderCellSeed(globalInner, globalMiddle, measurementInner, measurementMiddle, measurementOuter,
                                    material, bz, absCharge, pid, outState, chi2, params, reason);
     case SurfaceKind::Disk:
       return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
