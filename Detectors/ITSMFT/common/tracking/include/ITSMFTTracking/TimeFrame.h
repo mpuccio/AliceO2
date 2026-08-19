@@ -37,17 +37,11 @@
 #include "ITSMFTTracking/TrackingPrimitives.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/ROFViews.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace o2::itsmft::tracking
 {
-
-namespace detail
-{
-struct TimeFrameLoadAccess;
-}
-
-class TimeFrameScratch;
 
 using BoundedMemoryResource = o2::its::BoundedMemoryResource;
 using Vertex = o2::its::Vertex;
@@ -59,7 +53,7 @@ struct TimeFrame {
   TimeFrame() = default;
   TimeFrame(const TimeFrame&) = delete;
   TimeFrame& operator=(const TimeFrame&) = delete;
-  virtual ~TimeFrame();
+  virtual ~TimeFrame() = default;
 
   const Vertex& getPrimaryVertex(const int ivtx) const { return mPrimaryVertices[ivtx]; }
   auto& getPrimaryVertices() { return mPrimaryVertices; };
@@ -87,6 +81,12 @@ struct TimeFrame {
 
   gsl::span<const GlobalMeasurement> getGlobalMeasurements(LayerId surface) const;
   gsl::span<GlobalMeasurement> getGlobalMeasurements(LayerId surface);
+  void addMeasurement(LayerId surface, GlobalMeasurement global,
+                      const SurfaceMeasurement& measurement);
+  void addMeasurement(LayerId surface, GlobalMeasurement global,
+                      const SurfaceMeasurement& measurement,
+                      gsl::span<const o2::MCCompLabel> labels);
+  void setHasMCInformation(bool value) noexcept { mHasMCInformation = value; }
   const SurfaceMeasurement* getSurfaceMeasurement(LayerId layer, uint32_t clusterId) const noexcept;
   gsl::span<const o2::MCCompLabel> getLabels(LayerId layer, uint32_t clusterId) const;
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerGlobalMeasurements.size()); }
@@ -125,6 +125,8 @@ struct TimeFrame {
   const auto& getIndexTableUtils(int layer) const { return mIndexTableUtils[layer]; }
 
   void setROFViews(RuntimeROFViews views) noexcept;
+  void setROFNavigation(std::size_t position, gsl::span<const int> boundaries,
+                        RuntimeROFViews views, uint16_t localLayer);
   const RuntimeROFViews& getROFViews() const noexcept { return mROFViews; }
   const RuntimeROFViews& getROFViews(int layer) const noexcept { return mROFViewsBySurface.empty() ? mROFViews : mROFViewsBySurface[layer]; }
   int getROFLocalLayer(int layer) const noexcept { return mROFLocalLayerBySurface.empty() ? layer : mROFLocalLayerBySurface[layer]; }
@@ -153,7 +155,6 @@ struct TimeFrame {
                  std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
   const SurfaceLayout& getLayout() const noexcept { return mLayout; }
-  uint64_t getConfigurationGeneration() const noexcept { return mConfigurationGeneration; }
 
   // Results are valid only with this TimeFrame's measurements.
   auto& getGenericTracks() { return mGenericTracks; }
@@ -205,18 +206,11 @@ struct TimeFrame {
   bool mHasMCInformation{false};
 
   bool mConfigurationValid = false;
-  uint64_t mConfigurationGeneration = 0;
   SurfaceLayout mLayout;
-  struct ScratchDeleter {
-    void operator()(TimeFrameScratch* scratch) const noexcept;
-  };
-  std::unique_ptr<TimeFrameScratch, ScratchDeleter> mScratch;
-  void publishConfiguration(TimeFrame& staged) noexcept;
-  void configureTimeFrameStorage(std::size_t nOwnedSurfaces);
+  TimeFrameScratch mScratch;
   void prepareIndexTables(gsl::span<const IndexTableUtilsCore> indexTableConfigs);
   void prepareClusters(int maxLayers);
   friend class Tracker;
-  friend struct detail::TimeFrameLoadAccess;
 };
 
 } // namespace o2::itsmft::tracking

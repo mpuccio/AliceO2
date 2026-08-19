@@ -85,6 +85,9 @@ class TimeFrameScratch
   /// Clear iteration state without changing plan sizes.
   void reset();
 
+  /// Release plan-sized storage while preserving this object's identity.
+  void clearStorage() noexcept;
+
   /// Reseat allocator-backed containers.
   void setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
@@ -126,6 +129,7 @@ class TimeFrameScratch
  private:
   std::size_t mNEdges{0};
   std::size_t mNCells{0};
+
 };
 
 } // namespace o2::itsmft::tracking

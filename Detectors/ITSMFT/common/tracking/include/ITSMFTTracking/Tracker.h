@@ -66,6 +66,7 @@ struct TrackerInitialization {
 enum class TrackerInitializationError : uint8_t {
   None,
   EmptyConfiguration,
+  FrameAlreadyConfigured,
   MissingCatalog,
   MissingMemoryPool,
   LayoutInvalid,
@@ -113,7 +114,6 @@ class Tracker
   DetectorConfiguration mDetectorConfiguration;
   std::vector<IterationConfiguration> mIterations;
   const TimeFrame* mFrame = nullptr;
-  uint64_t mFrameConfigurationGeneration = 0;
 };
 } // namespace o2::itsmft::tracking
 

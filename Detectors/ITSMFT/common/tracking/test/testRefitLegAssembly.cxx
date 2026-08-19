@@ -21,10 +21,10 @@
 
 #include <array>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "ITSMFTTracking/RefitDriver.h"
-#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -70,15 +70,18 @@ struct Fixture {
       layerGlobals[layer] = gsl::span<const GlobalMeasurement>(globalStorage[layer]);
       orderedSurfaces[layer] = LayerId{static_cast<uint16_t>(layer)};
     }
-    std::vector<std::vector<GlobalMeasurement>> globals(NLayers);
-    std::vector<std::vector<SurfaceMeasurement>> measurements(NLayers);
+    std::array<SurfaceDescriptor, NLayers> surfaces{};
     for (int layer = 0; layer < NLayers; ++layer) {
-      globals[layer] = globalStorage[layer];
-      measurements[layer] = storage[layer];
+      surfaces[layer].id = orderedSurfaces[layer];
+      surfaces[layer].kind = SurfaceKind::Cylinder;
     }
-    detail::TimeFrameLoadAccess::setMeasurements(
-      frame, std::move(globals), std::move(measurements),
-      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
+    BOOST_REQUIRE(frame.configure(SurfaceLayout{surfaces, makeSurfaceLayoutChain(orderedSurfaces)}, 0, 0,
+                                  std::make_shared<BoundedMemoryResource>()));
+    for (int layer = 0; layer < NLayers; ++layer) {
+      for (std::size_t cluster = 0; cluster < globalStorage[layer].size(); ++cluster) {
+        frame.addMeasurement(orderedSurfaces[layer], globalStorage[layer][cluster], storage[layer][cluster]);
+      }
+    }
     seed.getClusters()[0] = 0;
     seed.getClusters()[2] = 1;
     seed.getClusters()[4] = 0;

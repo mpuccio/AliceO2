@@ -313,7 +313,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
 
   // --- inspect only freshly obtained normalized accessors/views ---
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
+  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), ITSNLayers);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
     BOOST_CHECK(frame.getGlobalMeasurements(LayerId{s}).empty());
   }
@@ -324,102 +324,31 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   // so resetTimeFrame() has no detector-identity state to preserve or clear.
 }
 
-BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
+BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationLeavesClearedFrame)
 {
   const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
-  const o2::InteractionRecord origin{50, 5};
-  const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto fixture = makeFixture();
-  const auto plan = catalogLayout(catalogView, orderedSurfaces);
-  auto livePool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  configureFrame(frame, catalogView, orderedSurfaces, livePool);
-
-  const auto loaded = loadTimeFrameSource(frame, decoder, origin, timing, fixture.clusters,
-                                          fixture.patterns, fixture.rofs, &dict(),
-                                          &fixture.labels, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
-  BOOST_REQUIRE(loaded.ok());
-
-  BOOST_REQUIRE_EQUAL(frame.getClusters().size(), ITSNLayers);
-  BOOST_REQUIRE(!frame.getClusters()[0].empty());
-
-  GenericTrack result{};
-  result.chi2 = 42.f;
-  result.firstClusterRef = 0;
-  result.clusterRefEnd = 1;
-  frame.getGenericTracks().push_back(result);
-  frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
-  frame.addPrimaryVertex(Vertex{});
-
-  verifyFixtureLoaded(frame, fixture);
-  const auto* const liveLayout = &frame.getLayout();
-  const auto* const liveWorkspace = &frame.getScratch();
-  const auto* const liveWorkspacePool = frame.getScratch().getMemoryPool().get();
-  const auto liveWorkspaceEdges = frame.getScratch().getNEdges();
-  const auto liveWorkspaceCells = frame.getScratch().getNCells();
-  const auto livePoolUsed = livePool->getUsedMemory();
-  const auto livePoolMax = livePool->getMaxMemory();
-  const auto* const liveGlobalMeasurements = frame.getGlobalMeasurements(LayerId{0}).data();
-  const auto* const liveSurfaceMeasurement = frame.getSurfaceMeasurement(LayerId{0}, 0);
-  const auto* const liveClusters = frame.getClusters()[0].data();
-  const auto liveClusterCount = frame.getClusters()[0].size();
-  const auto liveClusterId = frame.getClusters()[0][0].clusterId;
-  const auto liveUsedClusters = frame.getUsedClusters(0);
-  const auto* const liveUsedClusterData = liveUsedClusters.data();
-  const auto liveROFBoundaries = frame.getROFrameClusters(0);
-  const std::vector<int> expectedROFBoundaries{liveROFBoundaries.begin(), liveROFBoundaries.end()};
-  const auto* const liveROFBoundaryData = liveROFBoundaries.data();
-  const auto* const liveGenericTracks = frame.getGenericTracks().data();
-  const auto* const liveTrackClusterIndices = frame.getTrackClusterIndices().data();
-  const auto* const livePrimaryVertices = frame.getPrimaryVertices().data();
-
-  auto replacementLayout = catalogLayout(catalogView, orderedSurfaces);
+  const auto* const scratch = &frame.getScratch();
+  auto layout = catalogLayout(catalogView, orderedSurfaces);
   auto failingPool = std::make_shared<BoundedMemoryResource>(0);
 
-  BOOST_CHECK(!frame.configure(std::move(replacementLayout), 1, 1, failingPool));
+  BOOST_CHECK(!frame.configure(std::move(layout), 1, 1, failingPool));
   BOOST_CHECK_EQUAL(failingPool->getThrowCount(), 1u);
   BOOST_CHECK_EQUAL(failingPool->getUsedMemory(), 0u);
 
-  BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(&frame.getLayout() == liveLayout);
-  BOOST_CHECK(&frame.getScratch() == liveWorkspace);
-  BOOST_CHECK(frame.getMemoryPool().get() == livePool.get());
-  BOOST_CHECK(frame.getScratch().getMemoryPool().get() == liveWorkspacePool);
-  BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), liveWorkspaceEdges);
-  BOOST_CHECK_EQUAL(frame.getScratch().getNCells(), liveWorkspaceCells);
-  BOOST_CHECK_EQUAL(livePool->getUsedMemory(), livePoolUsed);
-  BOOST_CHECK_EQUAL(livePool->getMaxMemory(), livePoolMax);
-  verifyFixtureLoaded(frame, fixture);
-  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).data() == liveGlobalMeasurements);
-  BOOST_CHECK(frame.getSurfaceMeasurement(LayerId{0}, 0) == liveSurfaceMeasurement);
-  BOOST_CHECK(frame.getClusters()[0].data() == liveClusters);
-  BOOST_CHECK_EQUAL(frame.getClusters()[0].size(), liveClusterCount);
-  BOOST_CHECK_EQUAL(frame.getClusters()[0][0].clusterId, liveClusterId);
-  BOOST_CHECK(frame.getUsedClusters(0).data() == liveUsedClusterData);
-  for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
-    const auto expected = std::count_if(fixture.clusters.begin(), fixture.clusters.end(),
-                                        [layer](const auto& cluster) { return cluster.getSensorID() == layer; });
-    BOOST_REQUIRE_EQUAL(frame.getUsedClusters(layer).size(), expected);
-    BOOST_CHECK(std::all_of(frame.getUsedClusters(layer).begin(), frame.getUsedClusters(layer).end(),
-                            [](uint8_t used) { return used == 0; }));
-  }
-  const auto preservedROFBoundaries = frame.getROFrameClusters(0);
-  BOOST_CHECK(preservedROFBoundaries.data() == liveROFBoundaryData);
-  BOOST_CHECK_EQUAL_COLLECTIONS(preservedROFBoundaries.begin(), preservedROFBoundaries.end(),
-                                expectedROFBoundaries.begin(), expectedROFBoundaries.end());
-  BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
-  BOOST_CHECK(frame.getGenericTracks().data() == liveGenericTracks);
-  BOOST_CHECK_EQUAL(frame.getGenericTracks()[0].chi2, 42.f);
-  BOOST_REQUIRE_EQUAL(frame.getTrackClusterIndices().size(), 1u);
-  BOOST_CHECK(frame.getTrackClusterIndices().data() == liveTrackClusterIndices);
-  BOOST_CHECK(frame.getTrackClusterIndices()[0].layer == LayerId{0});
-  BOOST_CHECK_EQUAL(frame.getTrackClusterIndices()[0].clusterId, 0u);
-  BOOST_REQUIRE_EQUAL(frame.getPrimaryVerticesNum(), 1u);
-  BOOST_CHECK(frame.getPrimaryVertices().data() == livePrimaryVertices);
+  BOOST_CHECK(!frame.isConfigured());
+  BOOST_CHECK(&frame.getScratch() == scratch);
+  BOOST_CHECK(frame.getMemoryPool().get() == failingPool.get());
+  BOOST_CHECK(frame.getScratch().getMemoryPool().get() == failingPool.get());
+  BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), 0u);
+  BOOST_CHECK_EQUAL(frame.getScratch().getNCells(), 0u);
+  BOOST_CHECK(frame.getLayout().getOrderedSurfaces().empty());
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK(frame.getGenericTracks().empty());
+  BOOST_CHECK(frame.getTrackClusterIndices().empty());
+  BOOST_CHECK_EQUAL(frame.getPrimaryVerticesNum(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(MalformedTimeFrameLoadLeavesTheFrameEmpty)
@@ -450,5 +379,5 @@ BOOST_AUTO_TEST_CASE(MalformedTimeFrameLoadLeavesTheFrameEmpty)
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
+  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), ITSNLayers);
 }

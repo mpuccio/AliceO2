@@ -411,6 +411,10 @@ std::vector<gsl::span<const GlobalMeasurement>> Tracker::prepareTimeFrame(TimeFr
 TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
 {
   TrackerInitializationResult result;
+  if (frame.isConfigured()) {
+    result.error = TrackerInitializationError::FrameAlreadyConfigured;
+    return result;
+  }
   if (configuration.parameters.empty()) {
     result.error = TrackerInitializationError::EmptyConfiguration;
     return result;
@@ -504,14 +508,12 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
   mDetectorConfiguration = std::move(detectorConfiguration);
   mIterations = std::move(iterations);
   mFrame = &frame;
-  mFrameConfigurationGeneration = frame.getConfigurationGeneration();
   return result;
 }
 
 bool Tracker::isConfiguredFor(const TimeFrame& frame) const noexcept
 {
-  return mFrame == &frame && !mIterations.empty() && frame.isConfigured() &&
-         mFrameConfigurationGeneration == frame.getConfigurationGeneration();
+  return mFrame == &frame && !mIterations.empty() && frame.isConfigured();
 }
 
 TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)

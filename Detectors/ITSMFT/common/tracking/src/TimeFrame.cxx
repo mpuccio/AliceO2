@@ -14,14 +14,10 @@
 ///
 
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/TimeFrameScratch.h"
-
 #include <algorithm>
 #include <limits>
-#include <new>
 #include <numeric>
 #include <stdexcept>
-#include <type_traits>
 
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITStracking/MathUtils.h"
@@ -30,26 +26,6 @@ namespace o2::itsmft::tracking
 {
 
 using o2::its::deepVectorClear;
-
-namespace
-{
-
-template <typename T>
-void replaceBoundedVector(bounded_vector<T>& destination, bounded_vector<T>& source) noexcept
-{
-  static_assert(std::is_nothrow_move_constructible_v<bounded_vector<T>>);
-  destination.~bounded_vector<T>();
-  new (&destination) bounded_vector<T>(std::move(source));
-}
-
-} // namespace
-
-TimeFrame::~TimeFrame() = default;
-
-void TimeFrame::ScratchDeleter::operator()(TimeFrameScratch* scratch) const noexcept
-{
-  delete scratch;
-}
 
 void TimeFrame::addPrimaryVertex(const Vertex& vert)
 {
@@ -77,6 +53,29 @@ gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(LayerId surf
 gsl::span<GlobalMeasurement> TimeFrame::getGlobalMeasurements(LayerId surface)
 {
   return surface.isValid() && surface.value() < mLayerGlobalMeasurements.size() ? gsl::make_span(mLayerGlobalMeasurements[surface.value()]) : gsl::span<GlobalMeasurement>{};
+}
+
+void TimeFrame::addMeasurement(LayerId surface, GlobalMeasurement global,
+                               const SurfaceMeasurement& measurement)
+{
+  if (!mConfigurationValid || !surface.isValid() || surface.value() >= mLayerGlobalMeasurements.size()) {
+    throw std::logic_error{"TimeFrame::addMeasurement(): invalid or unconfigured surface"};
+  }
+  const auto position = surface.value();
+  const auto clusterId = static_cast<uint32_t>(mLayerSurfaceMeasurements[position].size());
+  global.clusterId = clusterId;
+  mLayerGlobalMeasurements[position].push_back(global);
+  mLayerSurfaceMeasurements[position].push_back(measurement);
+  mLayerUsedClusters[position].push_back(uint8_t{0});
+}
+
+void TimeFrame::addMeasurement(LayerId surface, GlobalMeasurement global,
+                               const SurfaceMeasurement& measurement,
+                               gsl::span<const o2::MCCompLabel> labels)
+{
+  addMeasurement(surface, global, measurement);
+  const auto clusterId = static_cast<uint32_t>(mLayerSurfaceMeasurements[surface.value()].size() - 1);
+  mLayerClusterLabels[surface.value()].addElements(clusterId, labels);
 }
 
 const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(LayerId layer, uint32_t clusterId) const noexcept
@@ -206,6 +205,18 @@ void TimeFrame::setROFViews(RuntimeROFViews views) noexcept
   mUseUPC = false;
 }
 
+void TimeFrame::setROFNavigation(std::size_t position, gsl::span<const int> boundaries,
+                                 RuntimeROFViews views, uint16_t localLayer)
+{
+  if (!mConfigurationValid || position >= mROFramesClusters.size()) {
+    throw std::logic_error{"TimeFrame::setROFNavigation(): invalid or unconfigured surface position"};
+  }
+  mROFramesClusters[position].assign(boundaries.begin(), boundaries.end());
+  mROFViewsBySurface[position] = views;
+  mROFLocalLayerBySurface[position] = localLayer;
+  mUseUPC = false;
+}
+
 const RuntimeROFTableEntry& TimeFrame::getROFOverlap(int fromLayer, int toLayer, int rof) const noexcept
 {
   return getROFViews(fromLayer).overlap.getOverlap(getROFLocalLayer(fromLayer), getROFLocalLayer(toLayer), rof);
@@ -266,99 +277,86 @@ gsl::span<const MCCompLabel> TimeFrame::getClusterLabels(int layer, int cluster)
 bool TimeFrame::configure(SurfaceLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
                           std::shared_ptr<BoundedMemoryResource> memoryPool)
 {
-  if (!memoryPool || !layout.valid() || layout.getOrderedSurfaces().empty()) {
+  if (mConfigurationValid || !memoryPool || !layout.valid() || layout.getOrderedSurfaces().empty()) {
     return false;
   }
   const auto nOwnedSurfaces = layout.getOrderedSurfaces().size();
-
-  TimeFrame staged;
+  const auto nMeasurementSurfaces = layout.getSurfaceCatalog().nSurfaces;
+  mScratch.setMemoryPool(memoryPool);
+  setMemoryPool(std::move(memoryPool));
   try {
-    staged.mScratch.reset(new TimeFrameScratch);
-    staged.mScratch->setMemoryPool(memoryPool);
-    staged.mScratch->configureStorage(maxEdges, maxCells);
-
-    staged.mROFramesClusters = mROFramesClusters;
-    staged.setMemoryPool(memoryPool);
-    staged.configureTimeFrameStorage(nOwnedSurfaces);
+    mScratch.configureStorage(maxEdges, maxCells);
+    mROFramesClusters.resize(nOwnedSurfaces);
+    mROFViewsBySurface.resize(nOwnedSurfaces);
+    mROFLocalLayerBySurface.resize(nOwnedSurfaces);
+    mLayerGlobalMeasurements.resize(nMeasurementSurfaces);
+    mLayerSurfaceMeasurements.resize(nMeasurementSurfaces);
+    mLayerUsedClusters.resize(nMeasurementSurfaces);
+    mLayerClusterLabels.resize(nMeasurementSurfaces);
+    o2::its::clearResizeBoundedVector(mIndexTables, nOwnedSurfaces, mMemoryPool.get());
+    mIndexTableUtils.assign(nOwnedSurfaces, IndexTableUtilsCore{});
+    mMinR.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
+    mMaxR.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
+    mMinZ.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
+    mMaxZ.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
   } catch (const std::bad_alloc&) {
+    resetTimeFrame();
+    mScratch.clearStorage();
+    mROFramesClusters.clear();
+    mROFViewsBySurface.clear();
+    mROFLocalLayerBySurface.clear();
+    mLayerGlobalMeasurements.clear();
+    mLayerSurfaceMeasurements.clear();
+    mLayerUsedClusters.clear();
+    mLayerClusterLabels.clear();
+    mIndexTables.clear();
+    mIndexTableUtils.clear();
+    mMinR.clear();
+    mMaxR.clear();
+    mMinZ.clear();
+    mMaxZ.clear();
     return false;
   }
-
-  staged.mLayout = std::move(layout);
-  staged.mConfigurationValid = true;
-  staged.mConfigurationGeneration = mConfigurationGeneration + 1;
-  publishConfiguration(staged);
+  mLayout = std::move(layout);
+  mConfigurationValid = true;
   return true;
-}
-
-void TimeFrame::publishConfiguration(TimeFrame& staged) noexcept
-{
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mROFramesClusters)>);
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTables)>);
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTableUtils)>);
-  static_assert(std::is_nothrow_move_assignable_v<decltype(mLayout)>);
-
-  // Destroy every object backed by the old pool while the frame still owns
-  // that pool. PMR vectors cannot be swapped across unequal resources, but
-  // their allocator-preserving move construction is noexcept.
-  mScratch.reset();
-  replaceBoundedVector(mPrimaryVertices, staged.mPrimaryVertices);
-  replaceBoundedVector(mPrimaryVerticesLabels, staged.mPrimaryVerticesLabels);
-  replaceBoundedVector(mGenericTracks, staged.mGenericTracks);
-  replaceBoundedVector(mTrackClusterIndices, staged.mTrackClusterIndices);
-
-  mROFramesClusters = std::move(staged.mROFramesClusters);
-  mIndexTables = std::move(staged.mIndexTables);
-  mIndexTableUtils = std::move(staged.mIndexTableUtils);
-  mMinR = std::move(staged.mMinR);
-  mMaxR = std::move(staged.mMaxR);
-  mMinZ = std::move(staged.mMinZ);
-  mMaxZ = std::move(staged.mMaxZ);
-  mLayout = std::move(staged.mLayout);
-  mScratch = std::move(staged.mScratch);
-  mConfigurationValid = staged.mConfigurationValid;
-  mConfigurationGeneration = staged.mConfigurationGeneration;
-
-  // All objects using the old resource are gone. Publish the new owner last;
-  // staged keeps the old resource alive until its moved-from members die.
-  mMemoryPool.swap(staged.mMemoryPool);
 }
 
 TimeFrameScratch& TimeFrame::getScratch()
 {
-  if (!mScratch) {
-    throw std::logic_error{"TimeFrame scratch is not configured"};
-  }
-  return *mScratch;
+  return mScratch;
 }
 
 const TimeFrameScratch& TimeFrame::getScratch() const
 {
-  if (!mScratch) {
-    throw std::logic_error{"TimeFrame scratch is not configured"};
-  }
-  return *mScratch;
+  return mScratch;
 }
 
 void TimeFrame::resetTimeFrame() noexcept
 {
-  if (mScratch) {
-    mScratch->reset();
-  }
+  mScratch.reset();
   deepVectorClear(mPrimaryVertices);
   deepVectorClear(mPrimaryVerticesLabels);
   // Common tracks and their cluster references are valid only for the current
   // TimeFrame measurements, so clear both together.
   deepVectorClear(mGenericTracks);
   deepVectorClear(mTrackClusterIndices);
-  mLayerGlobalMeasurements.clear();
-  mLayerSurfaceMeasurements.clear();
-  mLayerUsedClusters.clear();
-  mLayerClusterLabels.clear();
+  for (auto& measurements : mLayerGlobalMeasurements) {
+    measurements.clear();
+  }
+  for (auto& measurements : mLayerSurfaceMeasurements) {
+    measurements.clear();
+  }
+  for (auto& used : mLayerUsedClusters) {
+    used.clear();
+  }
+  for (auto& labels : mLayerClusterLabels) {
+    labels.clear();
+  }
   mHasMCInformation = false;
   mROFViews = {};
-  mROFViewsBySurface.clear();
-  mROFLocalLayerBySurface.clear();
+  std::fill(mROFViewsBySurface.begin(), mROFViewsBySurface.end(), RuntimeROFViews{});
+  std::fill(mROFLocalLayerBySurface.begin(), mROFLocalLayerBySurface.end(), uint16_t{0});
   mUseUPC = false;
   for (auto& boundaries : mROFramesClusters) {
     boundaries.clear();
@@ -385,17 +383,6 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   for (auto& table : mIndexTables) {
     initVector(table);
   }
-}
-
-void TimeFrame::configureTimeFrameStorage(std::size_t nOwnedSurfaces)
-{
-  mROFramesClusters.resize(nOwnedSurfaces);
-  o2::its::clearResizeBoundedVector(mIndexTables, nOwnedSurfaces, mMemoryPool.get());
-  mIndexTableUtils.assign(nOwnedSurfaces, IndexTableUtilsCore{});
-  mMinR.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
-  mMaxR.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
-  mMinZ.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
-  mMaxZ.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
 }
 
 void TimeFrame::prepareIndexTables(gsl::span<const IndexTableUtilsCore> indexTableConfigs)

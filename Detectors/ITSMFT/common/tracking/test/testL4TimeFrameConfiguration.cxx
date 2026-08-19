@@ -64,7 +64,7 @@ bool contains(const std::filesystem::path& path, const std::string& text)
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
+BOOST_AUTO_TEST_CASE(ConfigurationIsInstalledOnce)
 {
   const auto catalog = makeCatalog();
   auto pool = std::make_shared<BoundedMemoryResource>();
@@ -84,23 +84,18 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   BOOST_CHECK(!frame.getScratch().getIteration(0).valid);
   BOOST_CHECK(!frame.getScratch().getIteration(1).valid);
   const auto* oldLayout = &frame.getLayout();
+  const auto* scratch = &frame.getScratch();
   const auto* oldPool = frame.getMemoryPool().get();
-
-  TrackerInitialization invalid;
-  invalid.catalog = configuration.catalog;
-  invalid.memoryPool = std::make_shared<BoundedMemoryResource>();
-  invalid.parameters.push_back(TrackingParameters{});
-  BOOST_CHECK(!tracker.initialize(frame, invalid).ok());
-  BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(tracker.isConfiguredFor(frame));
-  BOOST_CHECK(&frame.getLayout() == oldLayout);
-  BOOST_CHECK(frame.getMemoryPool().get() == oldPool);
 
   const auto replacementPool = std::make_shared<BoundedMemoryResource>();
   auto replacement = makeConfiguration(catalog, replacementPool);
-  BOOST_REQUIRE(tracker.initialize(frame, replacement).ok());
+  const auto replacementResult = tracker.initialize(frame, replacement);
+  BOOST_CHECK(!replacementResult.ok());
+  BOOST_CHECK(replacementResult.error == TrackerInitializationError::FrameAlreadyConfigured);
   BOOST_CHECK(&frame.getLayout() == oldLayout);
-  BOOST_CHECK(frame.getMemoryPool().get() == replacementPool.get());
+  BOOST_CHECK(&frame.getScratch() == scratch);
+  BOOST_CHECK(frame.getMemoryPool().get() == oldPool);
+  BOOST_CHECK(tracker.isConfiguredFor(frame));
 }
 
 BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
@@ -126,6 +121,7 @@ BOOST_AUTO_TEST_CASE(ConfigurationOwnershipGuard)
 {
   const auto trackingRoot = std::filesystem::path{__FILE__}.parent_path().parent_path();
   const std::vector<std::filesystem::path> sources{
+    trackingRoot / "include/ITSMFTTracking/TimeFrame.h",
     trackingRoot / "include/ITSMFTTracking/Tracker.h",
     trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
     trackingRoot / "src/Tracker.cxx",
@@ -134,8 +130,12 @@ BOOST_AUTO_TEST_CASE(ConfigurationOwnershipGuard)
     BOOST_REQUIRE_MESSAGE(std::filesystem::exists(source), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "mGraphs;"), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "mTrackParams;"), source.string());
-    if (source.filename() != "TrackerTraits.h") {
+    if (source.filename() != "TrackerTraits.h" && source.filename() != "TimeFrame.h") {
       BOOST_CHECK_MESSAGE(!contains(source, "mMemoryPool;"), source.string());
+    }
+    if (source.filename() == "TimeFrame.h") {
+      BOOST_CHECK_MESSAGE(!contains(source, "unique_ptr<TimeFrameScratch"), source.string());
+      BOOST_CHECK_MESSAGE(!contains(source, "publishConfiguration"), source.string());
     }
   }
 }

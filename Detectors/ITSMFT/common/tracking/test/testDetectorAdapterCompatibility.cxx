@@ -20,7 +20,7 @@
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
-#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
+#include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -76,6 +76,8 @@ struct MixedRefitFixture {
       globals[position] = globalsStorage[position];
       seed.getClusters()[position] = 0;
     }
+    BOOST_REQUIRE(frame.configure(SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)}, 0, 0,
+                                  std::make_shared<BoundedMemoryResource>()));
     refreshFrame();
     seed.setHitLayerMask(LayerMask{0x7});
     auto& state = seed.state();
@@ -99,15 +101,13 @@ struct MixedRefitFixture {
 
   void refreshFrame()
   {
-    std::vector<std::vector<GlobalMeasurement>> globalsBySurface(3);
-    std::vector<std::vector<SurfaceMeasurement>> measurementsBySurface(3);
+    frame.resetTimeFrame();
     for (int position = 0; position < 3; ++position) {
-      globalsBySurface[position] = globalsStorage[position];
-      measurementsBySurface[position] = measurementsStorage[position];
+      for (std::size_t cluster = 0; cluster < globalsStorage[position].size(); ++cluster) {
+        frame.addMeasurement(ordered[position], globalsStorage[position][cluster],
+                             measurementsStorage[position][cluster]);
+      }
     }
-    detail::TimeFrameLoadAccess::setMeasurements(
-      frame, std::move(globalsBySurface), std::move(measurementsBySurface),
-      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(3), false);
   }
 
   SurfaceCatalogView catalog() { return {surfaces.data(), static_cast<uint32_t>(surfaces.size())}; }

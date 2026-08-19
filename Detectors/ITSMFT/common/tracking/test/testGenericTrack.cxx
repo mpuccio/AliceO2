@@ -294,6 +294,16 @@ void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout,
                                std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
                                std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr)
 {
+  if (!frame.isConfigured()) {
+    SurfaceLayoutDefinition definition;
+    definition.orderedSurfaces.assign(layout.layout.getOrderedSurfaces().begin(), layout.layout.getOrderedSurfaces().end());
+    definition.componentOffsets.assign(layout.layout.getComponentOffsets().begin(), layout.layout.getComponentOffsets().end());
+    definition.holeLayers = layout.layout.getHoleLayers();
+    const auto catalog = layout.getCatalog();
+    BOOST_REQUIRE(frame.configure(SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                                                std::move(definition)},
+                                  0, 0, std::make_shared<BoundedMemoryResource>()));
+  }
   const std::vector<CompClusterExt> itsClusters{
     {10, 20, CompCluster::InvalidPatternID, 0},
     {11, 21, CompCluster::InvalidPatternID, 1},

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
@@ -24,7 +25,6 @@
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
@@ -87,6 +87,8 @@ struct RefitFixture {
       orderedSurfaces.push_back(catalogSurfaces[layer].id);
     }
     catalog = SurfaceCatalogView{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
+    BOOST_REQUIRE(frame.configure(SurfaceLayout{catalogSurfaces, makeSurfaceLayoutChain(orderedSurfaces)}, 0, 0,
+                                  std::make_shared<BoundedMemoryResource>()));
 
     uint16_t mask = 0;
     for (int layer = 0; layer < hits; ++layer) {
@@ -127,17 +129,13 @@ struct RefitFixture {
 
   void syncFrame()
   {
-    std::vector<std::vector<GlobalMeasurement>> globals(NLayers);
-    std::vector<std::vector<SurfaceMeasurement>> measurements(NLayers);
+    frame.resetTimeFrame();
     for (int layer = 0; layer < NLayers; ++layer) {
-      globals[layer] = globalStorage[layer];
-      if (!globalStorage[layer].empty()) {
-        measurements[layer] = storage[layer];
+      for (std::size_t cluster = 0; cluster < globalStorage[layer].size(); ++cluster) {
+        frame.addMeasurement(LayerId{static_cast<uint16_t>(layer)}, globalStorage[layer][cluster],
+                             storage[layer][cluster]);
       }
     }
-    detail::TimeFrameLoadAccess::setMeasurements(
-      frame, std::move(globals), std::move(measurements),
-      std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
   }
 };
 
@@ -442,9 +440,14 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
     measurements[layer] = storage[layer];
   }
   TimeFrame frame;
-  detail::TimeFrameLoadAccess::setMeasurements(
-    frame, std::move(globals), std::move(measurements),
-    std::vector<o2::dataformats::MCTruthContainer<o2::MCCompLabel>>(NLayers), false);
+  BOOST_REQUIRE(frame.configure(SurfaceLayout{catalogSurfaces, makeSurfaceLayoutChain(orderedSurfaces)}, 0, 0,
+                                std::make_shared<BoundedMemoryResource>()));
+  for (int layer = 0; layer < NLayers; ++layer) {
+    for (std::size_t cluster = 0; cluster < globals[layer].size(); ++cluster) {
+      frame.addMeasurement(LayerId{static_cast<uint16_t>(layer)}, globals[layer][cluster],
+                           measurements[layer][cluster]);
+    }
+  }
   BOOST_REQUIRE(detail::refitSurfaceSeed(seed, frame, params, Bz, layerGlobals,
                                          catalog, orderedSurfaces, track));
 

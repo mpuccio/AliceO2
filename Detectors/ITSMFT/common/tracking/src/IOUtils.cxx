@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/TimeFrameLoadAccess.h"
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "MFTBase/GeometryTGeo.h"
@@ -223,9 +222,7 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     return {MultiSourceLoadError::InvalidLayerMapping};
   }
 
-  std::vector<std::vector<int>> rofBoundaries(orderedSurfaces.size());
-  std::vector<RuntimeROFViews> viewsBySurface(orderedSurfaces.size());
-  std::vector<uint16_t> localLayerBySurface(orderedSurfaces.size(), 0);
+  frame.setROFViews(sources.front().rofViews);
   for (std::size_t position = 0; position < orderedSurfaces.size(); ++position) {
     const auto surface = orderedSurfaces[position];
     const ClusterSourceInput* owner = nullptr;
@@ -246,7 +243,7 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     }
 
     const auto globals = frame.getGlobalMeasurements(surface);
-    auto& boundaries = rofBoundaries[position];
+    std::vector<int> boundaries;
     boundaries.assign(owner->rofs.size() + 1, 0);
     std::size_t measurement = 0;
     for (std::size_t rof = 0; rof < owner->rofs.size(); ++rof) {
@@ -274,12 +271,8 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     if (measurement != globals.size()) {
       return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id};
     }
-    viewsBySurface[position] = owner->rofViews;
-    localLayerBySurface[position] = localLayer;
+    frame.setROFNavigation(position, boundaries, owner->rofViews, localLayer);
   }
-
-  detail::TimeFrameLoadAccess::setNavigation(frame, std::move(rofBoundaries), sources.front().rofViews,
-                                             std::move(viewsBySurface), std::move(localLayerBySurface));
   if (externalIndicesBySurface != nullptr) {
     *externalIndicesBySurface = std::move(loadedExternalIndices);
   }
@@ -463,10 +456,6 @@ LoadSourcesResult decodeSources(TimeFrame& frame,
     }
   }
 
-  detail::TimeFrameLoadAccess::prepareMeasurements(frame, catalog.nSurfaces);
-  auto& perSurfaceGlobal = detail::TimeFrameLoadAccess::globalMeasurements(frame);
-  auto& perSurfaceMeasurements = detail::TimeFrameLoadAccess::surfaceMeasurements(frame);
-  auto& perSurfaceLabels = detail::TimeFrameLoadAccess::clusterLabels(frame);
   std::vector<std::vector<uint32_t>> perSurfaceClusterSizes(catalog.nSurfaces);
   std::vector<std::vector<uint32_t>> stagedExternalIndices(catalog.nSurfaces);
   bool hasMCInformation = false;
@@ -524,7 +513,7 @@ LoadSourcesResult decodeSources(TimeFrame& frame,
         if (surfaceDescriptor.detectorId != static_cast<uint8_t>(src.detector)) {
           return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, externalIndex};
         }
-        const auto localClusterId = static_cast<uint32_t>(perSurfaceGlobal[expectedSurface.value()].size());
+        const auto localClusterId = static_cast<uint32_t>(frame.getGlobalMeasurements(expectedSurface).size());
         GlobalMeasurement global;
         SurfaceMeasurement measurement;
         if (surfaceDescriptor.kind == SurfaceKind::Cylinder) {
@@ -541,13 +530,13 @@ LoadSourcesResult decodeSources(TimeFrame& frame,
         global.y -= frame.getBeamY();
         global.radius = std::hypot(global.x, global.y);
         global.phi = o2::its::math_utils::computePhi(global.x, global.y);
-        perSurfaceGlobal[expectedSurface.value()].push_back(global);
-        perSurfaceMeasurements[expectedSurface.value()].push_back(measurement);
+        if (src.labels != nullptr) {
+          frame.addMeasurement(expectedSurface, global, measurement, src.labels->getLabels(externalIndex));
+        } else {
+          frame.addMeasurement(expectedSurface, global, measurement);
+        }
         perSurfaceClusterSizes[expectedSurface.value()].push_back(decoded.shape.nPixels);
         stagedExternalIndices[expectedSurface.value()].push_back(externalIndex);
-        if (src.labels != nullptr) {
-          perSurfaceLabels[expectedSurface.value()].addElements(localClusterId, src.labels->getLabels(externalIndex));
-        }
       }
     }
     if (!patterns.empty()) {
@@ -556,7 +545,7 @@ LoadSourcesResult decodeSources(TimeFrame& frame,
     }
   }
 
-  detail::TimeFrameLoadAccess::finishMeasurements(frame, hasMCInformation);
+  frame.setHasMCInformation(hasMCInformation);
   if (externalIndicesBySurface != nullptr) {
     *externalIndicesBySurface = std::move(stagedExternalIndices);
   }
@@ -574,6 +563,9 @@ LoadSourcesResult loadSources(TimeFrame& frame, const SurfaceCatalogView& catalo
                               std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
   clearFrameAndSidecars(frame, externalIndicesBySurface, clusterSizesBySurface);
+  if (!frame.isConfigured()) {
+    return {MultiSourceLoadError::FrameNotConfigured};
+  }
   FailedTimeFrameLoadGuard failedLoad{frame};
   const auto result = decodeSources(frame, catalog, sources, origin,
                                     externalIndicesBySurface, clusterSizesBySurface);

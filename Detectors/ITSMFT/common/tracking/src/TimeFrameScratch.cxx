@@ -50,6 +50,24 @@ void TimeFrameScratch::reset()
   }
 }
 
+void TimeFrameScratch::clearStorage() noexcept
+{
+  mTracklets.clear();
+  mTrackletsLookupTable.clear();
+  mTrackletLabels.clear();
+  mCells.clear();
+  mCellsLookupTable.clear();
+  mCellsNeighbours.clear();
+  mCellsNeighboursTopology.clear();
+  mCellsNeighboursLUT.clear();
+  mCellLabels.clear();
+  deepVectorClear(mEdgePhiCuts);
+  deepVectorClear(mEdgeMSAngles);
+  mIterations.clear();
+  mNEdges = 0;
+  mNCells = 0;
+}
+
 void TimeFrameScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool)
 {
   mMemoryPool = std::move(pool);
