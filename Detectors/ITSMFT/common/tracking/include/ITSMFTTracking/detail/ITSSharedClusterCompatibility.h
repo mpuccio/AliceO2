@@ -44,39 +44,15 @@ class ITSSharedClusterCompatibility
     mSealed = false;
   }
 
-  // Atomically materialize the sidecar from accepted generic results.
-  template <typename Results>
-  bool replaceFromAcceptedResults(const Results& results)
+  bool replaceFromAcceptedTrackIndices(gsl::span<const uint32_t> indices,
+                                       gsl::span<const uint8_t> sharedFlags)
   {
     std::vector<ITSSharedClusterCompatibilityEntry> staged;
-    staged.reserve(results.size());
+    staged.reserve(indices.size());
     uint32_t previous = 0;
     bool havePrevious = false;
-    for (const auto& result : results) {
-      const auto index = result.genericTrackIndex;
-      if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
-        return false;
-      }
-      staged.push_back({index, result.hasSharedClusters()});
-      previous = index;
-      havePrevious = true;
-    }
-    mPendingIndices.clear();
-    mEntries.swap(staged);
-    mSealed = true;
-    return true;
-  }
-
-  template <typename Results>
-  bool replaceFromAcceptedResults(const Results& results, gsl::span<const uint8_t> sharedFlags)
-  {
-    std::vector<ITSSharedClusterCompatibilityEntry> staged;
-    staged.reserve(results.size());
-    uint32_t previous = 0;
-    bool havePrevious = false;
-    for (const auto& result : results) {
-      const auto index = result.genericTrackIndex;
-      if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max() || index >= sharedFlags.size()) {
+    for (const auto index : indices) {
+      if ((havePrevious && previous >= index) || index >= sharedFlags.size()) {
         return false;
       }
       staged.push_back({index, sharedFlags[index] != 0});

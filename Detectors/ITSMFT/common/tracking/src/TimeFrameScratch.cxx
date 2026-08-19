@@ -45,9 +45,6 @@ void TimeFrameScratch::reset()
   deepVectorClear(mCellLabels);
   deepVectorClear(mEdgePhiCuts);
   deepVectorClear(mEdgeMSAngles);
-  for (auto& iteration : mIterations) {
-    iteration.reset(mMemoryPool.get());
-  }
 }
 
 void TimeFrameScratch::clearStorage() noexcept
@@ -63,7 +60,6 @@ void TimeFrameScratch::clearStorage() noexcept
   mCellLabels.clear();
   deepVectorClear(mEdgePhiCuts);
   deepVectorClear(mEdgeMSAngles);
-  mIterations.clear();
   mNEdges = 0;
   mNCells = 0;
 }
@@ -88,9 +84,6 @@ void TimeFrameScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResou
   initContainers(mCellsNeighboursTopology);
   initContainers(mCellsNeighboursLUT);
   initContainers(mCellLabels);
-  for (auto& iteration : mIterations) {
-    iteration.reset(mMemoryPool.get());
-  }
 }
 
 std::size_t TimeFrameScratch::getNumberOfCells() const

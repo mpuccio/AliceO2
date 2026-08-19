@@ -54,23 +54,25 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
                          const o2::itsmft::tracking::TrackingResult& result)
 {
   const auto configurations = tracker.getIterationConfigurations();
-  const auto& scratch = frame.getScratch();
+  std::size_t firstTrack = 0;
   for (std::size_t iteration = 0; iteration < configurations.size(); ++iteration) {
-    const auto& candidates = scratch.getIteration(iteration).acceptedTracks;
-    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
+    if (iteration >= result.acceptedTrackCounts.size() ||
+        result.acceptedTrackCounts[iteration] > frame.getGenericTracks().size() - firstTrack) {
       return false;
     }
-    std::vector<o2::itsmft::tracking::TrackingCandidate> selected;
+    std::vector<uint32_t> selected;
     for (std::size_t index = 0; index < result.acceptedTrackCounts[iteration]; ++index) {
-      if (candidates[index].track.innerState.kind == Kind) {
-        selected.push_back(candidates[index]);
+      const auto globalIndex = firstTrack + index;
+      if (frame.getGenericTracks()[globalIndex].innerState.kind == Kind) {
+        selected.push_back(static_cast<uint32_t>(globalIndex));
       }
     }
     if (!publication.completeAccepted(selected, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
       return false;
     }
+    firstTrack += result.acceptedTrackCounts[iteration];
   }
-  return true;
+  return firstTrack == frame.getGenericTracks().size();
 }
 
 // Derive one source-level timing configuration from per-layer parameters;
@@ -245,7 +247,6 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
     throw std::runtime_error{"Combined ITS+MFT tracker: failed to commit static TimeFrame configuration"};
   }
   mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
-  mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
   mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
 
   const int itsNThreads = o2::itsmft::ITSCommonCATrackerParam::Instance().nThreads;
@@ -310,7 +311,6 @@ void CombinedCATrackerDPL::configureRofTables(const ClusterSourceInput& itsSourc
 void CombinedCATrackerDPL::clearPublicationSidecars() noexcept
 {
   mITSPublicationAdapter.reset();
-  mMFTPublicationAdapter.reset();
 }
 
 void CombinedCATrackerDPL::clearRofViews() noexcept
@@ -395,7 +395,6 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
          loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed.value_or(false),
          outcome == TrackingOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
     mITSPublicationAdapter.reset();
-    mMFTPublicationAdapter.reset();
     mFrame.resetTimeFrame();
     invalidatePublication();
     return outcome;
@@ -407,7 +406,6 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     const auto result = mTracker->run(mFrame, *mTraits);
     if (result.outcome != TrackingOutcome::Success) {
       mITSPublicationAdapter.reset();
-      mMFTPublicationAdapter.reset();
       invalidatePublication();
       return result.outcome;
     }
@@ -416,14 +414,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
       mITSPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal ITS tracking compatibility"};
     }
-    if (!completePublication<o2::itsmft::tracking::MFTNLayers, o2::itsmft::tracking::SurfaceKind::Disk>(
-          mMFTPublicationAdapter, mFrame, *mTracker, result)) {
-      mMFTPublicationAdapter.reset();
-      throw std::runtime_error{"failed to seal MFT tracking compatibility"};
-    }
   } catch (...) {
     mITSPublicationAdapter.reset();
-    mMFTPublicationAdapter.reset();
     invalidatePublication();
     throw;
   }
@@ -527,7 +519,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
       mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
     o2::itsmft::tracking::GenericTrackOutputAdapterError mftError = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
     const auto stagedMFT = o2::itsmft::tracking::stageMFTGenericTrackOutput(
-      mFrame, mftContext, getMFTPublicationCompatibility(), mUseMC, mftError);
+      mFrame, mftContext, mUseMC, mftError);
     if (!stagedITS || !stagedMFT) {
       throw std::runtime_error{"Combined ITS+MFT GenericTrack output staging failed"};
     }
@@ -556,12 +548,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
       pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, stagedMFT->labels);
     }
     mITSPublicationAdapter.reset();
-    mMFTPublicationAdapter.reset();
     mFrame.resetTimeFrame();
     invalidatePublication();
   } catch (...) {
     mITSPublicationAdapter.reset();
-    mMFTPublicationAdapter.reset();
     mFrame.resetTimeFrame();
     invalidatePublication();
     throw;

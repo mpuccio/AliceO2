@@ -11,31 +11,28 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
-#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
 
 // The generic tracker publishes GenericTrack results. This adapter owns only
-// detector compatibility sidecars; typed accepted-track vectors stay outside.
+// detector compatibility sidecars.
 template <int NLayers>
 class DetectorPublicationAdapter
 {
  public:
-  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility*) noexcept {}
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility*) noexcept {}
   ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return nullptr; }
-  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
-  bool completeAccepted(gsl::span<const TrackingCandidate>,
+  bool completeAccepted(gsl::span<const uint32_t>,
                         const IterationParameters&,
                         const TimeFrame&,
                         bool) const noexcept
@@ -49,12 +46,10 @@ template <>
 class DetectorPublicationAdapter<ITSNLayers>
 {
  public:
-  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility*) noexcept {}
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility* sidecar) noexcept { mSidecar = sidecar; }
   ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return mSidecar; }
-  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
-  bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
+  bool completeAccepted(gsl::span<const uint32_t> trackIndices,
                         const IterationParameters& params,
                         const TimeFrame& frame,
                         bool final)
@@ -62,65 +57,104 @@ class DetectorPublicationAdapter<ITSNLayers>
     if (mSidecar == nullptr) {
       return true;
     }
-    if (!stageSharedClusterFlags(candidates, params, frame)) {
+    if (!stageSharedClusterFlags(trackIndices, params, frame)) {
       return false;
     }
-    return !final || mSidecar->replaceFromAcceptedResults(candidates, mSharedClusterFlags);
+    return !final || mSidecar->replaceFromAcceptedTrackIndices(mAcceptedTrackIndices, mSharedClusterFlags);
   }
 
   void reset() noexcept
   {
     mSharedClusterFlags.clear();
+    mAcceptedTrackIndices.clear();
     if (mSidecar != nullptr) {
       mSidecar->clear();
     }
   }
 
  private:
-  bool stageSharedClusterFlags(gsl::span<const TrackingCandidate> candidates,
+  struct SharedClusterTrackInfo {
+    int layer{-1};
+    uint32_t clusterId{std::numeric_limits<uint32_t>::max()};
+    int rof{-1};
+    float phi{0.f};
+    float eta{0.f};
+    int charge{0};
+  };
+
+  static std::optional<SharedClusterTrackInfo> makeSharedClusterTrackInfo(const GenericTrack& track,
+                                                                          const TimeFrame& frame)
+  {
+    const int layer = track.hitLayers.first();
+    const auto& references = frame.getTrackClusterIndices();
+    if (layer < 0 || !isValidTrackRange(track, static_cast<uint32_t>(references.size())) ||
+        track.firstClusterRef == track.clusterRefEnd ||
+        static_cast<std::size_t>(layer) >= frame.getLayout().getOrderedSurfaces().size()) {
+      return std::nullopt;
+    }
+    const auto& reference = references[track.firstClusterRef];
+    if (reference.layer != frame.getLayout().getOrderedSurfaces()[layer] || !reference.isValid()) {
+      return std::nullopt;
+    }
+    const auto& state = track.innerState;
+    if (!state.hasRecognizedKind() || !std::isfinite(state.parameters[3]) || !std::isfinite(state.parameters[4])) {
+      return std::nullopt;
+    }
+    const float phi = state.kind == SurfaceKind::Cylinder ? std::asin(state.parameters[2]) + state.alpha : state.parameters[2];
+    const float eta = std::asinh(state.parameters[3]);
+    if (!std::isfinite(phi) || !std::isfinite(eta)) {
+      return std::nullopt;
+    }
+    return SharedClusterTrackInfo{layer, reference.clusterId, frame.getClusterROF(layer, static_cast<int>(reference.clusterId)),
+                                  phi, eta, state.parameters[4] < 0.f ? -1 : 1};
+  }
+
+  bool stageSharedClusterFlags(gsl::span<const uint32_t> trackIndices,
                                const IterationParameters& params,
                                const TimeFrame& frame)
   {
-    uint32_t maxIndex = 0;
-    for (const auto& candidate : candidates) {
-      if (candidate.genericTrackIndex == std::numeric_limits<uint32_t>::max()) {
+    mAcceptedTrackIndices.reserve(mAcceptedTrackIndices.size() + trackIndices.size());
+    for (const auto index : trackIndices) {
+      if (index >= frame.getGenericTracks().size() ||
+          (!mAcceptedTrackIndices.empty() && mAcceptedTrackIndices.back() >= index)) {
         return false;
       }
-      maxIndex = std::max(maxIndex, candidate.genericTrackIndex);
+      mAcceptedTrackIndices.push_back(index);
     }
-    if (mSharedClusterFlags.size() <= maxIndex) {
-      mSharedClusterFlags.resize(static_cast<size_t>(maxIndex) + 1, 0);
+    if (!trackIndices.empty() && mSharedClusterFlags.size() <= trackIndices.back()) {
+      mSharedClusterFlags.resize(static_cast<std::size_t>(trackIndices.back()) + 1, 0);
     }
     if (!params.AllowSharingFirstCluster) {
       return true;
     }
-    for (size_t first = 0; first < candidates.size(); ++first) {
-      const auto& firstCandidate = candidates[first];
-      const int firstLayer = firstCandidate.getFirstClusterLayer();
-      if (firstLayer < 0) {
-        continue;
+    std::vector<SharedClusterTrackInfo> trackInfo;
+    trackInfo.reserve(trackIndices.size());
+    for (const auto index : trackIndices) {
+      const auto info = makeSharedClusterTrackInfo(frame.getGenericTracks()[index], frame);
+      if (!info) {
+        return false;
       }
-      const int firstCluster = firstCandidate.getClusterIndex(firstLayer);
-      for (size_t second = first + 1; second < candidates.size(); ++second) {
-        const auto& secondCandidate = candidates[second];
-        const int secondLayer = secondCandidate.getFirstClusterLayer();
-        if (secondLayer != firstLayer || secondCandidate.getClusterIndex(secondLayer) != firstCluster) {
+      trackInfo.push_back(*info);
+    }
+    for (size_t first = 0; first < trackInfo.size(); ++first) {
+      for (size_t second = first + 1; second < trackInfo.size(); ++second) {
+        if (trackInfo[second].layer != trackInfo[first].layer || trackInfo[second].clusterId != trackInfo[first].clusterId) {
           continue;
         }
-        if (frame.getClusterROF(firstLayer, firstCluster) != frame.getClusterROF(secondLayer, secondCandidate.getClusterIndex(secondLayer))) {
+        if (trackInfo[first].rof != trackInfo[second].rof) {
           continue;
         }
-        if (!o2::its::math_utils::isPhiDifferenceBelow(firstCandidate.phi, secondCandidate.phi, params.SharedClusterMaxDeltaPhi)) {
+        if (!o2::its::math_utils::isPhiDifferenceBelow(trackInfo[first].phi, trackInfo[second].phi, params.SharedClusterMaxDeltaPhi)) {
           continue;
         }
-        if (std::abs(firstCandidate.eta - secondCandidate.eta) > params.SharedClusterMaxDeltaEta) {
+        if (std::abs(trackInfo[first].eta - trackInfo[second].eta) > params.SharedClusterMaxDeltaEta) {
           continue;
         }
-        if (params.SharedClusterOppositeSign && firstCandidate.charge == secondCandidate.charge) {
+        if (params.SharedClusterOppositeSign && trackInfo[first].charge == trackInfo[second].charge) {
           continue;
         }
-        mSharedClusterFlags[firstCandidate.genericTrackIndex] = 1;
-        mSharedClusterFlags[secondCandidate.genericTrackIndex] = 1;
+        mSharedClusterFlags[trackIndices[first]] = 1;
+        mSharedClusterFlags[trackIndices[second]] = 1;
       }
     }
     return true;
@@ -128,39 +162,7 @@ class DetectorPublicationAdapter<ITSNLayers>
 
   ITSSharedClusterCompatibility* mSidecar = nullptr;
   std::vector<uint8_t> mSharedClusterFlags;
-};
-
-template <>
-class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
-{
- public:
-  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* sidecar) noexcept { mSidecar = sidecar; }
-  void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility*) noexcept {}
-  ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return nullptr; }
-  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return mSidecar; }
-
-  bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
-                        const IterationParameters&,
-                        const TimeFrame&,
-                        bool) const
-  {
-    if (mSidecar == nullptr) {
-      return true;
-    }
-    // Preserve initialized/default compatibility fields and the undefined
-    // invQPtSeed writer byte required by the legacy output contract.
-    return mSidecar->replaceFromAcceptedResults(candidates);
-  }
-
-  void reset() noexcept
-  {
-    if (mSidecar != nullptr) {
-      mSidecar->clear();
-    }
-  }
-
- private:
-  MFTPublicationCompatibility* mSidecar = nullptr;
+  std::vector<uint32_t> mAcceptedTrackIndices;
 };
 
 } // namespace o2::itsmft::tracking

@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTWorkspaceMatchesConfiguredTopologyAtRealParame
 
 // --- 6: MFT sidecar/publication export remain valid --------------------------
 
-BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
+BOOST_AUTO_TEST_CASE(MFTPublicationExportRemainsValidAfterMigration)
 {
   auto participants = makeSet();
   TimeFrame frame;
@@ -238,10 +238,6 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage);
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage);
 
-  // The MFT compatibility sidecar remains reachable and clearable at the
-  // detector publication boundary.
-  const auto& sidecarBefore = participants.getMFTPublicationCompatibility();
-  (void)sidecarBefore;
   participants.clearPublicationSidecars();
 
   // The publication clock/validity context is workflow-owned. Reproduce the

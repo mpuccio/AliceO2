@@ -16,7 +16,6 @@
 
 #include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -139,10 +138,6 @@ BOOST_AUTO_TEST_CASE(publication_sidecar_is_adapter_local_and_resettable)
   sidecar.clear();
   BOOST_CHECK(sidecar.entries().empty());
   BOOST_CHECK(!sidecar.isSealed());
-
-  MFTPublicationCompatibility mftSidecar;
-  mftSidecar.clear();
-  BOOST_CHECK(mftSidecar.entries().empty());
 }
 
 } // namespace

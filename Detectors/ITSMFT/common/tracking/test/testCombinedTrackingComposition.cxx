@@ -42,7 +42,6 @@
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -503,7 +502,6 @@ struct CombinedTrackingComposer {
   const TimeFrameScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
   const TimeFrameScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return plan.getITSSharedClusterCompatibility(); }
-  const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return plan.getMFTPublicationCompatibility(); }
   gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }
   gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return plan.getMFTOrderedSurfaces(); }
 };
@@ -758,14 +756,9 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_CHECK_EQUAL(seenMft, result.nMFTTracks > 0);
 
   const auto& itsCompatibility = composer.getITSSharedClusterCompatibility().entries();
-  const auto& mftCompatibility = composer.getMFTPublicationCompatibility().entries();
   BOOST_REQUIRE_EQUAL(itsCompatibility.size(), result.nITSTracks);
-  BOOST_REQUIRE_EQUAL(mftCompatibility.size(), result.nMFTTracks);
   for (size_t i = 0; i < itsCompatibility.size(); ++i) {
     BOOST_CHECK_EQUAL(itsCompatibility[i].genericTrackIndex, i);
-  }
-  for (size_t i = 0; i < mftCompatibility.size(); ++i) {
-    BOOST_CHECK_EQUAL(mftCompatibility[i].genericTrackIndex, result.nITSTracks + i);
   }
 
   // Publication exports are valid after success, source-qualified, and
@@ -1161,7 +1154,6 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   BOOST_REQUIRE(failed.outcome != TrackingOutcome::Success);
   BOOST_CHECK(!composer.getITSSharedClusterCompatibility().isSealed());
   BOOST_CHECK(composer.getITSSharedClusterCompatibility().entries().empty());
-  BOOST_CHECK(composer.getMFTPublicationCompatibility().find(0, 0) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
@@ -1269,7 +1261,6 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
   // never reached on this partially loaded event.
   BOOST_CHECK(!composer.getITSSharedClusterCompatibility().isSealed());
   BOOST_CHECK(composer.getITSSharedClusterCompatibility().entries().empty());
-  BOOST_CHECK(composer.getMFTPublicationCompatibility().find(0, 0) == nullptr);
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }

@@ -20,7 +20,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -108,7 +107,6 @@ class CombinedTrackingPlan
 
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
-    mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
     mTracker = std::make_unique<Tracker>(&detail::refitSurfaceSeed);
     mTraits = std::make_unique<TrackerTraits>();
   }
@@ -141,22 +139,24 @@ class CombinedTrackingPlan
     mLastResult = result;
     if (result.outcome == TrackingOutcome::Success) {
       const auto configurations = mTracker->getIterationConfigurations();
-      const auto& scratch = mFrame->getScratch();
+      std::size_t firstTrack = 0;
       for (std::size_t i = 0; i < configurations.size(); ++i) {
-        const auto& candidates = scratch.getIteration(i).acceptedTracks;
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
+        if (i >= result.acceptedTrackCounts.size() ||
+            result.acceptedTrackCounts[i] > mFrame->getGenericTracks().size() - firstTrack) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
-        std::vector<TrackingCandidate> selected;
+        std::vector<uint32_t> selected;
         for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
-          if (candidates[index].track.innerState.kind == SurfaceKind::Cylinder) {
-            selected.push_back(candidates[index]);
+          const auto globalIndex = firstTrack + index;
+          if (mFrame->getGenericTracks()[globalIndex].innerState.kind == SurfaceKind::Cylinder) {
+            selected.push_back(static_cast<uint32_t>(globalIndex));
           }
         }
         if (!mITSPublicationAdapter.completeAccepted(
               selected, configurations[i].parameters, *mFrame, i + 1 == configurations.size())) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
+        firstTrack += result.acceptedTrackCounts[i];
       }
     } else {
       mITSPublicationAdapter.reset();
@@ -169,28 +169,6 @@ class CombinedTrackingPlan
       runITS();
     }
     auto result = *mLastResult;
-    if (result.outcome == TrackingOutcome::Success) {
-      const auto configurations = mTracker->getIterationConfigurations();
-      const auto& scratch = mFrame->getScratch();
-      for (std::size_t i = 0; i < configurations.size(); ++i) {
-        const auto& candidates = scratch.getIteration(i).acceptedTracks;
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
-          throw std::runtime_error{"failed to seal MFT tracking compatibility"};
-        }
-        std::vector<TrackingCandidate> selected;
-        for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
-          if (candidates[index].track.innerState.kind == SurfaceKind::Disk) {
-            selected.push_back(candidates[index]);
-          }
-        }
-        if (!mMFTPublicationAdapter.completeAccepted(
-              selected, configurations[i].parameters, *mFrame, i + 1 == configurations.size())) {
-          throw std::runtime_error{"failed to seal MFT tracking compatibility"};
-        }
-      }
-    } else {
-      mMFTPublicationAdapter.reset();
-    }
     return result;
   }
   RuntimeROFViews getITSROFViews() const noexcept { return {mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()}; }
@@ -198,7 +176,6 @@ class CombinedTrackingPlan
   void clearPublicationSidecars() noexcept
   {
     mITSPublicationAdapter.reset();
-    mMFTPublicationAdapter.reset();
     mLastResult.reset();
   }
 
@@ -262,10 +239,6 @@ class CombinedTrackingPlan
   {
     return mITSCompatibility;
   }
-  const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept
-  {
-    return mMFTCompatibility;
-  }
   TraversalTopologyView getITSLayoutView() const noexcept
   {
     const auto* configuration = mTracker == nullptr ? nullptr : mTracker->getIterationConfiguration(0);
@@ -282,9 +255,7 @@ class CombinedTrackingPlan
   std::unique_ptr<TrackerTraits> mTraits;
   std::optional<TrackingResult> mLastResult;
   DetectorPublicationAdapter<ITSNLayers> mITSPublicationAdapter;
-  DetectorPublicationAdapter<MFTNLayers> mMFTPublicationAdapter;
   ITSSharedClusterCompatibility mITSCompatibility;
-  MFTPublicationCompatibility mMFTCompatibility;
   o2::its::ROFOverlapTable<ITSNLayers> mITSROFOverlapTable;
   o2::its::ROFVertexLookupTable<ITSNLayers> mITSROFVertexLookupTable;
   o2::its::ROFMaskTable<ITSNLayers> mITSMultiplicityMask;

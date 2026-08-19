@@ -98,6 +98,7 @@ BOOST_AUTO_TEST_CASE(MFTWriterSpecContract)
   BOOST_CHECK_EQUAL(spec.name, "mft-track-writer");
   BOOST_CHECK(hasInput(spec.inputs, "tracks"));
   BOOST_CHECK(hasInput(spec.inputs, "trackClIdx"));
+  BOOST_CHECK(!hasInput(spec.inputs, "trackSeedPat"));
   BOOST_CHECK(hasInput(spec.inputs, "ROframes"));
   BOOST_CHECK(!hasInput(spec.inputs, "labels"));
 }
@@ -125,4 +126,5 @@ BOOST_AUTO_TEST_CASE(MFTWriterSpecIsDeterministicAcrossCallersUseCATrue)
   const auto first = o2::mft::getTrackWriterSpec(true, true);
   const auto second = o2::mft::getTrackWriterSpec(true, true);
   BOOST_CHECK(sameShape(first, second));
+  BOOST_CHECK(hasInput(first.inputs, "trackSeedPat"));
 }

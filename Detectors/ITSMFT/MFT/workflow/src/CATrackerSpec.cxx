@@ -82,27 +82,6 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC,
   return false;
 }
 
-template <int NLayers>
-bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
-                         const TimeFrame& frame,
-                         const Tracker& tracker,
-                         ClusterSourceId source,
-                         const TrackingResult& result)
-{
-  const auto configurations = tracker.getIterationConfigurations();
-  const auto& scratch = frame.getScratch();
-  for (std::size_t iteration = 0; iteration < configurations.size(); ++iteration) {
-    const auto& candidates = scratch.getIteration(iteration).acceptedTracks;
-    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
-      return false;
-    }
-    const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
-    if (!publication.completeAccepted(iterationCandidates, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
-      return false;
-    }
-  }
-  return true;
-}
 } // namespace
 
 CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC,
@@ -110,7 +89,6 @@ CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool us
   : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTrackingMode(trMode)
 {
   mClusterDecoder = std::make_unique<o2::itsmft::tracking::MFTGeometryClusterDecoder>();
-  mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
 }
 
 void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs,
@@ -177,13 +155,11 @@ void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs
   mROFOverlapTable = std::move(overlap);
   mROFVertexLookupTable = std::move(vertex);
   mMultiplicityMask = std::move(mask);
-  mPublicationAdapter.reset();
   mFrame.setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 void CATrackerDPL::invalidatePublication() noexcept
 {
-  mPublicationAdapter.reset();
   mPublicationClock.reset();
   mExternalIndicesBySurface.clear();
   mClusterSizesBySurface.clear();
@@ -323,19 +299,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     throw;
   }
 
-  o2::itsmft::tracking::TrackingResult result;
-  try {
-    result = mTracker->run(mFrame, *mTrackerTraits);
-    if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
-      mPublicationAdapter.reset();
-    } else if (!completePublication(mPublicationAdapter, mFrame, *mTracker, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
-      mPublicationAdapter.reset();
-      throw std::runtime_error{"failed to seal MFT tracking compatibility"};
-    }
-  } catch (...) {
-    mPublicationAdapter.reset();
-    throw;
-  }
+  const auto result = mTracker->run(mFrame, *mTrackerTraits);
   if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
     LOGP(warn, "MFT CA tracking failed for this TF");
   } else {
@@ -346,7 +310,6 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
 
 void CATrackerDPL::resetTimeFrame() noexcept
 {
-  mPublicationAdapter.reset();
   mExternalIndicesBySurface.clear();
   mClusterSizesBySurface.clear();
   mFrame.resetTimeFrame();
@@ -424,7 +387,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
         gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout().getOrderedSurfaces()},
         &mExternalIndicesBySurface, &mClusterSizesBySurface};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
-      const auto staged = o2::itsmft::tracking::stageMFTGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
+      const auto staged = o2::itsmft::tracking::stageMFTGenericTrackOutput(mFrame, context, mUseMC, error);
       if (!staged) {
         throw std::runtime_error{"MFT GenericTrack output staging failed"};
       }

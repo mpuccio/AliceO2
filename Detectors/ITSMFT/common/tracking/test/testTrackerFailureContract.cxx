@@ -580,11 +580,6 @@ struct MftFailureRig {
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
     BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(frame.getTrackClusterIndices().empty());
-    for (std::size_t iteration = 0; iteration < frame.getScratch().getNMaterializedIterations(); ++iteration) {
-      const auto& iterationScratch = frame.getScratch().getIteration(iteration);
-      BOOST_CHECK(!iterationScratch.valid);
-      BOOST_CHECK(iterationScratch.acceptedTracks.empty());
-    }
   }
 
   void stageStaleState()

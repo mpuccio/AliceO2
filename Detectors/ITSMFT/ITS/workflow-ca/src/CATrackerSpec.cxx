@@ -17,6 +17,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -72,18 +73,20 @@ bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
                          const TrackingResult& result)
 {
   const auto configurations = tracker.getIterationConfigurations();
-  const auto& scratch = frame.getScratch();
+  std::size_t firstTrack = 0;
   for (std::size_t iteration = 0; iteration < configurations.size(); ++iteration) {
-    const auto& candidates = scratch.getIteration(iteration).acceptedTracks;
-    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
+    if (iteration >= result.acceptedTrackCounts.size() ||
+        result.acceptedTrackCounts[iteration] > frame.getGenericTracks().size() - firstTrack) {
       return false;
     }
-    const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
-    if (!publication.completeAccepted(iterationCandidates, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
+    std::vector<uint32_t> trackIndices(result.acceptedTrackCounts[iteration]);
+    std::iota(trackIndices.begin(), trackIndices.end(), static_cast<uint32_t>(firstTrack));
+    if (!publication.completeAccepted(trackIndices, configurations[iteration].parameters, frame, iteration + 1 == configurations.size())) {
       return false;
     }
+    firstTrack += result.acceptedTrackCounts[iteration];
   }
-  return true;
+  return firstTrack == frame.getGenericTracks().size();
 }
 
 } // namespace

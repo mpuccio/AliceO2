@@ -140,9 +140,7 @@ BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iterati
 
   auto& scratch = frame.getScratch();
   BOOST_CHECK_EQUAL(tracker.getIterationConfigurations().size(), 2u);
-  BOOST_CHECK(!scratch.getIteration(0).valid);
-  BOOST_CHECK(!scratch.getIteration(1).valid);
-  BOOST_CHECK_NE(&scratch.getIteration(0), &scratch.getIteration(1));
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK_NE(tracker.getIterationConfigurations()[0].topology.edges.size(),
                  tracker.getIterationConfigurations()[1].topology.edges.size());
 }

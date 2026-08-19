@@ -274,7 +274,7 @@ void prepareTraversalEdgeTolerances(
 }
 } // namespace
 
-void Tracker::initializeIterationScratch(IterationContext& context) const
+void Tracker::initializeIteration(IterationContext& context) const
 {
   const int iteration = context.iteration;
   if (iteration < 0 || static_cast<size_t>(iteration) >= mIterations.size()) {
@@ -284,7 +284,6 @@ void Tracker::initializeIterationScratch(IterationContext& context) const
   const auto& parameters = configuration.parameters;
   auto& frame = context.frame;
   auto& scratch = context.scratch;
-  context.iterationScratch.reset(scratch.getMemoryPool().get());
   const auto activeSurfaceCount = configuration.topology.orderedSurfaces.size();
 
   if (parameters.PassFlags[IterationStep::FirstPass]) {
@@ -371,7 +370,6 @@ void Tracker::initializeIterationScratch(IterationContext& context) const
   }
 
   prepareTraversalEdgeTolerances(context, iteration, edgeIds);
-  context.iterationScratch.valid = true;
 }
 
 std::vector<gsl::span<const GlobalMeasurement>> Tracker::prepareTimeFrame(TimeFrame& frame) const
@@ -542,14 +540,14 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
         frame.useUPCMask();
       }
 
-      auto& iterationScratch = scratch.getIteration(static_cast<std::size_t>(iteration));
+      const auto acceptedTrackBegin = frame.getGenericTracks().size();
       IterationContext context{iteration, frame, scratch,
                                configuration.getTopologyView(frame.getLayout().getSurfaceCatalog()),
                                configuration, mDetectorConfiguration, layerGlobalMeasurements,
-                               frame.getBz(), iterationScratch};
-      initializeIterationScratch(context);
+                               frame.getBz()};
+      initializeIteration(context);
       traits.runTraversal(context, mRefitFunction);
-      acceptedTrackCounts.push_back(iterationScratch.acceptedTracks.size());
+      acceptedTrackCounts.push_back(frame.getGenericTracks().size() - acceptedTrackBegin);
     }
   } catch (const TraversalException& err) {
     // Structural/configuration failures are not per-TF data failures, so

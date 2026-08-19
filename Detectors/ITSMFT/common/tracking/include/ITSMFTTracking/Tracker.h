@@ -109,7 +109,7 @@ class Tracker
  private:
   friend struct TrackerTestAccess;
   std::vector<gsl::span<const GlobalMeasurement>> prepareTimeFrame(TimeFrame& frame) const;
-  void initializeIterationScratch(IterationContext& context) const;
+  void initializeIteration(IterationContext& context) const;
   SeedRefitFunction mRefitFunction = nullptr;
   DetectorConfiguration mDetectorConfiguration;
   std::vector<IterationConfiguration> mIterations;

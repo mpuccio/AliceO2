@@ -191,7 +191,7 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
 BOOST_AUTO_TEST_CASE(EdgePreparationUsesOneGraphSchedule)
 {
   const auto source = readTrackerSource();
-  const auto code = stripLineComments(extractMethodBody(source, "initializeIterationScratch", "Tracker"));
+  const auto code = stripLineComments(extractMethodBody(source, "initializeIteration", "Tracker"));
   BOOST_CHECK(code.find("prepareTraversalEdgeTolerances") != std::string::npos);
   BOOST_CHECK(code.find("mLinksByKind") == std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind") == std::string::npos);

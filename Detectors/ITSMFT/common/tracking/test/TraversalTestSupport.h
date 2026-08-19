@@ -22,7 +22,6 @@ struct TrackerTestAccess {
       throw std::out_of_range{"test traversal iteration"};
     }
     auto& scratch = frame.getScratch();
-    auto& iterationScratch = scratch.getIteration(static_cast<std::size_t>(iteration));
     auto layerGlobalMeasurements = tracker.prepareTimeFrame(frame);
     IterationContext view{iteration,
                           frame,
@@ -31,9 +30,8 @@ struct TrackerTestAccess {
                           *configuration,
                           tracker.mDetectorConfiguration,
                           std::move(layerGlobalMeasurements),
-                          frame.getBz(),
-                          iterationScratch};
-    tracker.initializeIterationScratch(view);
+                          frame.getBz()};
+    tracker.initializeIteration(view);
     return view;
   }
 

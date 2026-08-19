@@ -99,9 +99,12 @@ BOOST_AUTO_TEST_CASE(publication_lifecycle_is_at_the_application_edge)
   const auto its = readFile(root.parent_path().parent_path() / "ITS/workflow-ca/src/CATrackerSpec.cxx");
   const auto mft = readFile(root.parent_path().parent_path() / "MFT/workflow/src/CATrackerSpec.cxx");
   const auto combined = readFile(root.parent_path().parent_path() / "common/workflow-combined-ca/src/CombinedCATrackerSpec.cxx");
-  for (const auto source : {its, mft, combined}) {
+  for (const auto source : {its, combined}) {
     BOOST_CHECK(source.find("completeAccepted") != std::string::npos);
     BOOST_CHECK(source.find("PublicationAdapter.reset") != std::string::npos);
   }
+  BOOST_CHECK(mft.find("completeAccepted") == std::string::npos);
+  BOOST_CHECK(mft.find("PublicationAdapter") == std::string::npos);
+  BOOST_CHECK(mft.find("stageMFTGenericTrackOutput") != std::string::npos);
 }
 } // namespace

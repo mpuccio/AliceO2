@@ -94,10 +94,6 @@ class CombinedCATrackerDPL : public o2::framework::Task
   {
     return mITSCompatibility;
   }
-  const o2::itsmft::tracking::MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept
-  {
-    return mMFTCompatibility;
-  }
   gsl::span<const o2::itsmft::tracking::LayerId> getITSOrderedSurfaces() const noexcept
   {
     if (mTracker == nullptr || !mTracker->isConfiguredFor(mFrame)) {
@@ -128,9 +124,7 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTraits;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;
-  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mMFTPublicationAdapter;
   o2::itsmft::tracking::ITSSharedClusterCompatibility mITSCompatibility;
-  o2::itsmft::tracking::MFTPublicationCompatibility mMFTCompatibility;
   o2::its::ROFOverlapTable<o2::itsmft::tracking::ITSNLayers> mITSROFOverlapTable;
   o2::its::ROFVertexLookupTable<o2::itsmft::tracking::ITSNLayers> mITSROFVertexLookupTable;
   o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mITSMultiplicityMask;

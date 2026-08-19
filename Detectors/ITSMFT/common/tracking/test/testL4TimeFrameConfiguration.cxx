@@ -81,8 +81,7 @@ BOOST_AUTO_TEST_CASE(ConfigurationIsInstalledOnce)
   BOOST_CHECK(frame.getLayout().getOrderedSurfaces()[0] == LayerId{2});
   BOOST_CHECK(tracker.getIterationConfigurations()[0].parameters.StartLayerMask.has(2));
   BOOST_CHECK(tracker.getIterationConfigurations()[1].parameters.StartLayerMask.has(0));
-  BOOST_CHECK(!frame.getScratch().getIteration(0).valid);
-  BOOST_CHECK(!frame.getScratch().getIteration(1).valid);
+  BOOST_CHECK(frame.getGenericTracks().empty());
   const auto* oldLayout = &frame.getLayout();
   const auto* scratch = &frame.getScratch();
   const auto* oldPool = frame.getMemoryPool().get();

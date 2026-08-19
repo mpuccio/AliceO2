@@ -65,14 +65,13 @@ struct IterationContext {
   const IterationConfiguration& configuration;
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurements;
   float bz{0.f};
-  IterationScratch& iterationScratch;
 
   IterationContext(int iterationValue, TimeFrame& frameValue, TimeFrameScratch& scratchValue,
                    TraversalTopologyView topologyValue, const IterationConfiguration& configurationValue,
                    const DetectorConfiguration& detectorConfigurationValue,
                    std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurementsValue,
-                   float bzValue, IterationScratch& iterationScratchValue)
-    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, detectorConfiguration{detectorConfigurationValue}, configuration{configurationValue}, layerGlobalMeasurements{std::move(layerGlobalMeasurementsValue)}, bz{bzValue}, iterationScratch{iterationScratchValue}
+                   float bzValue)
+    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, detectorConfiguration{detectorConfigurationValue}, configuration{configurationValue}, layerGlobalMeasurements{std::move(layerGlobalMeasurementsValue)}, bz{bzValue}
   {
   }
 };

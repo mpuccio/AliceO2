@@ -134,18 +134,14 @@ BOOST_AUTO_TEST_CASE(generic_candidate_kinematics_are_adapter_edge_only)
 
 BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
 {
-  TrackingCandidate first;
-  first.genericTrackIndex = 4;
-  TrackingCandidate second;
-  second.genericTrackIndex = 9;
-
-  std::vector<TrackingCandidate> results{first, second};
+  const std::array<uint32_t, 2> indices{4, 9};
   ITSSharedClusterCompatibility sidecar;
   DetectorPublicationAdapter<ITSNLayers> adapter;
   adapter.adoptITSSharedClusterCompatibility(&sidecar);
   o2::itsmft::TrackingParameters params;
   TimeFrame frame;
-  BOOST_REQUIRE(adapter.completeAccepted(results, params, frame, true));
+  frame.getGenericTracks().resize(10);
+  BOOST_REQUIRE(adapter.completeAccepted(indices, params, frame, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 2);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 4);
   BOOST_CHECK(!sidecar.entries()[0].hasSharedClusters);
@@ -153,30 +149,9 @@ BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
 
   std::vector<uint8_t> sharedFlags(10, 0);
   sharedFlags[4] = 1;
-  BOOST_REQUIRE(sidecar.replaceFromAcceptedResults(results, sharedFlags));
+  BOOST_REQUIRE(sidecar.replaceFromAcceptedTrackIndices(indices, sharedFlags));
   BOOST_CHECK(sidecar.entries()[0].hasSharedClusters);
   BOOST_CHECK(!sidecar.entries()[1].hasSharedClusters);
-}
-
-BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
-{
-  TrackingCandidate result;
-  result.genericTrackIndex = 7;
-  result.seed.state().parameters[4] = -0.25f;
-  result.seed.setHitLayerMask(LayerMask{0x02a5});
-
-  std::vector<TrackingCandidate> results{result};
-  MFTPublicationCompatibility sidecar;
-  DetectorPublicationAdapter<MFTNLayers> adapter;
-  adapter.adoptMFTPublicationCompatibility(&sidecar);
-  o2::itsmft::TrackingParameters params;
-  TimeFrame frame;
-  BOOST_REQUIRE(adapter.completeAccepted(results, params, frame, true));
-  BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 7);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].invQPtSeed, -0.25);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].chi2QPtSeed, 0.);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].seedPattern, 0x02a5);
 }
 
 BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)

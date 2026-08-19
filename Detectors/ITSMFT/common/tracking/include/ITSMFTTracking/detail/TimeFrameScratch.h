@@ -28,26 +28,12 @@
 #include <gsl/gsl>
 
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/TrackingPrimitives.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
 {
-
-// Frame-specific state retained for one tracking iteration. Immutable graph
-// and kernel instructions belong to Tracker::IterationConfiguration.
-struct IterationScratch {
-  o2::its::bounded_vector<TrackingCandidate> acceptedTracks;
-  bool valid{false};
-
-  void reset(std::pmr::memory_resource* resource) noexcept
-  {
-    o2::its::deepVectorClear(acceptedTracks, resource);
-    valid = false;
-  }
-};
 
 /// Detector-neutral CA state rebuilt for each tracking iteration. Operations
 /// receive scalar sizes and spans; this type never depends on TimeFrame.
@@ -69,16 +55,6 @@ class TimeFrameScratch
   void configureStorage(std::size_t nEdges, std::size_t nCells);
   void beginIteration(std::size_t nEdges, std::size_t nCells,
                       gsl::span<const std::size_t> trackletLookupSizes);
-  IterationScratch& getIteration(std::size_t iteration)
-  {
-    if (iteration >= mIterations.size()) {
-      mIterations.resize(iteration + 1);
-    }
-    return mIterations[iteration];
-  }
-  const IterationScratch& getIteration(std::size_t iteration) const { return mIterations.at(iteration); }
-  std::size_t getNMaterializedIterations() const noexcept { return mIterations.size(); }
-
   std::size_t getNEdges() const noexcept { return mNEdges; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
@@ -124,7 +100,6 @@ class TimeFrameScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursTopology;
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
-  std::vector<IterationScratch> mIterations;
 
  private:
   std::size_t mNEdges{0};

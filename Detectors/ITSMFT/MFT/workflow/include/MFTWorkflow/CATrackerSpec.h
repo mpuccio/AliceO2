@@ -27,7 +27,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
@@ -100,8 +99,6 @@ class CATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mClusterDecoder;
   const o2::itsmft::TopologyDictionary* mDictionary = nullptr;
-  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mPublicationAdapter;
-  o2::itsmft::tracking::MFTPublicationCompatibility mCompatibility;
   o2::its::ROFOverlapTable<o2::itsmft::tracking::MFTNLayers> mROFOverlapTable;
   o2::its::ROFVertexLookupTable<o2::itsmft::tracking::MFTNLayers> mROFVertexLookupTable;
   o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMultiplicityMask;

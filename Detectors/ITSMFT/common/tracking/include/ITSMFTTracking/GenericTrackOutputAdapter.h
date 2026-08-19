@@ -22,7 +22,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MCLabelAccumulator.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -388,7 +387,6 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
                                                                        gsl::span<const LayerId> surfaces,
                                                                        const GenericTrackOutputTimingContext& context,
-                                                                       const MFTPublicationCompatibility& compatibility,
                                                                        bool withMC, GenericTrackOutputAdapterError& error,
                                                                        const std::vector<std::vector<uint32_t>>* externalIndicesBySurface = nullptr,
                                                                        const std::vector<std::vector<uint32_t>>* clusterSizesBySurface = nullptr)
@@ -409,32 +407,28 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
   for (const auto& orderedTrack : *ordered) {
     const auto index = orderedTrack.globalIndex;
     const auto& common = frame.getGenericTracks()[index];
-    const auto* sidecar = compatibility.find(index, frame.getGenericTracks().size());
-    if (sidecar == nullptr) {
-      error = GenericTrackOutputAdapterError::MissingCompatibility;
-      return std::nullopt;
-    }
     o2::track::TrackParCovFwd inner, outer;
     if (!legacy::exportLegacyForwardTrackParCov(common.innerState, inner) || !legacy::exportLegacyForwardTrackParCov(common.outerState, outer)) {
       error = GenericTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    // TrackMFT persists the fitted chi2 in both state objects.
-    outer.setTrackChi2(sidecar->outParamChi2);
+    // Preserve the legacy TrackMFT object shape without claiming a seed-pT
+    // estimate from this tracker. TrackMFT does not initialize mInvQPtSeed.
+    outer.setTrackChi2(0.f);
     o2::mft::TrackMFT output;
     static_cast<o2::track::TrackParCovFwd&>(output) = inner;
     output.setOutParam(outer);
     output.setTrackChi2(common.chi2);
     output.setCA(true);
-    output.setInvQPtSeed(sidecar->invQPtSeed);
-    output.setChi2QPtSeed(sidecar->chi2QPtSeed);
+    output.setInvQPtSeed(0.);
+    output.setChi2QPtSeed(0.);
     MCLabelAccumulator accumulator;
-    uint32_t ignoredPattern = 0;
-    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, ignoredPattern, error,
+    uint32_t pattern = 0;
+    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error,
                            externalIndicesBySurface, clusterSizesBySurface))
       return std::nullopt;
     staged.tracks.push_back(std::move(output));
-    staged.seedPatterns.push_back(sidecar->seedPattern);
+    staged.seedPatterns.push_back(static_cast<uint16_t>(pattern));
     times.push_back(orderedTrack.timestamp);
     if (withMC)
       staged.labels.push_back(accumulator.finalize());
@@ -457,14 +451,13 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
 }
 
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
-                                                                       const MFTPublicationCompatibility& compatibility, bool withMC,
-                                                                       GenericTrackOutputAdapterError& error)
+                                                                       bool withMC, GenericTrackOutputAdapterError& error)
 {
   if (context.detector != o2::detectors::DetID::MFT) {
     error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error,
+  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, withMC, error,
                                     context.externalIndicesBySurface, context.clusterSizesBySurface);
 }
 

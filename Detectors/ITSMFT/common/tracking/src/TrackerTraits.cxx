@@ -68,10 +68,10 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
   return kind == SurfaceKind::Cylinder ? 0u : 1u;
 }
 
-std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
-                                           const TrackingCandidate& candidate,
-                                           gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
-                                           gsl::span<const LayerId> orderedSurfaces)
+bool appendGenericTrack(TimeFrame& frame,
+                        const TrackingCandidate& candidate,
+                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
+                        gsl::span<const LayerId> orderedSurfaces)
 {
   GenericTrack track = candidate.track;
   track.hitLayers = {};
@@ -83,22 +83,22 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
       continue;
     }
     if (localIndex < 0 || static_cast<std::size_t>(localIndex) >= layerMeasurements[position].size()) {
-      return std::nullopt;
+      return false;
     }
     if (position >= orderedSurfaces.size()) {
-      return std::nullopt;
+      return false;
     }
     const auto& measurement = layerMeasurements[position][localIndex];
     const TrackClusterReference reference{orderedSurfaces[position], 0, measurement.clusterId};
     if (!reference.isValid()) {
-      return std::nullopt;
+      return false;
     }
     resolvedReferences.push_back(reference);
     track.hitLayers.set(static_cast<int>(position));
   }
   if (!track.innerState.hasRecognizedKind() || !track.outerState.hasRecognizedKind() ||
       !track.timestamp.isValid() || resolvedReferences.empty()) {
-    return std::nullopt;
+    return false;
   }
 
   auto& tracks = frame.getGenericTracks();
@@ -107,7 +107,7 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
   const auto oldReferenceSize = references.size();
   if (oldTrackSize > std::numeric_limits<uint32_t>::max() || oldReferenceSize > std::numeric_limits<uint32_t>::max() ||
       resolvedReferences.size() > std::numeric_limits<uint32_t>::max() - oldReferenceSize) {
-    return std::nullopt;
+    return false;
   }
 
   try {
@@ -124,7 +124,7 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
     tracks.resize(oldTrackSize);
     throw;
   }
-  return static_cast<uint32_t>(oldTrackSize);
+  return true;
 }
 
 // A static diamond vertex represents all primary vertices and has no event
@@ -146,9 +146,6 @@ void TrackerTraits::runTraversal(IterationContext view, SeedRefitFunction refitF
 {
   if (view.iteration < 0) {
     throw TraversalException{view.iteration, TraversalFailureReason::IterationOutOfRange};
-  }
-  if (!view.iterationScratch.valid) {
-    throw TraversalException{view.iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   int maxNvertices{-1};
   if (view.configuration.parameters.PerPrimaryVertexProcessing) {
@@ -196,16 +193,11 @@ int requireSurfacePosition(const IterationContext& context, int iteration, Layer
 void TrackerTraits::computeLayerTracklets(IterationContext& context, const int iteration, int iVertex)
 {
   auto& scratch = context.scratch;
-  auto& iterationScratch = context.iterationScratch;
   const auto scratchEdgeCount = scratch.getTracklets().size();
   for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
     scratch.getTracklets()[edgeId].clear();
     scratch.getTrackletsLabel(edgeId).clear();
     std::fill(scratch.getTrackletsLookupTable()[edgeId].begin(), scratch.getTrackletsLookupTable()[edgeId].end(), 0);
-  }
-
-  if (!iterationScratch.valid) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
   computeLayerTrackletsImpl(context, iteration, iVertex, context.configuration.edges);
@@ -476,7 +468,6 @@ void TrackerTraits::computeLayerTrackletsImpl(
 void TrackerTraits::computeLayerCells(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto& iterationScratch = context.iterationScratch;
   const auto scratchCellCount = scratch.getCells().size();
   if (scratch.getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
@@ -489,9 +480,6 @@ void TrackerTraits::computeLayerCells(IterationContext& context, const int itera
     }
   }
 
-  if (!iterationScratch.valid) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
-  }
   if (!bindAttachHitConfig(context.detectorConfiguration.layerMaterial, context.configuration.parameters)
          .isValid(static_cast<int>(context.configuration.topology.orderedSurfaces.size()))) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
@@ -707,10 +695,6 @@ void TrackerTraits::computeLayerCellsImpl(
 void TrackerTraits::findCellsNeighbours(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto& iterationScratch = context.iterationScratch;
-  if (!iterationScratch.valid) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
-  }
   for (std::size_t slot = 0; slot < scratch.getCellsNeighbours().size(); ++slot) {
     deepVectorClear(scratch.getCellsNeighbours()[slot]);
     deepVectorClear(scratch.getCellsNeighboursTopology()[slot]);
@@ -1036,9 +1020,6 @@ void TrackerTraits::processNeighbours(IterationContext& context, int iteration, 
 
 void TrackerTraits::findRoads(IterationContext& context, const int iteration, SeedRefitFunction refitFunction)
 {
-  if (!context.iterationScratch.valid) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
-  }
   if (context.scratch.getCells().size() != context.configuration.cells.size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
@@ -1204,10 +1185,7 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
   auto* mScratch = &context.scratch;
   auto* mFrame = &context.frame;
   const auto& trkParam = context.configuration.parameters;
-  auto& mAcceptedTracksForSharedStatus = context.iterationScratch.acceptedTracks;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  auto& trks = mAcceptedTracksForSharedStatus;
-  trks.reserve(trks.size() + tracks.size());
   const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
   const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
   for (auto& track : tracks) {
@@ -1271,15 +1249,9 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
     const float selectedTimestampError = std::min(selectedTimestampSymmetric.getTimeStampError(), smallestROFHalf);
     track.track.timestamp = {static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() - selectedTimestampError),
                              static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() + selectedTimestampError)};
-    trks.emplace_back(track);
-
-    // acceptTracks() is the serial owner-thread publication boundary. Typed
-    // sidecars are completed later by the application adapter.
-    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, orderedSurfaces);
-    if (!genericTrackIndex) {
+    if (!appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, orderedSurfaces)) {
       LOGP(fatal, "GenericTrack publication failed for an accepted CA track");
     }
-    trks.back().genericTrackIndex = *genericTrackIndex;
 
     if (trkParam.AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);

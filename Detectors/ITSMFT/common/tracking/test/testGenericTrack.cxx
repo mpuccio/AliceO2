@@ -52,7 +52,6 @@
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/GenericTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -644,39 +643,6 @@ BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsGenericTrackAndTrackClusterIndices)
   BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }
 
-BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
-{
-  TimeFrameFixture fixture;
-  BOOST_REQUIRE(fixture.load().ok());
-  const auto record = makeTestGenericTrack();
-  MFTPublicationCompatibility sidecar;
-
-  MFTPublicationCompatibilityTransaction firstTx{sidecar, 1.25, 3.5, 0x25u};
-  const auto first = storeTestGenericTrack(fixture.tf, record);
-  BOOST_REQUIRE(firstTx.validate(first));
-  firstTx.reserve();
-  firstTx.append(first);
-  BOOST_CHECK_EQUAL(first, 0u);
-  BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1u);
-  BOOST_CHECK_EQUAL(sidecar.entries().front().genericTrackIndex, first);
-  BOOST_CHECK_EQUAL(sidecar.entries().front().invQPtSeed, 1.25);
-  BOOST_CHECK_EQUAL(sidecar.entries().front().chi2QPtSeed, 3.5);
-  BOOST_CHECK_EQUAL(sidecar.entries().front().seedPattern, 0x25u);
-  BOOST_CHECK(sidecar.find(first, fixture.tf.getGenericTracks().size()) != nullptr);
-  BOOST_CHECK(sidecar.find(1u, fixture.tf.getGenericTracks().size()) == nullptr);  // missing key
-  BOOST_CHECK(sidecar.find(99u, fixture.tf.getGenericTracks().size()) == nullptr); // out of range
-
-  MFTPublicationCompatibilityTransaction duplicate{sidecar, 2., 4., 0x12u};
-  BOOST_CHECK(!duplicate.validate(0u));
-
-  // Scratch-only reset has no authority over the shared TimeFrame or this
-  // MFT bridge-owned sidecar; a future combined owner decides detector-local
-  // GenericTrack removal/marking separately.
-  fixture.tf.getScratch().reset();
-  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
-  BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
-}
-
 BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociations)
 {
   struct MarkedTrack {
@@ -983,7 +949,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), oldReferences);
 }
 
-BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTCompatibilityWithoutSeedPt)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
@@ -1007,12 +973,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   record.track.timestamp = {100, 124};
   record.track.hitLayers.set(3);
   record.references.push_back({LayerId{3}, 0, 0});
-  MFTPublicationCompatibility sidecar;
-  MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
-  const auto genericTrackIndex = storeTestGenericTrack(frame, record);
-  BOOST_REQUIRE(tx.validate(genericTrackIndex));
-  tx.reserve();
-  tx.append(genericTrackIndex);
+  storeTestGenericTrack(frame, record);
   const auto& measurement = frame.getGlobalMeasurements(LayerId{3})[0];
   const auto source = ClusterSourceId{1};
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
@@ -1023,7 +984,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   clock.mROFDelay = 100;
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const std::array<LayerId, 1> surfaces{LayerId{3}};
-  const auto output = stageMFTGenericTrackOutput(frame, source, surfaces, timing, sidecar, true, error,
+  const auto output = stageMFTGenericTrackOutput(frame, source, surfaces, timing, true, error,
                                                  &externalIndicesBySurface, &clusterSizesBySurface);
   BOOST_REQUIRE(output);
   BOOST_REQUIRE_EQUAL(output->tracks.size(), 1u);
@@ -1032,10 +993,10 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(output->tracks[0].getCovariances()(4, 3), record.track.innerState.covariance[packedCovarianceIndex(4, 3)]);
   BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getCovariances()(4, 3), record.track.outerState.covariance[packedCovarianceIndex(4, 3)]);
   BOOST_CHECK_EQUAL(output->tracks[0].getTrackChi2(), 8.);
-  BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getTrackChi2(), 8.);
-  BOOST_CHECK_EQUAL(output->tracks[0].getInvQPtSeed(), .25);
-  BOOST_CHECK_EQUAL(output->tracks[0].getChi2QPtSeed(), 1.5);
-  BOOST_CHECK_EQUAL(output->seedPatterns[0], 0x51u);
+  BOOST_CHECK_EQUAL(output->tracks[0].getInvQPtSeed(), 0.);
+  BOOST_CHECK_EQUAL(output->tracks[0].getChi2QPtSeed(), 0.);
+  BOOST_REQUIRE_EQUAL(output->seedPatterns.size(), 1u);
+  BOOST_CHECK_EQUAL(output->seedPatterns[0], 0x1u);
   BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.clusterId));
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
@@ -1044,20 +1005,16 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   const GenericTrackPublicationContext publicationContext{
     o2::detectors::DetID::MFT, source, rofs, ClockTimingPublicationView{clock}, surfaces,
     &externalIndicesBySurface, &clusterSizesBySurface};
-  const auto contextOutput = stageMFTGenericTrackOutput(frame, publicationContext, sidecar, true, error);
+  const auto contextOutput = stageMFTGenericTrackOutput(frame, publicationContext, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
-  BOOST_REQUIRE_EQUAL(contextOutput->seedPatterns.size(), output->seedPatterns.size());
-  BOOST_CHECK_EQUAL(contextOutput->seedPatterns[0], output->seedPatterns[0]);
+  BOOST_CHECK_EQUAL_COLLECTIONS(contextOutput->seedPatterns.begin(), contextOutput->seedPatterns.end(),
+                                output->seedPatterns.begin(), output->seedPatterns.end());
 
   auto wrongDetectorContext = publicationContext;
   wrongDetectorContext.detector = o2::detectors::DetID::ITS;
-  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, wrongDetectorContext, sidecar, false, error));
+  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, wrongDetectorContext, false, error));
   BOOST_CHECK(error == GenericTrackOutputAdapterError::MixedDetector);
-
-  MFTPublicationCompatibility missing;
-  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, source, surfaces, timing, missing, false, error));
-  BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingCompatibility);
   BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTrackClusterIndices().size(), 1u);
 }
@@ -1109,21 +1066,4 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutat
   const std::array<Marked, 0> none{};
   BOOST_CHECK(!sealed.sealFromMarkedTracks(none)); // pending cardinality mismatch fails closed
   BOOST_CHECK(!sealed.isSealed());
-}
-
-BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityRejectsDuplicateNonMonotonicAndOutOfRangeKeys)
-{
-  MFTPublicationCompatibility sidecar;
-  MFTPublicationCompatibilityTransaction first{sidecar, 1., 2., 3};
-  BOOST_REQUIRE(first.validate(4));
-  first.reserve();
-  first.append(4);
-  MFTPublicationCompatibilityTransaction duplicate{sidecar, 4., 5., 6};
-  BOOST_CHECK(!duplicate.validate(4));
-  MFTPublicationCompatibilityTransaction nonMonotonic{sidecar, 4., 5., 6};
-  BOOST_CHECK(!nonMonotonic.validate(3));
-  BOOST_CHECK(sidecar.find(4, 4) == nullptr); // key is outside the supplied GenericTrack owner range
-  BOOST_CHECK(sidecar.find(5, 10) == nullptr);
-  BOOST_REQUIRE(sidecar.find(4, 5));
-  BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
 }
