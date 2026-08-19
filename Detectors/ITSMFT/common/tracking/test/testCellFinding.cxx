@@ -81,7 +81,7 @@ bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
                            const TrackingKernelParameters& params,
                            OperationFailureReason& reason)
 {
-  return buildCellSeed(SurfaceKind::Cylinder, measurementInner, measurementMiddle,
+  return buildCellSeed(SurfaceKind::Cylinder, globalInner, globalMiddle, measurementInner, measurementMiddle,
                        measurementOuter, material, bz, absCharge, pid, outState, chi2, params, reason);
 }
 
@@ -94,7 +94,9 @@ bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
                        const TrackingKernelParameters& params,
                        OperationFailureReason& reason)
 {
-  return buildCellSeed(SurfaceKind::Disk, measurementInner, measurementMiddle, measurementOuter,
+  const GlobalMeasurement unusedGlobal{};
+  return buildCellSeed(SurfaceKind::Disk, unusedGlobal, unusedGlobal,
+                       measurementInner, measurementMiddle, measurementOuter,
                        material, bz, absCharge, pid, outState, chi2, params, reason);
 }
 
@@ -185,8 +187,23 @@ GlobalMeasurement barrelGlobalMeasurement(const o2::its::Cluster& cluster)
   return measurement;
 }
 
-GlobalMeasurement barrelGlobalInner() { return barrelGlobalMeasurement(barrelClusterInner()); }
-GlobalMeasurement barrelGlobalMiddle() { return barrelGlobalMeasurement(barrelClusterMiddle()); }
+GlobalMeasurement barrelGlobalInner()
+{
+  auto measurement = barrelGlobalMeasurement(barrelClusterInner());
+  // Model a sensor-frame translation that cannot be recovered from q, u,
+  // and frameAngle alone.
+  measurement.position.x += 0.002f;
+  measurement.radius = std::hypot(measurement.position.x, measurement.position.y);
+  return measurement;
+}
+
+GlobalMeasurement barrelGlobalMiddle()
+{
+  auto measurement = barrelGlobalMeasurement(barrelClusterMiddle());
+  measurement.position.x += 0.002f;
+  measurement.radius = std::hypot(measurement.position.x, measurement.position.y);
+  return measurement;
+}
 
 // Independent re-transcription of native buildCylinderCellSeed's
 // own documented call sequence, built directly on the public detail::barrel::

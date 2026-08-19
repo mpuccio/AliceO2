@@ -615,7 +615,8 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Cylinder, *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
+    SurfaceKind::Cylinder, oracleGlobalInner, oracleGlobalMiddle,
+    *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -715,7 +716,8 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Disk, *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
+    SurfaceKind::Disk, oracleGlobalInner, oracleGlobalMiddle,
+    *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
