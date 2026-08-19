@@ -1,6 +1,6 @@
 # Shared ITS/MFT Cellular Automaton Tracking Architecture
 
-Status: Draft RFC; current topology terminology follows `SurfaceLayout` and pass-local `TraversalTopology`
+Status: Draft RFC; current topology terminology follows immutable `DetectorLayout` and pass-local `TraversalTopology`
 Owners: ITSMFT tracking maintainers  
 Scope: CPU tracking first, with GPU-compatible data views retained  
 
@@ -129,13 +129,17 @@ Geometry constants should be populated by ITS and MFT layout builders. Tracking 
 
 ### 6.3 Detector layout
 
-`DetectorLayout` owns surfaces and allowed transitions. It is immutable while a TimeFrame is processed.
+`DetectorLayout` owns the dense ordered tracking layers, component boundaries,
+and static hole-layer policy. `LayerId` is exactly a layer's position in this
+container. The layout is immutable while a `TimeFrame` is processed; it owns
+no pass-local edges, paths, adjacency, or schedules.
 
 ```cpp
 class DetectorLayout {
  public:
-  gsl::span<const SurfaceDescriptor> surfaces() const;
-  gsl::span<const TransitionDescriptor> transitions() const;
+  gsl::span<const SurfaceDescriptor> getLayers() const;
+  gsl::span<const uint16_t> getComponentOffsets() const;
+  LayerMask getHoleLayers() const;
 };
 ```
 
@@ -144,9 +148,12 @@ The layout must support:
 - ITS-only cylindrical layouts.
 - MFT-only disk layouts.
 - A combined layout with disconnected ITS and MFT subgraphs.
-- Future layouts containing explicitly enabled cylinder-disk transitions.
+- Future layouts whose pass-local topology contains cylinder-disk edges.
 
-Numeric surface order is not sufficient to define reachability. Algorithms must use the transition graph.
+`Tracker` combines the immutable layout with one iteration's configuration to
+derive its `TraversalTopology`: active layers, edges, `CellPath`s, adjacency,
+and road schedules. Algorithms use that topology for reachability rather than
+inferring it from adjacent numeric layer IDs.
 
 ### 6.4 Surface mask
 

@@ -488,9 +488,10 @@ has no CUDA/HIP/device tools.
 
 `SurfacePlanBinding` has been deleted. `Tracker` now derives each pass's
 active surfaces, selected edges/cells, compact slots, and road schedules into
-`TraversalWorkspace`. Immutable `SurfaceLayout` provides ordered surfaces,
-component boundaries, and static hole/seed policy; `Tracker` derives pass-local
-edges, cell paths, compact slots, and road schedules into the workspace. The
+`TraversalWorkspace`. Immutable `DetectorLayout` provides the dense ordered
+layers, component boundaries, and static hole policy; `LayerId` is exactly the
+position in that layout. `Tracker` derives pass-local edges, cell paths,
+compact slots, and road schedules into the workspace. The
 focused migration records are [workspace-owned traversal plan](validation/workspace-owned-traversal-plan.md)
 and [Phase 2d topology deletion](design/0023-phase2d-topology-deletion-validation.md).
 
