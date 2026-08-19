@@ -323,9 +323,11 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityAuthoritiesRemainExplicit)
   const auto configuration = readFile(root / "include/ITSMFTTracking/IterationConfiguration.h");
   const auto tracker = readFile(root / "src/Tracker.cxx");
   const auto seed = readFile(root / "include/ITSMFTTracking/Cell.h");
-  BOOST_CHECK(traits.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(traits.find("context.configuration.topology.nLayers") != std::string::npos);
+  BOOST_CHECK(traits.find("orderedSurfaces") == std::string::npos);
   BOOST_CHECK(scratch.find("getNOwnedSurfaces()") == std::string::npos);
-  BOOST_CHECK(configuration.find("getSurfaceSlot") != std::string::npos);
+  BOOST_CHECK(configuration.find("getSurfaceSlot") == std::string::npos);
+  BOOST_CHECK(configuration.find("hasLayer") != std::string::npos);
   BOOST_CHECK(configuration.find("std::vector<EdgeId> edges") != std::string::npos);
   BOOST_CHECK(tracker.find("deriveTraversalTopology") != std::string::npos);
   BOOST_CHECK(seed.find("MaxLayoutSurfaces") != std::string::npos);

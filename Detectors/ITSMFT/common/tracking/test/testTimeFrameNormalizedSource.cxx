@@ -65,7 +65,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -81,10 +81,10 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
-SurfaceLayout catalogGraph(SurfaceCatalogView catalog, gsl::span<const LayerId> ordered)
+DetectorLayout catalogGraph(SurfaceCatalogView catalog, gsl::span<const LayerId> ordered)
 {
-  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
-                       makeSurfaceLayoutChain(ordered)};
+  return DetectorLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                        makeDetectorLayout()};
 }
 
 // Deterministic, geometry-free stand-in for GeometryClusterDecoder<DetId>:
@@ -170,7 +170,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   return surfaces;
 }
@@ -181,7 +181,7 @@ std::vector<SurfaceDescriptor> makeMFTTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(MFTNLayers);
   for (uint16_t i = 0; i < MFTNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
   }
   return surfaces;
 }
@@ -257,11 +257,10 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   auto mft = makeFixture(o2::detectors::DetID::MFT, true);
   std::vector<SurfaceDescriptor> catalog;
   for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
-    catalog.push_back({LayerId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    catalog.push_back({layer, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
-    catalog.push_back({LayerId{static_cast<uint16_t>(ITSNLayers + layer)}, layer,
-                       static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+    catalog.push_back({layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
   }
   const std::array<LayerId, ITSNLayers> itsSurfaces{LayerId{0}, LayerId{1}, LayerId{2}, LayerId{3}, LayerId{4}, LayerId{5}, LayerId{6}};
   std::array<LayerId, MFTNLayers> mftSurfaces{};
@@ -336,7 +335,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
   const auto result = loadTimeFrameSource(frame, decoder, origin, timing,
                                           f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog(), true,
+                                          gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog(), true,
                                           &externalIndicesBySurface, &clusterSizesBySurface);
   BOOST_REQUIRE(result.ok());
 
@@ -428,7 +427,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
     const auto result = loadTimeFrameSource(frame, decoder, {0, 0},
                                             ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS,
                                             gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
@@ -443,7 +442,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, identitySurfaces(MFTNLayers));
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
     const auto result = loadTimeFrameSource(frame, decoder, {0, 0},
                                             ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT,
                                             gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
@@ -463,7 +462,7 @@ BOOST_AUTO_TEST_CASE(ConfiguredCatalogLoadingSucceeds)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -472,7 +471,7 @@ BOOST_AUTO_TEST_CASE(ConfiguredCatalogLoadingSucceeds)
 
   const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                           clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog());
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
@@ -529,7 +528,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -538,7 +537,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 
   const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                           clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
@@ -591,13 +590,13 @@ BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
   // Ordered surfaces shorter than NLayers: the catalog itself is still a
   // valid, self-consistent 7-surface ITS catalog, but only the first 6 are
   // designated as the per-layer mapping.
-  const std::vector<LayerId> shortOrderedSurfaces{LayerId{0}, LayerId{1}, LayerId{2}, LayerId{3}, LayerId{4}, LayerId{5}};
+  const std::vector<LayerId> shortLayerMapping{LayerId{0}, LayerId{1}, LayerId{2}, LayerId{3}, LayerId{4}, LayerId{5}};
   const auto catalog = makeITSTestCatalog();
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
 
   TimeFrame frame;
 
-  const auto plan = catalogGraph(catalogView, shortOrderedSurfaces);
+  const auto plan = catalogGraph(catalogView, shortLayerMapping);
   // The scratch is intentionally configured for the canonical seven-surface
   // ITS plan; the six-surface mapping below must therefore be rejected.
   configureFrame(frame, catalogView, identitySurfaces(ITSNLayers));
@@ -609,7 +608,7 @@ BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
 
   const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                           clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{shortLayerMapping}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 }
@@ -624,7 +623,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -644,7 +643,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -668,7 +667,7 @@ BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -696,7 +695,6 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
   auto mftHead = makeMFTTestCatalog(); // occupies global LayerIds [0, MFTNLayers)
   auto itsTail = makeITSTestCatalog();
   for (uint16_t i = 0; i < itsTail.size(); ++i) {
-    itsTail[i].id = LayerId{static_cast<uint16_t>(MFTNLayers + i)};
   }
   std::vector<SurfaceDescriptor> combinedCatalog{mftHead};
   combinedCatalog.insert(combinedCatalog.end(), itsTail.begin(), itsTail.end());
@@ -711,7 +709,7 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -720,7 +718,7 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
 
   const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                           clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
 }
@@ -736,8 +734,9 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadClearsTheTimeFrame)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
-  const gsl::span<const LayerId> planOrderedSurfaces{plan.getOrderedSurfaces()};
+  const auto planLayerMapping = identitySurfaces(static_cast<uint16_t>(plan.size()));
+  configureFrame(frame, catalogView, planLayerMapping);
+  const gsl::span<const LayerId> planMapping{planLayerMapping};
 
   // First, a valid baseline load to give the TimeFrame real content in both
   // the normalized owner and the legacy compatibility structures.
@@ -747,7 +746,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadClearsTheTimeFrame)
 
   const auto baseline = loadTimeFrameSource(frame, decoder, {0, 0},
                                             timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            planOrderedSurfaces, plan.getSurfaceCatalog());
+                                            planMapping, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
@@ -761,7 +760,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadClearsTheTimeFrame)
 
   const auto failed = loadTimeFrameSource(frame, decoder, {0, 0},
                                           timing, badClusters, badPatterns, badRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                          planOrderedSurfaces, plan.getSurfaceCatalog());
+                                          planMapping, plan.getSurfaceCatalog());
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
 
@@ -783,14 +782,14 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadClearsState)
   TimeFrame frame;
 
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
 
   const std::vector<CompClusterExt> goodClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto goodPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
   const auto baseline = loadTimeFrameSource(frame, decoder, {0, 0},
                                             timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                            gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
@@ -822,10 +821,10 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
     const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, timing,
                                             clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                            gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(decoder.lastApplySysErrors);
   }
@@ -836,10 +835,10 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
-    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    configureFrame(frame, catalogView, identitySurfaces(static_cast<uint16_t>(plan.size())));
     const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, timing,
                                             clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog(), false);
+                                            gsl::span<const LayerId>{identitySurfaces(static_cast<uint16_t>(plan.size()))}, plan.getSurfaceCatalog(), false);
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(!decoder.lastApplySysErrors);
   }

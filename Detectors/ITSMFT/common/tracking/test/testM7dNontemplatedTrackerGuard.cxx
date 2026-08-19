@@ -102,7 +102,6 @@ bool noopSeedRefit(const TrackSeed&,
                    float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    SurfaceCatalogView,
-                   gsl::span<const LayerId>,
                    TrackingCandidate&)
 {
   return false;
@@ -149,17 +148,14 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
 {
   constexpr std::array<uint16_t, 4> orderedIds{1, 4, 7, 10};
   std::vector<SurfaceDescriptor> catalog;
-  catalog.reserve(12);
-  for (uint16_t id = 0; id < 12; ++id) {
-    SurfaceDescriptor surface{LayerId{id}, id, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
-    surface.referenceCoordinate = static_cast<float>(id + 1);
+  catalog.reserve(orderedIds.size());
+  for (std::size_t position = 0; position < orderedIds.size(); ++position) {
+    const auto detectorSurfaceIndex = orderedIds[position];
+    SurfaceDescriptor surface{detectorSurfaceIndex, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    surface.referenceCoordinate = static_cast<float>(detectorSurfaceIndex + 1);
     surface.chartRange = {0.f, 100.f};
-    const auto position = std::find(orderedIds.begin(), orderedIds.end(), id);
-    if (position != orderedIds.end()) {
-      const auto layer = static_cast<std::size_t>(position - orderedIds.begin());
-      surface.material.xOverX0 = kNominalMFTLayerX0[layer];
-      surface.material.arealDensityGPerCm2 = kNominalMFTLayerX0[layer] * o2::its::constants::Radl * o2::its::constants::Rho;
-    }
+    surface.material.xOverX0 = kNominalMFTLayerX0[position];
+    surface.material.arealDensityGPerCm2 = kNominalMFTLayerX0[position] * o2::its::constants::Radl * o2::its::constants::Rho;
     catalog.push_back(surface);
   }
 
@@ -169,17 +165,16 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   parameters.StartLayerMask = 0x0f;
   parameters.MaxHoles = 0;
   for (std::size_t position = 0; position < orderedIds.size(); ++position) {
-    parameters.LayerxX0[position] = catalog[orderedIds[position]].material.xOverX0;
+    parameters.LayerxX0[position] = catalog[position].material.xOverX0;
   }
   parameters.LayerxX0.resize(orderedIds.size());
-  const std::vector<LayerId> ordered{LayerId{1}, LayerId{4}, LayerId{7}, LayerId{10}};
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   Tracker tracker{noopSeedRefit};
   TrackerInitialization configuration;
   configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = pool;
-  configuration.layout = makeSurfaceLayoutChain(ordered);
+  configuration.layout = makeDetectorLayout();
   configuration.parameters.push_back(parameters);
   const auto configured = tracker.initialize(frame, configuration);
   BOOST_REQUIRE(configured.ok());
@@ -189,13 +184,16 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  BOOST_REQUIRE_EQUAL(tracker.getIterationConfigurations()[0].topology.orderedSurfaces.size(), 4u);
-  BOOST_CHECK(topology.orderedSurfaces[0] == LayerId{1});
-  BOOST_CHECK(topology.orderedSurfaces[2] == LayerId{7});
+  BOOST_REQUIRE_EQUAL(tracker.getIterationConfigurations()[0].topology.nLayers, 4u);
+  BOOST_REQUIRE_EQUAL(topology.nActiveSurfaces, 4u);
+  BOOST_CHECK(topology.activeSurfaceList[0] == LayerId{0});
+  BOOST_CHECK(topology.activeSurfaceList[2] == LayerId{2});
+  BOOST_CHECK_EQUAL(layout[LayerId{0}].detectorSurfaceIndex, 1u);
+  BOOST_CHECK_EQUAL(layout[LayerId{2}].detectorSurfaceIndex, 7u);
 
   TrackSeed seed;
   LayerMask activePositions;
-  for (uint16_t position = 0; position < ordered.size(); ++position) {
+  for (uint16_t position = 0; position < orderedIds.size(); ++position) {
     activePositions.set(position);
     seed.setCluster(position, static_cast<int>(100 + position));
   }
@@ -203,9 +201,9 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_CHECK_EQUAL(seed.getActiveLayerCount(), 4);
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
-  // Static layout configuration retains the sparse, non-identity order. The
-  // Tracker derives the pass-local workspace topology from it at traversal time.
-  BOOST_CHECK_EQUAL(topology.nOrderedSurfaces, ordered.size());
+  // Detector-local metadata may be non-contiguous, while LayerId remains the
+  // dense position in the four-layer layout.
+  BOOST_CHECK_EQUAL(topology.nLayers, orderedIds.size());
 }
 
 } // namespace

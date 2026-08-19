@@ -54,16 +54,8 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();
   configuration.memoryPool = std::make_shared<BoundedMemoryResource>();
-  const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
-  const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
-  auto itsDefinition = makeSurfaceLayoutChain(itsSurfaces);
-  auto mftDefinition = makeSurfaceLayoutChain(mftSurfaces);
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
-  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
-  definition.componentOffsets = {0, offset};
-  definition.holeLayers = itsDefinition.holeLayers | mftDefinition.holeLayers;
+  DetectorLayoutDefinition definition;
+  definition.componentOffsets = {0, ITSNLayers};
   configuration.layout = std::move(definition);
   const auto combine = [&] {
     auto parameters = itsParams;
@@ -233,8 +225,8 @@ class CombinedTrackingPlan
 
   const TimeFrameScratch& getITSScratch() const noexcept { return mFrame->getScratch(); }
   const TimeFrameScratch& getMFTScratch() const noexcept { return mFrame->getScratch(); }
-  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout().getOrderedSurfaces().first(ITSNLayers); }
-  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout().getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
+  gsl::span<const LayerId> getITSLayerMapping() const noexcept { return mITSLayerMapping; }
+  gsl::span<const LayerId> getMFTLayerMapping() const noexcept { return mMFTLayerMapping; }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -249,6 +241,8 @@ class CombinedTrackingPlan
   TraversalTopologyView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
 
  private:
+  const std::vector<LayerId> mITSLayerMapping = orderedSurfaceRange(0, ITSNLayers);
+  const std::vector<LayerId> mMFTLayerMapping = orderedSurfaceRange(ITSNLayers, MFTNLayers);
   TrackerInitialization mConfiguration;
   TimeFrame* mFrame = nullptr;
   std::unique_ptr<Tracker> mTracker;

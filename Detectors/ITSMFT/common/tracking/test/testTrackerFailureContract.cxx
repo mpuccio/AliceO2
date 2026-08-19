@@ -186,7 +186,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
     surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
@@ -276,7 +276,7 @@ int gThrowOnRefitCall = 1;
 // seed. Tests reset the process-local controls before every invocation.
 bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const IterationParameters&, float,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
-                         SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
+                         SurfaceCatalogView, TrackingCandidate&)
 {
   ++gRefitCalls;
   if (gRefitCalls < gThrowOnRefitCall) {
@@ -297,7 +297,7 @@ bool controlledSeedRefit(const TrackSeed&, const TimeFrame&, const IterationPara
 // failure-contract fixture. This narrow test function supplies only refit.
 bool testSeedRefit(const TrackSeed&, const TimeFrame&, const IterationParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
-                   SurfaceCatalogView, gsl::span<const LayerId>, TrackingCandidate&)
+                   SurfaceCatalogView, TrackingCandidate&)
 {
   return false;
 }
@@ -360,11 +360,11 @@ struct Rig {
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters = params;
     const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
-    BOOST_REQUIRE_EQUAL(frame.getLayout().getOrderedSurfaces().size(), orderedSurfaces.size());
+    BOOST_REQUIRE_EQUAL(frame.getLayout().size(), orderedSurfaces.size());
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -385,10 +385,10 @@ struct Rig {
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& layout = frame.getLayout();
-    const auto& orderedSurfaces = layout.getOrderedSurfaces();
+    const auto layerMapping = identitySurfaces(ITSNLayers);
     const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                             f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
+                                            gsl::span<const LayerId>{layerMapping}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -500,7 +500,7 @@ std::vector<SurfaceDescriptor> makeMftCatalog()
   std::vector<SurfaceDescriptor> catalog;
   catalog.reserve(MFTNLayers);
   for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
-    SurfaceDescriptor surface{LayerId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    SurfaceDescriptor surface{layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
     surface.chartRange = {kMFTLookupRMin[layer], kMFTLookupRMax[layer]};
     surface.referenceCoordinate = detail::mftLayerZ(layer);
     const float xOverX0 = kNominalMFTLayerX0[layer];
@@ -533,7 +533,7 @@ struct MftFailureRig {
     configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
     configuration.memoryPool = pool;
     const auto surfaces = identitySurfaces(MFTNLayers);
-    configuration.layout = makeSurfaceLayoutChain(surfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters.assign(iterations, parameters);
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   }
@@ -552,9 +552,10 @@ struct MftFailureRig {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     MftRoadDecoder decoder{decoded};
     const auto& layout = frame.getLayout();
+    const auto layerMapping = identitySurfaces(MFTNLayers);
     BOOST_REQUIRE(loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                       compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                      gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
+                                      gsl::span<const LayerId>{layerMapping}, layout.getSurfaceCatalog())
                     .ok());
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
@@ -775,7 +776,7 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationIsRejectedBeforeTimeFrameConf
     TrackerInitialization configuration;
     configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
     configuration.memoryPool = rig.pool;
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters = rig.params;
     const auto result = rig.tracker.initialize(rig.frame, configuration);
     BOOST_CHECK(!result.ok());
@@ -793,7 +794,7 @@ BOOST_AUTO_TEST_CASE(IterationSpecificIndexTableConfigurationIsRejectedBeforeCom
     TrackerInitialization configuration;
     configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
     configuration.memoryPool = rig.pool;
-    configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+    configuration.layout = makeDetectorLayout();
     configuration.parameters = rig.params;
     const auto result = rig.tracker.initialize(rig.frame, configuration);
     BOOST_CHECK(!result.ok());

@@ -37,7 +37,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -124,7 +124,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   return surfaces;
 }
@@ -139,10 +139,10 @@ std::vector<LayerId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-SurfaceLayout catalogLayout(SurfaceCatalogView catalog, gsl::span<const LayerId> ordered)
+DetectorLayout catalogLayout(SurfaceCatalogView catalog)
 {
-  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
-                       makeSurfaceLayoutChain(ordered)};
+  return DetectorLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                        makeDetectorLayout()};
 }
 
 GlobalPoint3F expectedGlobal(int sensorID, int row, int col)
@@ -277,10 +277,10 @@ void verifyFixtureLoaded(const TimeFrame& frame, const Fixture& f)
   }
 }
 
-void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog, gsl::span<const LayerId> orderedSurfaces,
+void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog,
                     std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>())
 {
-  auto layout = catalogLayout(catalog, orderedSurfaces);
+  auto layout = catalogLayout(catalog);
   BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0, std::move(pool)));
 }
 
@@ -298,12 +298,12 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   const ROFTimingConfig timing{40, 0, 0, 0};
 
   TimeFrame frame;
-  const auto plan = catalogLayout(catalogView, orderedSurfaces);
-  configureFrame(frame, catalogView, orderedSurfaces);
+  const auto plan = catalogLayout(catalogView);
+  configureFrame(frame, catalogView);
 
   const auto f = makeFixture();
   const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationLeavesClearedFrame)
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   TimeFrame frame;
   const auto* const scratch = &frame.getScratch();
-  auto layout = catalogLayout(catalogView, orderedSurfaces);
+  auto layout = catalogLayout(catalogView);
   auto failingPool = std::make_shared<BoundedMemoryResource>(0);
 
   BOOST_CHECK(!frame.configure(std::move(layout), 1, 1, failingPool));
@@ -344,7 +344,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationLeavesClearedFrame)
   BOOST_CHECK(frame.getScratch().getMemoryPool().get() == failingPool.get());
   BOOST_CHECK_EQUAL(frame.getScratch().getNEdges(), 0u);
   BOOST_CHECK_EQUAL(frame.getScratch().getNCells(), 0u);
-  BOOST_CHECK(frame.getLayout().getOrderedSurfaces().empty());
+  BOOST_CHECK(frame.getLayout().empty());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
@@ -361,13 +361,13 @@ BOOST_AUTO_TEST_CASE(MalformedTimeFrameLoadLeavesTheFrameEmpty)
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto baselineFixture = makeFixture();
   auto malformedReplacement = makeReplacementFixture();
-  const auto plan = catalogLayout(catalogView, orderedSurfaces);
+  const auto plan = catalogLayout(catalogView);
   TimeFrame frame;
-  configureFrame(frame, catalogView, orderedSurfaces);
+  configureFrame(frame, catalogView);
   const auto baseline = loadTimeFrameSource(frame, decoder, origin, timing, baselineFixture.clusters,
                                             baselineFixture.patterns, baselineFixture.rofs, &dict(),
                                             &baselineFixture.labels, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                            gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   verifyFixtureLoaded(frame, baselineFixture);
 
@@ -375,7 +375,7 @@ BOOST_AUTO_TEST_CASE(MalformedTimeFrameLoadLeavesTheFrameEmpty)
   const auto failed = loadTimeFrameSource(frame, decoder, origin, timing, malformedReplacement.clusters,
                                           malformedReplacement.patterns, malformedReplacement.rofs, &dict(),
                                           &malformedReplacement.labels, o2::detectors::DetID::ITS,
-                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                          gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);

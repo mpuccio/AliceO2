@@ -25,7 +25,7 @@ std::vector<SurfaceDescriptor> makeCatalog()
 {
   std::vector<SurfaceDescriptor> catalog;
   for (uint16_t layer = 0; layer < 3; ++layer) {
-    SurfaceDescriptor descriptor{LayerId{layer}, layer, 0, SurfaceKind::Cylinder};
+    SurfaceDescriptor descriptor{layer, 0, SurfaceKind::Cylinder};
     descriptor.referenceCoordinate = static_cast<float>(layer + 1);
     descriptor.chartRange = {-10.f, 10.f};
     catalog.push_back(descriptor);
@@ -36,11 +36,10 @@ std::vector<SurfaceDescriptor> makeCatalog()
 TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& catalog,
                                         std::shared_ptr<BoundedMemoryResource> pool)
 {
-  const std::vector<LayerId> ordered{LayerId{2}, LayerId{0}, LayerId{1}};
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = std::move(pool);
-  configuration.layout = makeSurfaceLayoutChain(ordered, LayerMask{1u << 1});
+  configuration.layout = makeDetectorLayout(LayerMask{1u << 1});
   for (const auto seeds : {uint32_t{1u << 2}, uint32_t{1u << 0}}) {
     TrackingParameters parameters;
     parameters.NLayers = 3;
@@ -78,7 +77,7 @@ BOOST_AUTO_TEST_CASE(ConfigurationIsInstalledOnce)
   BOOST_REQUIRE(frame.isConfigured());
   BOOST_REQUIRE(tracker.isConfiguredFor(frame));
   BOOST_REQUIRE_EQUAL(tracker.getIterationConfigurations().size(), 2u);
-  BOOST_CHECK(frame.getLayout().getOrderedSurfaces()[0] == LayerId{2});
+  BOOST_CHECK_EQUAL(frame.getLayout()[LayerId{0}].detectorSurfaceIndex, 0u);
   BOOST_CHECK(tracker.getIterationConfigurations()[0].parameters.StartLayerMask.has(2));
   BOOST_CHECK(tracker.getIterationConfigurations()[1].parameters.StartLayerMask.has(0));
   BOOST_CHECK(frame.getGenericTracks().empty());

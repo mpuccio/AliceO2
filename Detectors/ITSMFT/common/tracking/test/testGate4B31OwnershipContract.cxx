@@ -164,7 +164,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   return surfaces;
 }

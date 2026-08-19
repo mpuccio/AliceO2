@@ -229,7 +229,8 @@ BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
   BOOST_REQUIRE_GT(code.size(), 0u);
   BOOST_CHECK(code.find("refitSources") == std::string::npos);
   BOOST_CHECK(code.find("TraversalFailureReason::SurfaceKindMismatch") == std::string::npos);
-  BOOST_CHECK(code.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(code.find("context.configuration.topology.nLayers") != std::string::npos);
+  BOOST_CHECK(code.find("orderedSurfaces") == std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
 }
 

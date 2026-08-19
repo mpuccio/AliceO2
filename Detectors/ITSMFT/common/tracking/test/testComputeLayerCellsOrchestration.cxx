@@ -163,7 +163,7 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(det), kind});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(det), kind});
     surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     surfaces.back().referenceCoordinate = kind == SurfaceKind::Cylinder
                                             ? 3.f + static_cast<float>(i)
@@ -309,7 +309,7 @@ struct Rig : RigFrameStorage {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces, holeLayers);
+    configuration.layout = makeDetectorLayout(holeLayers);
     configuration.parameters.push_back(params[0]);
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
     tf = &frame.getScratch();
@@ -321,9 +321,8 @@ struct Rig : RigFrameStorage {
     const std::vector<CompClusterExt> noClusters;
     const std::vector<unsigned char> noPatterns;
     const std::vector<ROFRecord> noRofs;
-    const auto& loadOrderedSurfaces = layout.getOrderedSurfaces();
     const auto loadResult = loadTimeFrameSource(frame, decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
-                                                gsl::span<const LayerId>{loadOrderedSurfaces}, layout.getSurfaceCatalog());
+                                                gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(loadResult.ok());
   }
 
@@ -387,9 +386,9 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 3}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.frame.getLayout().getOrderedSurfaces();
+  const auto layerMapping = identitySurfaces(static_cast<uint16_t>(NLayers));
   const auto result = loadTimeFrameSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout().getSurfaceCatalog());
+                                          gsl::span<const LayerId>{layerMapping}, rig.frame.getLayout().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -476,9 +475,9 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, static_cast<int>(N)}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.frame.getLayout().getOrderedSurfaces();
+  const auto layerMapping = identitySurfaces(static_cast<uint16_t>(NLayers));
   const auto result = loadTimeFrameSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                          gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout().getSurfaceCatalog());
+                                          gsl::span<const LayerId>{layerMapping}, rig.frame.getLayout().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 

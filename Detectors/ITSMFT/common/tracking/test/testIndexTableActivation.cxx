@@ -129,7 +129,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
     surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
@@ -231,7 +231,7 @@ struct Rig {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters.assign(params.begin(), params.end());
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
     tf = &frame.getScratch();
@@ -252,10 +252,10 @@ struct Rig {
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& layout = frame.getLayout();
-    const auto& orderedSurfaces = layout.getOrderedSurfaces();
+    const auto layerMapping = identitySurfaces(ITSNLayers);
     const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                             f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
+                                            gsl::span<const LayerId>{layerMapping}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(InvalidBindingLeavesTimeFrameOwnedConfigurationUnchanged)
   TrackerInitialization configuration;
   configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
   configuration.memoryPool = rig.pool;
-  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.layout = makeDetectorLayout();
   configuration.parameters = params;
   BOOST_CHECK(!rig.tracker.initialize(rig.frame, configuration).ok());
   BOOST_CHECK(!rig.frame.isConfigured());
@@ -409,7 +409,7 @@ BOOST_AUTO_TEST_CASE(IterationSpecificRowColBinsAreRejectedAtInitialization)
   TrackerInitialization configuration;
   configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
   configuration.memoryPool = rig.pool;
-  configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+  configuration.layout = makeDetectorLayout();
   configuration.parameters = params;
   const auto result = rig.tracker.initialize(rig.frame, configuration);
   BOOST_CHECK(!result.ok());
@@ -451,7 +451,7 @@ BOOST_AUTO_TEST_CASE(FirstPassCannotChangeInvariantIndexTableConfiguration)
   TrackerInitialization configuration;
   configuration.catalog = {rig.catalog.data(), static_cast<uint32_t>(rig.catalog.size())};
   configuration.memoryPool = rig.pool;
-  configuration.layout = makeSurfaceLayoutChain(identitySurfaces(ITSNLayers));
+  configuration.layout = makeDetectorLayout();
   configuration.parameters = params;
   const auto result = rig.tracker.initialize(rig.frame, configuration);
   BOOST_CHECK(!result.ok());

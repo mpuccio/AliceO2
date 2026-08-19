@@ -1,6 +1,6 @@
 // Copyright 2019-2026 CERN and copyright holders of ALICE O2.
 
-#define BOOST_TEST_MODULE ITSMFT SurfaceLayout
+#define BOOST_TEST_MODULE ITSMFT DetectorLayout
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -20,16 +20,7 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count, SurfaceKind kind = Surfac
 {
   std::vector<SurfaceDescriptor> result;
   for (uint16_t id = 0; id < count; ++id) {
-    result.emplace_back(LayerId{id}, id, 0, kind);
-  }
-  return result;
-}
-
-std::vector<LayerId> order(uint16_t first, uint16_t count)
-{
-  std::vector<LayerId> result;
-  for (uint16_t id = 0; id < count; ++id) {
-    result.emplace_back(static_cast<uint16_t>(first + id));
+    result.emplace_back(id, 0, kind);
   }
   return result;
 }
@@ -43,10 +34,10 @@ LayerMask mask(std::initializer_list<uint16_t> ids)
   return result;
 }
 
-TrackingParameters parametersFor(const SurfaceLayout& layout)
+TrackingParameters parametersFor(const DetectorLayout& layout)
 {
   TrackingParameters parameters;
-  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  parameters.NLayers = static_cast<int>(layout.size());
   parameters.StartLayerMask = LayerMask::span(0, parameters.NLayers - 1);
   return parameters;
 }
@@ -64,30 +55,30 @@ BOOST_AUTO_TEST_CASE(LayerMaskCoversThirtyTwoLayoutPositions)
   BOOST_CHECK_EQUAL(surfaces.count(), 3);
 }
 
-BOOST_AUTO_TEST_CASE(LayoutValidatesLimitsAndNonContiguousCatalogIds)
+BOOST_AUTO_TEST_CASE(LayoutValidatesLimitsAndDerivesDenseIds)
 {
   const auto surfaces = catalog(33);
-  const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(order(0, 33))};
-  BOOST_CHECK(layout.getError() == SurfaceLayoutError::TooManySurfaces);
+  const auto layout = DetectorLayout{surfaces, makeDetectorLayout()};
+  BOOST_CHECK(layout.getError() == DetectorLayoutError::TooManySurfaces);
 
-  const std::vector<SurfaceDescriptor> sparse{{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
-                                               {LayerId{2}, 1, 0, SurfaceKind::Cylinder}};
-  const std::vector<LayerId> sparseOrder{LayerId{0}, LayerId{2}};
-  const auto valid = SurfaceLayout{sparse, makeSurfaceLayoutChain(sparseOrder)};
+  const auto dense = catalog(4);
+  const auto valid = DetectorLayout{dense};
   BOOST_CHECK(valid.valid());
-  BOOST_CHECK(valid.getSurfaceCatalog().getSurface(LayerId{2}).id == LayerId{2});
+  BOOST_CHECK_EQUAL(valid.size(), 4u);
+  for (uint16_t position = 0; position < valid.size(); ++position) {
+    BOOST_CHECK(&valid[LayerId{position}] == &valid.getLayers()[position]);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(ComponentBoundariesAndKindIndependentCatalogs)
 {
-  const auto mixed = std::vector<SurfaceDescriptor>{{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
-                                                     {LayerId{1}, 1, 0, SurfaceKind::Cylinder},
-                                                     {LayerId{2}, 0, 8, SurfaceKind::Disk},
-                                                     {LayerId{3}, 1, 8, SurfaceKind::Disk}};
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = order(0, 4);
+  const auto mixed = std::vector<SurfaceDescriptor>{{0, 0, SurfaceKind::Cylinder},
+                                                    {1, 0, SurfaceKind::Cylinder},
+                                                    {0, 8, SurfaceKind::Disk},
+                                                    {1, 8, SurfaceKind::Disk}};
+  DetectorLayoutDefinition definition;
   definition.componentOffsets = {0, 2};
-  const auto layout = SurfaceLayout{mixed, std::move(definition)};
+  const auto layout = DetectorLayout{mixed, std::move(definition)};
   BOOST_REQUIRE(layout.valid());
   BOOST_CHECK(layout.sameComponent(0, 1));
   BOOST_CHECK(!layout.sameComponent(1, 2));
@@ -102,11 +93,10 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesAndKindIndependentCatalogs)
 
 BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
 {
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = order(0, 4);
+  DetectorLayoutDefinition definition;
   definition.holeLayers = mask({1});
   const std::vector<SurfaceDescriptor> surfaces = catalog(4);
-  const auto layout = SurfaceLayout{surfaces, std::move(definition)};
+  const auto layout = DetectorLayout{surfaces, std::move(definition)};
   auto parameters = parametersFor(layout);
   parameters.MaxHoles = 1;
   parameters.StartLayerMask = LayerMask{1u << 3};
@@ -115,6 +105,8 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 3u);
+  BOOST_CHECK_EQUAL(topology.nLayers, 4u);
+  BOOST_CHECK(topology.activeSurfaceList[1] == LayerId{2});
   BOOST_CHECK_EQUAL(topology.edges.size(), 2u);
   BOOST_CHECK_EQUAL(topology.paths.size(), 1u);
   BOOST_CHECK(topology.edges[0].from == LayerId{0});
@@ -126,7 +118,7 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
 BOOST_AUTO_TEST_CASE(InvalidLayoutAndLayerCountDerivationIsTransactional)
 {
   const auto surfaces = catalog(4);
-  const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(order(0, 4))};
+  const auto layout = DetectorLayout{surfaces, makeDetectorLayout()};
   auto wrongLayerCount = parametersFor(layout);
   wrongLayerCount.NLayers = 7;
   const auto invalidCount = deriveTraversalTopology(layout, wrongLayerCount);
@@ -134,7 +126,7 @@ BOOST_AUTO_TEST_CASE(InvalidLayoutAndLayerCountDerivationIsTransactional)
   BOOST_CHECK(!invalidCount.topology.has_value());
   BOOST_CHECK(invalidCount.error == TraversalTopologyError::LayerCountMismatch);
 
-  const auto invalidLayout = deriveTraversalTopology(SurfaceLayout{}, TrackingParameters{});
+  const auto invalidLayout = deriveTraversalTopology(DetectorLayout{}, TrackingParameters{});
   BOOST_CHECK(!invalidLayout.ok());
   BOOST_CHECK(!invalidLayout.topology.has_value());
 }

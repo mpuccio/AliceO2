@@ -74,7 +74,7 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(detector), kind});
+    surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(detector), kind});
     surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     surfaces.back().referenceCoordinate = kind == SurfaceKind::Disk
                                             ? o2::mft::constants::mft::LayerZCoordinate()[i % MFTNLayers]
@@ -239,7 +239,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   TrackerInitialization configuration;
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
-  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces, holeLayers);
+  configuration.layout = makeDetectorLayout(holeLayers);
   configuration.parameters.push_back(params[0]);
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   auto& tf = frame.getScratch();
@@ -257,7 +257,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   PrescribedDecoder decoder{detector, kind, std::move(decoded)};
   const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                         compactClusters, patterns, rofs, &dict(), nullptr, detector,
-                                        gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
+                                        gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -439,27 +439,9 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
   return clusters;
 }
 
-/// Gate 4 Slice 0a fail-closed coverage, revised for Gate 4 B2 Slice 2: a
-/// production plan always builds a single-component, single-kind layout
-/// from a duplicate-free orderedSurfaces span (the layout validator already
-/// rejects a duplicate LayerId within one graph definition, and
-/// buildTraversalPlans() has no way to author a combined/mixed-kind
-/// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
-/// own fail-closed checks (SurfaceLayerMappingMismatch, MixedSurfaceKindLayout)
-/// against inputs that cannot arise through that production path, the two
-/// tests below construct a deliberately-corrupted layout directly
-/// and pass it to initialiseTimeFrame() as its explicit plan parameter -- no
-/// TimeFrame-subclass injection hack is needed any more, since the plan is no
-/// longer TimeFrame-owned state to smuggle in.
-
-/// A valid, identity-ordered chain layout for `detector`/`kind`
-/// (same shape buildTraversalPlans() would build for that detector), built
-/// directly via the layout API so it can be installed with a
-/// deliberately-corrupted SurfaceLayoutConfigurationKey::orderedSurfaces
-/// afterwards.
 /// Disconnected catalog spanning [0, nCylinders) as Cylinder/ITS surfaces and
 /// [nCylinders, nCylinders + nDisks) as Disk/MFT surfaces, in one shared
-/// global LayerId space.
+/// layout-local LayerId space.
 } // namespace
 
 BOOST_AUTO_TEST_CASE(CylinderOnePassAndTwoPassProduceIdenticalTracklets)
@@ -537,7 +519,7 @@ BOOST_AUTO_TEST_CASE(PerTimeFrameValidationFailureLeavesEdgeArraysZeroFilledNotP
   TrackerInitialization configuration;
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
-  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.layout = makeDetectorLayout();
   configuration.parameters.push_back(params[0]);
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   auto& tf = frame.getScratch();
@@ -564,7 +546,7 @@ BOOST_AUTO_TEST_CASE(PerTimeFrameValidationFailureLeavesEdgeArraysZeroFilledNotP
   PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
   const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                         compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                        gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
+                                        gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
   auto layer0 = frame.getGlobalMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(layer0.size(), 2u);
@@ -752,25 +734,15 @@ BOOST_AUTO_TEST_CASE(ItsHoleEdgeTrackletResolvesCorrectLegacyLayerEndpoints)
   BOOST_CHECK(sawHoleEdge);
 }
 
-BOOST_AUTO_TEST_CASE(DuplicateLayerIdMappingFailsClosedBeforeTrackletProcessing)
+BOOST_AUTO_TEST_CASE(DenseLayerIdentityIsDerivedFromDescriptorPosition)
 {
-  // buildTraversalPlans() -- the production path -- always builds its
-  // graph definition from the caller-supplied orderedSurfaces, and
-  // SurfaceLayout already rejects a duplicate LayerId within it
-  // (DuplicateSurface), so a duplicate mapping can never reach
-  // TrackerTraits::initialiseTimeFrame() through that path. This test
-  // constructs an otherwise-valid, identity-topology layout
-  // directly, with a SurfaceLayoutConfigurationKey::orderedSurfaces that
-  // duplicates LayerId{0} at legacy layers 0 and 1, then passes it to
-  // initialiseTimeFrame() as its explicit plan argument -- exercising
-  // exactly (and only) the mSurfaceToLegacyLayer bijectivity preflight,
-  // through that method's own public contract.
   const auto surfaces = makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = identitySurfaces(static_cast<uint16_t>(ITSNLayers));
-  definition.orderedSurfaces[1] = definition.orderedSurfaces[0];
-  const auto layout = SurfaceLayout{surfaces, std::move(definition)};
-  BOOST_CHECK(layout.getError() == SurfaceLayoutError::DuplicateSurface);
+  const auto layout = DetectorLayout{surfaces};
+  BOOST_REQUIRE(layout.valid());
+  BOOST_REQUIRE_EQUAL(layout.size(), static_cast<std::size_t>(ITSNLayers));
+  for (uint16_t position = 0; position < ITSNLayers; ++position) {
+    BOOST_CHECK(&layout[LayerId{position}] == &layout.getLayers()[position]);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
@@ -779,19 +751,12 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
   const auto nDisks = static_cast<uint16_t>(MFTNLayers);
   auto surfaces = makeCatalog(nCylinders, o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
   auto disks = makeCatalog(nDisks, o2::detectors::DetID::MFT, SurfaceKind::Disk);
-  for (auto& surface : disks) {
-    surface.id = LayerId{static_cast<uint16_t>(surface.id.value() + nCylinders)};
-  }
   surfaces.insert(surfaces.end(), disks.begin(), disks.end());
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = identitySurfaces(nCylinders);
-  for (uint16_t i = 0; i < nDisks; ++i) {
-    definition.orderedSurfaces.emplace_back(static_cast<uint16_t>(nCylinders + i));
-  }
+  DetectorLayoutDefinition definition;
   definition.componentOffsets = {0, nCylinders};
-  const auto layout = SurfaceLayout{surfaces, std::move(definition)};
+  const auto layout = DetectorLayout{surfaces, std::move(definition)};
   TrackingParameters parameters;
-  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  parameters.NLayers = static_cast<int>(layout.size());
   const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.topology->edges.size(), static_cast<std::size_t>(nCylinders + nDisks - 2));

@@ -198,7 +198,8 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
   const auto scratch = readFile(root / "src/TimeFrameScratch.cxx");
   const auto refit = readFile(root / "include/ITSMFTTracking/RefitDriver.h");
-  BOOST_CHECK(traits.find("context.configuration.topology.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(traits.find("context.configuration.topology.nLayers") != std::string::npos);
+  BOOST_CHECK(traits.find("orderedSurfaces") == std::string::npos);
   BOOST_CHECK(traits.find("context.configuration.edges") != std::string::npos);
   BOOST_CHECK(scratch.find("mNOwnedSurfaces") == std::string::npos);
   BOOST_CHECK(refit.find("std::vector<detail::RefitMeasurementSlot>") != std::string::npos);

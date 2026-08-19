@@ -249,12 +249,12 @@ BOOST_AUTO_TEST_CASE(MFTPublicationExportRemainsValidAfterMigration)
   publicationValid = true;
   std::optional<GenericTrackPublicationExport> mftExport;
   if (publicationValid && mftClock) {
-    mftExport.emplace(o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock, participants.getMFTOrderedSurfaces());
+    mftExport.emplace(o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock, participants.getMFTLayerMapping());
   }
   BOOST_REQUIRE(mftExport.has_value());
   BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
   BOOST_CHECK(mftExport->source == ClusterSourceId{1});
-  BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
+  BOOST_CHECK_EQUAL(mftExport->layerMapping.size(), static_cast<size_t>(MFTNLayers));
 
   mftClock.reset();
   publicationValid = false;

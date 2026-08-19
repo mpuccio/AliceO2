@@ -63,7 +63,6 @@ struct RefitFixture {
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
-  std::vector<LayerId> orderedSurfaces;
   SurfaceCatalogView catalog{};
   TimeFrame frame;
   TrackSeed seed;
@@ -78,16 +77,13 @@ struct RefitFixture {
     params.MaxChi2NDF = 30.f;
 
     catalogSurfaces.resize(NLayers);
-    orderedSurfaces.reserve(NLayers);
     for (int layer = 0; layer < NLayers; ++layer) {
-      catalogSurfaces[layer].id = LayerId{static_cast<uint16_t>(layer)};
       catalogSurfaces[layer].detectorSurfaceIndex = static_cast<uint16_t>(layer);
       catalogSurfaces[layer].kind = SurfaceKind::Disk;
       catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
-      orderedSurfaces.push_back(catalogSurfaces[layer].id);
     }
     catalog = SurfaceCatalogView{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
-    BOOST_REQUIRE(frame.configure(SurfaceLayout{catalogSurfaces, makeSurfaceLayoutChain(orderedSurfaces)}, 0, 0,
+    BOOST_REQUIRE(frame.configure(DetectorLayout{catalogSurfaces, makeDetectorLayout()}, 0, 0,
                                   std::make_shared<BoundedMemoryResource>()));
 
     uint16_t mask = 0;
@@ -143,7 +139,7 @@ bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 {
   fixture.syncFrame();
   return detail::refitSurfaceSeed(fixture.seed, fixture.frame, fixture.params, Bz,
-                                  fixture.layerGlobals, fixture.catalog, fixture.orderedSurfaces, candidate);
+                                  fixture.layerGlobals, fixture.catalog, candidate);
 }
 
 void checkTrackUnchanged(const TrackingCandidate& before, const TrackingCandidate& after)
@@ -385,7 +381,6 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
-    catalogSurfaces[layer].id = LayerId{static_cast<uint16_t>(layer)};
     catalogSurfaces[layer].kind = SurfaceKind::Disk;
     catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
   }
@@ -428,11 +423,6 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
                                            /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
 
   TrackingCandidate track;
-  std::vector<LayerId> orderedSurfaces;
-  orderedSurfaces.reserve(NLayers);
-  for (int layer = 0; layer < NLayers; ++layer) {
-    orderedSurfaces.push_back(LayerId{static_cast<uint16_t>(layer)});
-  }
   std::vector<std::vector<GlobalMeasurement>> globals(NLayers);
   std::vector<std::vector<SurfaceMeasurement>> measurements(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
@@ -440,7 +430,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
     measurements[layer] = storage[layer];
   }
   TimeFrame frame;
-  BOOST_REQUIRE(frame.configure(SurfaceLayout{catalogSurfaces, makeSurfaceLayoutChain(orderedSurfaces)}, 0, 0,
+  BOOST_REQUIRE(frame.configure(DetectorLayout{catalogSurfaces, makeDetectorLayout()}, 0, 0,
                                 std::make_shared<BoundedMemoryResource>()));
   for (int layer = 0; layer < NLayers; ++layer) {
     for (std::size_t cluster = 0; cluster < globals[layer].size(); ++cluster) {
@@ -449,7 +439,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
     }
   }
   BOOST_REQUIRE(detail::refitSurfaceSeed(seed, frame, params, Bz, layerGlobals,
-                                         catalog, orderedSurfaces, track));
+                                         catalog, track));
 
   for (int layer = 0; layer < NLayers; ++layer) {
     BOOST_CHECK(track.seed.hasCluster(layer));

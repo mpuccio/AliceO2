@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -98,7 +98,7 @@ struct OneClusterSource {
 };
 
 struct ThreeSourceConfiguration {
-  SurfaceLayout layout;
+  DetectorLayout layout;
   std::vector<SurfaceDescriptor> catalog;
 };
 
@@ -106,16 +106,16 @@ ThreeSourceConfiguration makeConfiguration()
 {
   std::vector<SurfaceDescriptor> catalog;
   for (uint16_t id = 0; id < 6; ++id) {
-    catalog.push_back(SurfaceDescriptor{LayerId{id}, static_cast<uint8_t>(id % 2), static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    catalog.push_back(SurfaceDescriptor{static_cast<uint8_t>(id % 2), static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < 6; ++id) {
     ordered.push_back(LayerId{id});
   }
-  return {SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, makeSurfaceLayoutChain(ordered)}, std::move(catalog)};
+  return {DetectorLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, makeDetectorLayout()}, std::move(catalog)};
 }
 
-void configureFrame(TimeFrame& frame, const SurfaceLayout& layout)
+void configureFrame(TimeFrame& frame, const DetectorLayout& layout)
 {
   std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < 3; ++id) {

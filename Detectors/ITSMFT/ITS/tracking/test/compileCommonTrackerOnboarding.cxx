@@ -23,19 +23,6 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-// kITSStaticSurfaceCatalog is dense and local (ITSMFTDetectorDefinitions.h):
-// surface i's id is always LayerId{i}. Mirrors identitySurfaceOrder() in
-// TrackingInterface.cxx, the production plan builder this link-only proof
-// exercises the same way.
-constexpr std::array<LayerId, ITSNLayers> identityOrder()
-{
-  std::array<LayerId, ITSNLayers> order{};
-  for (int i = 0; i < ITSNLayers; ++i) {
-    order[i] = LayerId{static_cast<uint16_t>(i)};
-  }
-  return order;
-}
-
 int initializeCommonITSTracker()
 {
   auto parameters = o2::its::commontracking::makeTrackingParameters(o2::its::TrackingMode::Sync);
@@ -43,14 +30,8 @@ int initializeCommonITSTracker()
     return 1;
   }
 
-  static constexpr auto kOrderedSurfaces = identityOrder();
-  const auto& orderedSurfaces = kOrderedSurfaces;
   std::array<NominalSurfaceMaterial, ITSNLayers> layerMaterial{};
   for (int layer = 0; layer < ITSNLayers; ++layer) {
-    const auto LayerId = orderedSurfaces[layer];
-    if (!LayerId.isValid()) {
-      return 4;
-    }
     layerMaterial[layer] = kITSStaticSurfaceCatalog[layer].material;
   }
 
@@ -75,13 +56,13 @@ int initializeCommonITSTracker()
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
   configuration.memoryPool = pool;
-  configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+  configuration.layout = makeDetectorLayout();
   configuration.parameters = parameters;
   const auto result = tracker.initialize(frame, configuration);
   if (!result.ok()) {
     return 5;
   }
-  if (frame.getLayout().getOrderedSurfaces().size() != ITSNLayers) {
+  if (frame.getLayout().size() != ITSNLayers) {
     return 6;
   }
   return 0;

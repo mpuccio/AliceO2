@@ -23,31 +23,20 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count)
   std::vector<SurfaceDescriptor> result;
   result.reserve(count);
   for (uint16_t id = 0; id < count; ++id) {
-    result.push_back(SurfaceDescriptor{LayerId{id}, id, 0, SurfaceKind::Cylinder});
+    result.push_back(SurfaceDescriptor{id, 0, SurfaceKind::Cylinder});
   }
   return result;
 }
 
-SurfaceLayout makeLayout(std::vector<LayerId> ordered,
-                         std::vector<uint16_t> componentOffsets = {0},
-                         LayerMask holeLayers = {})
+DetectorLayout makeLayout(uint16_t layerCount,
+                          std::vector<uint16_t> componentOffsets = {0},
+                          LayerMask holeLayers = {})
 {
-  const auto surfaces = catalog(static_cast<uint16_t>(std::max<uint16_t>(4, ordered.size())));
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = std::move(ordered);
+  const auto surfaces = catalog(layerCount);
+  DetectorLayoutDefinition definition;
   definition.componentOffsets = std::move(componentOffsets);
   definition.holeLayers = holeLayers;
-  return SurfaceLayout{surfaces, std::move(definition)};
-}
-
-std::vector<LayerId> chain(std::initializer_list<uint16_t> ids)
-{
-  std::vector<LayerId> result;
-  result.reserve(ids.size());
-  for (const auto id : ids) {
-    result.emplace_back(id);
-  }
-  return result;
+  return DetectorLayout{surfaces, std::move(definition)};
 }
 
 LayerMask mask(std::initializer_list<uint16_t> ids)
@@ -68,10 +57,10 @@ LayerMask layerMask(std::initializer_list<uint16_t> positions)
   return result;
 }
 
-TrackingParameters parametersFor(const SurfaceLayout& layout)
+TrackingParameters parametersFor(const DetectorLayout& layout)
 {
   TrackingParameters result;
-  result.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  result.NLayers = static_cast<int>(layout.size());
   result.StartLayerMask = LayerMask::span(0, result.NLayers - 1);
   return result;
 }
@@ -107,7 +96,7 @@ BOOST_AUTO_TEST_CASE(EdgeContainsOnlySurfaceEndpoints)
 
 BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0, 2});
+  const auto layout = makeLayout(4, {0, 2});
   const auto result = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.topology->edges.size(), 2u);
@@ -116,11 +105,11 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
 
 BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}));
+  const auto layout = makeLayout(4);
   const auto result = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
-  BOOST_CHECK_EQUAL(topology.orderedSurfaces.size(), 4u);
+  BOOST_CHECK_EQUAL(topology.nLayers, 4u);
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 4u);
   BOOST_CHECK_EQUAL(topology.edges.size(), 3u);
   BOOST_CHECK_EQUAL(topology.paths.size(), 2u);
@@ -138,7 +127,7 @@ BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
 
 BOOST_AUTO_TEST_CASE(SeedingLayersBuildTheGraphWhileStartLayersOnlySelectRoadStarts)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3, 4}));
+  const auto layout = makeLayout(5);
   const auto seeding = mask({0, 2, 4});
   auto outerStartParameters = parametersFor(layout);
   outerStartParameters.SeedingLayers = layerMask({0, 2, 4});
@@ -175,7 +164,7 @@ BOOST_AUTO_TEST_CASE(SeedingLayersBuildTheGraphWhileStartLayersOnlySelectRoadSta
 
 BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, mask({1}));
+  const auto layout = makeLayout(4, {0}, mask({1}));
   auto parameters = parametersFor(layout);
   parameters.MaxHoles = 1;
   parameters.InactiveLayerMask = layerMask({1});
@@ -189,14 +178,14 @@ BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
   BOOST_REQUIRE(bridge != nullptr);
   BOOST_CHECK(bridge->from == LayerId{0});
   BOOST_CHECK(bridge->to == LayerId{2});
-  BOOST_CHECK(topology.orderedSurfaces[1] == LayerId{1});
+  BOOST_CHECK(topology.activeSurfaceList[1] == LayerId{2});
   BOOST_CHECK(topology.paths[0].first == EdgeId{0});
   BOOST_CHECK(topology.paths[0].second == EdgeId{1});
 }
 
 BOOST_AUTO_TEST_CASE(DisabledEndpointOmitsItsEdges)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}), {0}, mask({1}));
+  const auto layout = makeLayout(4, {0}, mask({1}));
   auto parameters = parametersFor(layout);
   parameters.MaxHoles = 1;
   parameters.InactiveLayerMask = layerMask({0});
@@ -211,7 +200,7 @@ BOOST_AUTO_TEST_CASE(DisabledEndpointOmitsItsEdges)
 
 BOOST_AUTO_TEST_CASE(InvalidDerivationIsTransactional)
 {
-  const auto layout = makeLayout(chain({0, 1, 2, 3}));
+  const auto layout = makeLayout(4);
   auto parameters = parametersFor(layout);
   parameters.NLayers = 7;
   const auto result = deriveTraversalTopology(layout, parameters);
@@ -219,7 +208,7 @@ BOOST_AUTO_TEST_CASE(InvalidDerivationIsTransactional)
   BOOST_CHECK(!result.topology.has_value());
   BOOST_CHECK(result.error == TraversalTopologyError::LayerCountMismatch);
 
-  SurfaceLayout invalid;
+  DetectorLayout invalid;
   const auto invalidResult = deriveTraversalTopology(invalid, TrackingParameters{});
   BOOST_CHECK(!invalidResult.ok());
   BOOST_CHECK(!invalidResult.topology.has_value());

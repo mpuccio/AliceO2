@@ -136,9 +136,8 @@ std::vector<SurfaceDescriptor> makeCatalog(o2::detectors::DetID::ID detector, Su
   std::vector<SurfaceDescriptor> result;
   result.reserve(NLayers);
   for (uint16_t layer = 0; layer < NLayers; ++layer) {
-    result.push_back(SurfaceDescriptor{
-      LayerId{layer}, layer, static_cast<uint8_t>(detector), kind, 0,
-      static_cast<float>(layer + 1), 0.f, 100.f});
+    result.push_back(SurfaceDescriptor{layer, static_cast<uint8_t>(detector), kind});
+    result.back().referenceCoordinate = static_cast<float>(layer + 1);
     result.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     const float xOverX0 = detector == o2::detectors::DetID::ITS
                             ? kNominalITSLayerX0[layer]
@@ -201,7 +200,7 @@ struct Rig {
     TrackerInitialization configuration;
     configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
     configuration.memoryPool = pool;
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters.assign(parameters.begin(), parameters.end());
     BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
     tf = &frame.getScratch();
@@ -214,10 +213,10 @@ struct Rig {
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& layout = frame.getLayout();
-    const auto& orderedSurfaces = layout.getOrderedSurfaces();
+    const auto layerMapping = identitySurfaces<NLayers>();
     const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             clusters, patterns, rofs, &dictionary(), nullptr, detector,
-                                            gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
+                                            gsl::span<const LayerId>{layerMapping}, layout.getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};

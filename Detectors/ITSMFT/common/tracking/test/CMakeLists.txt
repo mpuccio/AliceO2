@@ -21,14 +21,14 @@ o2_add_test(mclabelaccumulator
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(surfacelayout
-            SOURCES testSurfaceLayout.cxx
+o2_add_test(detectorlayout
+            SOURCES testDetectorLayout.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(surface-layout-contract
-            SOURCES testSurfaceLayoutContract.cxx
+o2_add_test(detector-layout-contract
+            SOURCES testDetectorLayoutContract.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)

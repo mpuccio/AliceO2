@@ -117,7 +117,6 @@ void checkIdentityAndKind(const std::vector<ExpectedSurface>& expected)
 {
   for (const auto& row : expected) {
     const auto& authored = Spec::surfaces[row.index];
-    BOOST_CHECK(authored.id == LayerId{row.index});
     BOOST_CHECK_EQUAL(authored.identity.detectorId, row.detectorId);
     BOOST_CHECK_EQUAL(authored.identity.detectorSurfaceIndex, row.index);
     BOOST_CHECK(authored.kind == row.kind);
@@ -130,7 +129,6 @@ void checkProjectionPreservesEveryFieldBitExactly(const std::vector<ExpectedSurf
   for (const auto& row : expected) {
     const auto& authored = Spec::surfaces[row.index];
     const auto projected = toRuntimeSurfaceDescriptor(authored);
-    BOOST_CHECK(projected.id == authored.id);
     BOOST_CHECK_EQUAL(projected.detectorSurfaceIndex, authored.identity.detectorSurfaceIndex);
     BOOST_CHECK_EQUAL(projected.detectorId, authored.identity.detectorId);
     BOOST_CHECK(projected.kind == authored.kind);

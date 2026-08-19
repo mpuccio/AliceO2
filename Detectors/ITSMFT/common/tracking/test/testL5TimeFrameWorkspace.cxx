@@ -25,7 +25,7 @@ std::vector<SurfaceDescriptor> makeCatalog()
 {
   std::vector<SurfaceDescriptor> catalog;
   for (uint16_t layer = 0; layer < 3; ++layer) {
-    SurfaceDescriptor descriptor{LayerId{layer}, layer, 0, SurfaceKind::Cylinder};
+    SurfaceDescriptor descriptor{layer, 0, SurfaceKind::Cylinder};
     descriptor.referenceCoordinate = static_cast<float>(layer + 1);
     descriptor.chartRange = {-10.f, 10.f};
     catalog.push_back(descriptor);
@@ -49,7 +49,7 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
   parameters.SystError2Col.assign(3, 0.f);
   parameters.MaxHoles = 1;
   parameters.StartLayerMask = 1u << 2;
-  configuration.layout = makeSurfaceLayoutChain(ordered, LayerMask{1u << 1});
+  configuration.layout = makeDetectorLayout(LayerMask{1u << 1});
   configuration.parameters.push_back(parameters);
   return configuration;
 }

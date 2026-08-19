@@ -20,21 +20,18 @@ using o2::itsmft::TrackingParameters;
 
 namespace
 {
-SurfaceLayout makeLayout()
+DetectorLayout makeLayout()
 {
   std::array<SurfaceDescriptor, 4> catalog{};
-  std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < catalog.size(); ++id) {
-    catalog[id] = SurfaceDescriptor{LayerId{id}, id, 0, SurfaceKind::Cylinder};
-    ordered.push_back(LayerId{id});
+    catalog[id] = SurfaceDescriptor{id, 0, SurfaceKind::Cylinder};
   }
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = std::move(ordered);
+  DetectorLayoutDefinition definition;
   definition.holeLayers = LayerMask{uint32_t{1} << 1};
-  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, std::move(definition)};
+  return DetectorLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, std::move(definition)};
 }
 
-IterationConfiguration makeConfiguration(const SurfaceLayout& layout, const TrackingParameters& parameters)
+IterationConfiguration makeConfiguration(const DetectorLayout& layout, const TrackingParameters& parameters)
 {
   const auto result = deriveTraversalTopology(layout, parameters);
   if (!result.ok()) {
@@ -66,21 +63,21 @@ BOOST_AUTO_TEST_CASE(IterationConfigurationDerivesSelectedTopologyFromTheStaticL
   const auto first = makeConfiguration(layout, firstParameters);
   const auto second = makeConfiguration(layout, secondParameters);
 
-  BOOST_CHECK_EQUAL(first.topology.orderedSurfaces.size(), 4u);
+  BOOST_CHECK_EQUAL(first.topology.nLayers, 4u);
   BOOST_CHECK_EQUAL(first.edges.size(), 4u);
   BOOST_CHECK_EQUAL(first.cells.size(), 3u);
-  BOOST_CHECK_EQUAL(second.topology.orderedSurfaces.size(), 4u);
+  BOOST_CHECK_EQUAL(second.topology.nLayers, 4u);
   BOOST_CHECK_EQUAL(second.topology.activeLayers.count(), 3);
   BOOST_CHECK_EQUAL(second.edges.size(), 2u);
   BOOST_CHECK_EQUAL(second.cells.size(), 1u);
-  BOOST_CHECK(second.getSurfaceSlot(LayerId{1}).has_value());
+  BOOST_CHECK(second.hasLayer(LayerId{1}));
   BOOST_CHECK(second.getEdgeSlot(EdgeId{1}).has_value()); // 0 -> 2, skipping disabled surface 1
   BOOST_CHECK_EQUAL(second.topology.scheduledPaths.size(), second.cells.size());
 }
 
 BOOST_AUTO_TEST_CASE(InvalidLayoutCannotProduceAnIterationConfiguration)
 {
-  const SurfaceLayout invalid{};
+  const DetectorLayout invalid{};
   TrackingParameters parameters;
   const auto result = deriveTraversalTopology(invalid, parameters);
   BOOST_CHECK(!result.ok());
@@ -94,7 +91,7 @@ BOOST_AUTO_TEST_CASE(KernelViewBorrowsIterationConfigurationTopology)
   parameters.NLayers = 4;
   const auto configuration = makeConfiguration(layout, parameters);
   const auto view = configuration.getTopologyView(layout.getSurfaceCatalog());
-  BOOST_CHECK(view.orderedSurfaces == configuration.topology.orderedSurfaces.data());
+  BOOST_CHECK_EQUAL(view.nLayers, configuration.topology.nLayers);
   BOOST_CHECK(view.edges == configuration.topology.edges.data());
   BOOST_CHECK(view.paths == configuration.topology.paths.data());
   BOOST_CHECK(view.pathsByFirstEdgeOffsets == configuration.topology.pathsByFirstEdgeOffsets.data());

@@ -22,6 +22,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <type_traits>
@@ -86,8 +87,8 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchDoesNotParticipateInLoading)
   }
   TimeFrame frame;
   const SurfaceCatalogView catalog{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
-  SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
-                       makeSurfaceLayoutChain(layerToSurface)};
+  DetectorLayout layout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                        makeDetectorLayout()};
   BOOST_REQUIRE(frame.configure(std::move(layout), 0, 0,
                                 std::make_shared<o2::its::BoundedMemoryResource>()));
   const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{0, 0}, ROFTimingConfig{40, 0, 0, 0},
@@ -275,24 +276,33 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     standaloneOrder.push_back(LayerId{i});
   }
-  const auto standaloneLayout = SurfaceLayout{
+  const auto standaloneLayout = DetectorLayout{
     gsl::span<const SurfaceDescriptor>{kITSStaticSurfaceCatalog.data(), kITSStaticSurfaceCatalog.size()},
-    makeSurfaceLayoutChain(standaloneOrder)};
+    makeDetectorLayout()};
   const auto standaloneTopology = deriveTraversalTopology(standaloneLayout, standaloneParams.front());
   BOOST_REQUIRE(standaloneTopology.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
-  const auto combinedParams = standaloneParams;
-  const auto combinedOrder = orderedRange(0, ITSNLayers);
-  const auto combinedLayout = SurfaceLayout{
+  auto combinedParams = standaloneParams;
+  combinedParams.front().NLayers = ITSNLayers + MFTNLayers;
+  DetectorLayoutDefinition combinedDefinition;
+  combinedDefinition.componentOffsets = {0, ITSNLayers};
+  const auto combinedLayout = DetectorLayout{
     gsl::span<const SurfaceDescriptor>{kITSMFTCombinedStaticSurfaceCatalog.data(), kITSMFTCombinedStaticSurfaceCatalog.size()},
-    makeSurfaceLayoutChain(combinedOrder)};
+    std::move(combinedDefinition)};
   const auto combinedTopology = deriveTraversalTopology(combinedLayout, combinedParams.front());
   BOOST_REQUIRE(combinedTopology.ok());
-  BOOST_CHECK_EQUAL(standaloneTopology.topology->edges.size(), combinedTopology.topology->edges.size());
-  BOOST_CHECK_EQUAL(standaloneTopology.topology->paths.size(), combinedTopology.topology->paths.size());
+  const auto isITSEdge = [](const auto& edge) { return edge.from.value() < ITSNLayers && edge.to.value() < ITSNLayers; };
+  const auto combinedITSEdges = std::count_if(combinedTopology.topology->edges.begin(), combinedTopology.topology->edges.end(), isITSEdge);
+  const auto combinedITSPaths = std::count_if(combinedTopology.topology->paths.begin(), combinedTopology.topology->paths.end(), [&](const auto& path) {
+    return isITSEdge(combinedTopology.topology->edges[path.first.value()]) &&
+           isITSEdge(combinedTopology.topology->edges[path.second.value()]);
+  });
+  BOOST_CHECK_EQUAL(standaloneTopology.topology->edges.size(), combinedITSEdges);
+  BOOST_CHECK_EQUAL(standaloneTopology.topology->paths.size(), combinedITSPaths);
   for (uint16_t k = 0; k < ITSNLayers; ++k) {
-    BOOST_CHECK(standaloneLayout.getOrderedSurfaces()[k] == combinedLayout.getOrderedSurfaces()[k]);
+    BOOST_CHECK_EQUAL(standaloneLayout[LayerId{k}].detectorSurfaceIndex,
+                      combinedLayout[LayerId{k}].detectorSurfaceIndex);
   }
 
   // A separately constructed standalone scratch remains independent. The

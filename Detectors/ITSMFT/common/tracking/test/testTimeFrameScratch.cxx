@@ -46,7 +46,7 @@ std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 
 SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detectorId)
 {
-  return SurfaceDescriptor{LayerId{id}, id, detectorId, kind};
+  return SurfaceDescriptor{id, detectorId, kind};
 }
 
 // A synthetic, detector-neutral Cylinder chain of `n` surfaces. Deliberately
@@ -56,7 +56,7 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
 // counts exposed directly by the graph.
 struct SyntheticChain {
   std::vector<SurfaceDescriptor> surfaces;
-  SurfaceLayout layout;
+  DetectorLayout layout;
   TraversalTopology topology;
 
   explicit SyntheticChain(uint16_t n)
@@ -64,7 +64,7 @@ struct SyntheticChain {
   {
   }
 
-  std::size_t nOwnedSurfaces() const { return layout.getOrderedSurfaces().size(); }
+  std::size_t nOwnedSurfaces() const { return layout.size(); }
   std::size_t nEdges() const { return topology.edges.size(); }
   std::size_t nCells() const { return topology.paths.size(); }
 
@@ -78,17 +78,17 @@ struct SyntheticChain {
     }
     return result;
   }
-  static SurfaceLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
+  static DetectorLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
   {
     const auto orderedSurfaces = ordered(0, static_cast<uint16_t>(surfaces.size()));
-    return SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
-                         makeSurfaceLayoutChain(orderedSurfaces)};
+    return DetectorLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
+                          makeDetectorLayout()};
   }
 
-  static TraversalTopology buildTopology(const SurfaceLayout& layout)
+  static TraversalTopology buildTopology(const DetectorLayout& layout)
   {
     TrackingParameters parameters;
-    parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+    parameters.NLayers = static_cast<int>(layout.size());
     parameters.StartLayerMask = LayerMask{1u << (parameters.NLayers - 1)};
     auto built = deriveTraversalTopology(layout, parameters);
     BOOST_REQUIRE(built.ok());

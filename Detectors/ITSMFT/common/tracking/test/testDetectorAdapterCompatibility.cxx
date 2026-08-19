@@ -55,7 +55,6 @@ struct MixedRefitFixture {
   MixedRefitFixture()
   {
     for (int position = 0; position < 3; ++position) {
-      surfaces[position].id = ordered[position];
       surfaces[position].kind = position == 1 ? SurfaceKind::Disk : SurfaceKind::Cylinder;
       surfaces[position].referenceCoordinate = position == 1 ? -10.f : 2.5f;
       surfaces[position].material = NominalSurfaceMaterial{0.f, 0.f};
@@ -76,7 +75,7 @@ struct MixedRefitFixture {
       globals[position] = globalsStorage[position];
       seed.getClusters()[position] = 0;
     }
-    BOOST_REQUIRE(frame.configure(SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)}, 0, 0,
+    BOOST_REQUIRE(frame.configure(DetectorLayout{surfaces, makeDetectorLayout()}, 0, 0,
                                   std::make_shared<BoundedMemoryResource>()));
     refreshFrame();
     seed.setHitLayerMask(LayerMask{0x7});
@@ -166,9 +165,8 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   const std::vector<gsl::span<const GlobalMeasurement>> layerGlobals(7);
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
-  const std::vector<LayerId> orderedSurfaces(7);
   TimeFrame frame;
-  BOOST_CHECK(!detail::refitSurfaceSeed(seed, frame, params, 0.5f, layerGlobals, surfaceCatalog, orderedSurfaces, candidate));
+  BOOST_CHECK(!detail::refitSurfaceSeed(seed, frame, params, 0.5f, layerGlobals, surfaceCatalog, candidate));
 }
 
 BOOST_AUTO_TEST_CASE(generic_refit_accepts_mixed_surface_family_seed)
@@ -176,7 +174,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_accepts_mixed_surface_family_seed)
   MixedRefitFixture fixture;
   TrackingCandidate candidate;
   BOOST_REQUIRE(detail::refitSurfaceSeed(fixture.seed, fixture.frame, fixture.parameters, 0.5f,
-                                         fixture.globals, fixture.catalog(), fixture.ordered, candidate));
+                                         fixture.globals, fixture.catalog(), candidate));
   BOOST_CHECK(candidate.track.innerState.hasRecognizedKind());
   BOOST_CHECK(candidate.track.outerState.hasRecognizedKind());
   BOOST_CHECK_EQUAL(candidate.getNumberOfClusters(), 3);
@@ -189,7 +187,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
     TrackingCandidate candidate;
     const TrackingCandidate before = candidate;
     BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.frame, fixture.parameters, 0.5f,
-                                          fixture.globals, fixture.catalog(), fixture.ordered, candidate));
+                                          fixture.globals, fixture.catalog(), candidate));
     BOOST_CHECK_EQUAL(candidate.track.chi2, before.track.chi2);
     BOOST_CHECK_EQUAL(candidate.seed.getHitLayerMask().value(), before.seed.getHitLayerMask().value());
   };

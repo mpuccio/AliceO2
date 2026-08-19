@@ -21,7 +21,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -139,7 +139,7 @@ class PatternContractDecoder final : public ClusterDecoder
 };
 
 struct BuiltLayout {
-  SurfaceLayout layout;
+  DetectorLayout layout;
   std::vector<SurfaceDescriptor> surfaces;
 
   bool valid() const noexcept { return layout.valid(); }
@@ -155,26 +155,24 @@ struct BuiltLayout {
 BuiltLayout makeCombinedLayout()
 {
   std::vector<SurfaceDescriptor> surfaces;
-  surfaces.push_back(SurfaceDescriptor{LayerId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  surfaces.push_back(SurfaceDescriptor{LayerId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  surfaces.push_back(SurfaceDescriptor{LayerId{2}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  surfaces.push_back(SurfaceDescriptor{LayerId{3}, 1, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = {LayerId{0}, LayerId{1}, LayerId{2}, LayerId{3}};
+  surfaces.push_back(SurfaceDescriptor{0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  surfaces.push_back(SurfaceDescriptor{1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  surfaces.push_back(SurfaceDescriptor{0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  surfaces.push_back(SurfaceDescriptor{1, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  DetectorLayoutDefinition definition;
   definition.componentOffsets = {0, 2};
-  return BuiltLayout{SurfaceLayout{surfaces, std::move(definition)}, std::move(surfaces)};
+  return BuiltLayout{DetectorLayout{surfaces, std::move(definition)}, std::move(surfaces)};
 }
 
 void configureFrame(TimeFrame& frame, const BuiltLayout& built)
 {
-  SurfaceLayoutDefinition definition;
+  DetectorLayoutDefinition definition;
   const auto& layout = built.layout;
-  definition.orderedSurfaces.assign(layout.getOrderedSurfaces().begin(), layout.getOrderedSurfaces().end());
   definition.componentOffsets.assign(layout.getComponentOffsets().begin(), layout.getComponentOffsets().end());
   definition.holeLayers = layout.getHoleLayers();
   const auto catalog = layout.getSurfaceCatalog();
-  BOOST_REQUIRE(frame.configure(SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
-                                              std::move(definition)},
+  BOOST_REQUIRE(frame.configure(DetectorLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                                               std::move(definition)},
                                 0, 0, std::make_shared<BoundedMemoryResource>()));
 }
 

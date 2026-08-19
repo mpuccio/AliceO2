@@ -176,30 +176,31 @@ void checkRuntimeROFViewMatchesFrozenBuilder()
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlySparseTopologyAndRuntimeROFViews)
+BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlyRuntimeTopologyAndROFViews)
 {
   scanCommonProductionSources(trackingRoot());
 }
 
-BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
+BOOST_AUTO_TEST_CASE(DenseTopologyViewUsesLayoutPositions)
 {
-  std::vector<SurfaceDescriptor> surfaces;
-  for (uint16_t id = 0; id < 8; ++id) {
-    surfaces.emplace_back(LayerId{id}, id, 0, SurfaceKind::Cylinder);
-  }
-  const std::vector<LayerId> ordered{LayerId{5}, LayerId{2}, LayerId{7}};
-  const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)};
+  const std::vector<SurfaceDescriptor> surfaces{
+    SurfaceDescriptor{5, 0, SurfaceKind::Cylinder},
+    SurfaceDescriptor{2, 0, SurfaceKind::Cylinder},
+    SurfaceDescriptor{7, 0, SurfaceKind::Cylinder}};
+  const auto layout = DetectorLayout{surfaces, makeDetectorLayout()};
   TrackingParameters parameters;
-  parameters.NLayers = static_cast<int>(ordered.size());
+  parameters.NLayers = static_cast<int>(surfaces.size());
   const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_REQUIRE_EQUAL(topology.edges.size(), 2u);
   BOOST_REQUIRE_EQUAL(topology.paths.size(), 1u);
-  BOOST_CHECK(topology.edges[0].from == LayerId{5});
-  BOOST_CHECK(topology.edges[0].to == LayerId{2});
-  BOOST_CHECK(topology.edges[1].from == LayerId{2});
-  BOOST_CHECK(topology.edges[1].to == LayerId{7});
+  BOOST_CHECK(topology.edges[0].from == LayerId{0});
+  BOOST_CHECK(topology.edges[0].to == LayerId{1});
+  BOOST_CHECK(topology.edges[1].from == LayerId{1});
+  BOOST_CHECK(topology.edges[1].to == LayerId{2});
+  BOOST_CHECK_EQUAL(layout[LayerId{0}].detectorSurfaceIndex, 5u);
+  BOOST_CHECK_EQUAL(layout[LayerId{2}].detectorSurfaceIndex, 7u);
   const auto& path = topology.paths.front();
   BOOST_CHECK(path.first == EdgeId{0});
   BOOST_CHECK(path.second == EdgeId{1});

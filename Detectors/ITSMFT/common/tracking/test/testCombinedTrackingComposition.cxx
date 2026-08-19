@@ -314,7 +314,7 @@ struct StandaloneRun {
     const auto orderedSurfaces = ordered(0, NLayers);
     catalog.reserve(NLayers);
     for (uint16_t i = 0; i < NLayers; ++i) {
-      SurfaceDescriptor surface{LayerId{i}, i, static_cast<uint8_t>(det), kind};
+      SurfaceDescriptor surface{i, static_cast<uint8_t>(det), kind};
       surface.chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{kMFTLookupRMin[i], kMFTLookupRMax[i]} : SurfaceChartRange{-20.f, 20.f};
       surface.referenceCoordinate = kind == SurfaceKind::Cylinder
                                       ? singleParams.LayerRadii[i]
@@ -328,7 +328,7 @@ struct StandaloneRun {
     TrackerInitialization configuration;
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
-    configuration.layout = makeSurfaceLayoutChain(orderedSurfaces);
+    configuration.layout = makeDetectorLayout();
     configuration.parameters.push_back(singleParams);
     const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
@@ -344,9 +344,10 @@ struct StandaloneRun {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     PrescribedDecoder decoder{det, kind, decoded};
+    const auto layerMapping = ordered(0, NLayers);
     const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
                                           compact, patterns, rofs, &dict(), nullptr, det,
-                                          gsl::span<const LayerId>{frame.getLayout().getOrderedSurfaces()},
+                                          gsl::span<const LayerId>{layerMapping},
                                           frame.getLayout().getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
@@ -428,7 +429,7 @@ struct CombinedTrackingComposer {
       return std::nullopt;
     }
     return GenericTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *itsClock,
-                                         plan.getITSOrderedSurfaces()};
+                                         plan.getITSLayerMapping()};
   }
   std::optional<GenericTrackPublicationExport> getMFTPublicationExport() const
   {
@@ -436,7 +437,7 @@ struct CombinedTrackingComposer {
       return std::nullopt;
     }
     return GenericTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock,
-                                         plan.getMFTOrderedSurfaces()};
+                                         plan.getMFTLayerMapping()};
   }
 
   Result process(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource, const o2::InteractionRecord& origin)
@@ -502,8 +503,8 @@ struct CombinedTrackingComposer {
   const TimeFrameScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
   const TimeFrameScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return plan.getITSSharedClusterCompatibility(); }
-  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }
-  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return plan.getMFTOrderedSurfaces(); }
+  gsl::span<const LayerId> getITSLayerMapping() const noexcept { return plan.getITSLayerMapping(); }
+  gsl::span<const LayerId> getMFTLayerMapping() const noexcept { return plan.getMFTLayerMapping(); }
 };
 
 CombinedTrackingComposer makeComposer(const TrackingParameters& itsParams, const TrackingParameters& mftParams)
@@ -769,12 +770,12 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_REQUIRE(mftExport.has_value());
   BOOST_CHECK(itsExport->detector == o2::detectors::DetID::ITS);
   BOOST_CHECK(itsExport->source == ClusterSourceId{0});
-  BOOST_CHECK_EQUAL(itsExport->orderedSurfaces.size(), static_cast<size_t>(ITSNLayers));
-  BOOST_CHECK(itsExport->orderedSurfaces[0] == LayerId{0});
+  BOOST_CHECK_EQUAL(itsExport->layerMapping.size(), static_cast<size_t>(ITSNLayers));
+  BOOST_CHECK(itsExport->layerMapping[0] == LayerId{0});
   BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
   BOOST_CHECK(mftExport->source == ClusterSourceId{1});
-  BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
-  BOOST_CHECK(mftExport->orderedSurfaces[0] == LayerId{ITSNLayers});
+  BOOST_CHECK_EQUAL(mftExport->layerMapping.size(), static_cast<size_t>(MFTNLayers));
+  BOOST_CHECK(mftExport->layerMapping[0] == LayerId{ITSNLayers});
 }
 
 BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPublication)
@@ -1103,8 +1104,8 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
 
   // Configuration is installed before ordered-surface access; publication
   // exports remain unavailable until an event is processed.
-  const auto itsSurfacesBefore = composer.getITSOrderedSurfaces();
-  const auto mftSurfacesBefore = composer.getMFTOrderedSurfaces();
+  const auto itsSurfacesBefore = composer.getITSLayerMapping();
+  const auto mftSurfacesBefore = composer.getMFTLayerMapping();
   BOOST_REQUIRE_EQUAL(itsSurfacesBefore.size(), static_cast<size_t>(ITSNLayers));
   BOOST_REQUIRE_EQUAL(mftSurfacesBefore.size(), static_cast<size_t>(MFTNLayers));
   BOOST_CHECK(itsSurfacesBefore[0] == LayerId{0});
@@ -1122,8 +1123,8 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
   composer.setNThreads(1);
   const auto failed = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(failed.outcome != TrackingOutcome::Success);
-  BOOST_CHECK(composer.getITSOrderedSurfaces().data() == itsSurfacesBefore.data());
-  BOOST_CHECK(composer.getMFTOrderedSurfaces().data() == mftSurfacesBefore.data());
+  BOOST_CHECK(composer.getITSLayerMapping().data() == itsSurfacesBefore.data());
+  BOOST_CHECK(composer.getMFTLayerMapping().data() == mftSurfacesBefore.data());
 }
 
 BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
@@ -1221,10 +1222,10 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   BOOST_REQUIRE(mftExport.has_value());
   BOOST_CHECK(itsExport->detector == o2::detectors::DetID::ITS);
   BOOST_CHECK(itsExport->source == ClusterSourceId{0});
-  BOOST_CHECK_EQUAL(itsExport->orderedSurfaces.size(), static_cast<size_t>(ITSNLayers));
+  BOOST_CHECK_EQUAL(itsExport->layerMapping.size(), static_cast<size_t>(ITSNLayers));
   BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
   BOOST_CHECK(mftExport->source == ClusterSourceId{1});
-  BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
+  BOOST_CHECK_EQUAL(mftExport->layerMapping.size(), static_cast<size_t>(MFTNLayers));
 }
 
 BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipantOrSidecarState)

@@ -17,14 +17,6 @@ namespace
 using namespace o2::itsmft::tracking;
 using o2::itsmft::TrackingParameters;
 
-std::vector<LayerId> ordered(uint16_t first, uint16_t count)
-{
-  std::vector<LayerId> result;
-  for (uint16_t i = 0; i < count; ++i) {
-    result.emplace_back(static_cast<uint16_t>(first + i));
-  }
-  return result;
-}
 } // namespace
 
 BOOST_AUTO_TEST_CASE(CombinedStaticCatalogHasDenseGlobalIdsAndQualifiedIdentity)
@@ -32,7 +24,7 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogHasDenseGlobalIdsAndQualifiedIdentity)
   BOOST_REQUIRE_EQUAL(kITSMFTCombinedStaticSurfaceCatalog.size(), static_cast<std::size_t>(ITSNLayers + MFTNLayers));
   for (uint16_t i = 0; i < kITSMFTCombinedStaticSurfaceCatalog.size(); ++i) {
     const auto& surface = kITSMFTCombinedStaticSurfaceCatalog[i];
-    BOOST_CHECK(surface.id == LayerId{i});
+    BOOST_CHECK(&surface == &kITSMFTCombinedStaticSurfaceCatalog[i]);
     if (i < ITSNLayers) {
       BOOST_CHECK_EQUAL(surface.detectorId, static_cast<uint8_t>(o2::detectors::DetID::ITS));
       BOOST_CHECK(surface.kind == SurfaceKind::Cylinder);
@@ -46,17 +38,14 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogHasDenseGlobalIdsAndQualifiedIdentity)
 }
 BOOST_AUTO_TEST_CASE(CombinedStaticCatalogDerivesDisconnectedHoleTopology)
 {
-  SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = ordered(0, ITSNLayers);
-  const auto mft = ordered(ITSNLayers, MFTNLayers);
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mft.begin(), mft.end());
+  DetectorLayoutDefinition definition;
   definition.componentOffsets = {0, ITSNLayers};
   definition.holeLayers.set(3);
   definition.holeLayers.set(static_cast<uint16_t>(ITSNLayers + 5));
 
-  const auto layout = SurfaceLayout{kITSMFTCombinedStaticSurfaceCatalog, std::move(definition)};
+  const auto layout = DetectorLayout{kITSMFTCombinedStaticSurfaceCatalog, std::move(definition)};
   TrackingParameters parameters;
-  parameters.NLayers = static_cast<int>(layout.getOrderedSurfaces().size());
+  parameters.NLayers = static_cast<int>(layout.size());
   parameters.MaxHoles = 1;
   const auto result = deriveTraversalTopology(layout, parameters);
   BOOST_REQUIRE(result.ok());

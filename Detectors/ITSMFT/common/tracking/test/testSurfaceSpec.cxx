@@ -24,8 +24,8 @@ namespace
 constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16_t local, float radius = 2.f,
                                            float material = 0.01f, float arealDensity = 0.f)
 {
-  return {LayerId{id},
-          {detector, local},
+  (void)id;
+  return {{detector, local},
           SurfaceKind::Cylinder,
           radius,
           {material, arealDensity}};
@@ -34,8 +34,8 @@ constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16
 constexpr StaticSurfaceDescriptor disk(uint16_t id, uint8_t detector, uint16_t local, float z = -40.f,
                                        float material = 0.02f, float arealDensity = 0.f)
 {
-  return {LayerId{id},
-          {detector, local},
+  (void)id;
+  return {{detector, local},
           SurfaceKind::Disk,
           z,
           {material, arealDensity}};
@@ -92,8 +92,6 @@ struct MutatedCylinders {
   }();
 };
 
-constexpr auto duplicateId = [](auto& surfaces) { surfaces[1].id = LayerId{0}; };
-constexpr auto sparseId = [](auto& surfaces) { surfaces[1].id = LayerId{2}; };
 constexpr auto duplicateIdentity = [](auto& surfaces) { surfaces[1].identity = surfaces[0].identity; };
 constexpr auto sparseLocalIdentity = [](auto& surfaces) { surfaces[1].identity.detectorSurfaceIndex = 2; };
 constexpr auto invalidKind = [](auto& surfaces) { surfaces[0].kind = static_cast<SurfaceKind>(0xff); };
@@ -133,8 +131,6 @@ struct CrossBoundaryIdentityCollision {
 using ThirtyTwoCombined = ConcatenatedSurfaceSpec<ThirtyOneSurfaces, OneSurface>;
 
 static_assert(SurfaceSpec<Cylinders> && SurfaceSpec<Disks> && SurfaceSpec<Combined>);
-static_assert(SurfaceSpecDefinition<MutatedCylinders<sparseId>>);
-static_assert(!SurfaceSpec<MutatedCylinders<sparseId>>);
 static_assert(SurfaceSpecDefinition<ThirtyThreeSurfaces>);
 static_assert(!SurfaceSpec<ThirtyThreeSurfaces>);
 static_assert(validateSurfaceSpec<Cylinders>());
@@ -147,8 +143,6 @@ static_assert(Cylinders::surfaces.data() == &Cylinders::surfaces[0]);
 static_assert(!HasEdges<Cylinders> && !HasTopology<Cylinders>);
 static_assert(!HasEdges<Combined> && !HasTopology<Combined>);
 
-static_assert(!validateSurfaceSpec<MutatedCylinders<duplicateId>>());
-static_assert(!validateSurfaceSpec<MutatedCylinders<sparseId>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<duplicateIdentity>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<sparseLocalIdentity>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<invalidKind>>());
@@ -170,8 +164,6 @@ static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteArealDensity>>());
 static_assert(validateSurfaceSpec<ThirtyTwoSurfaces>());
 static_assert(!validateSurfaceSpec<ThirtyThreeSurfaces>());
 static_assert(SurfaceSpecsCanBeConcatenated<Cylinders, Disks>);
-static_assert(!SurfaceSpecsCanBeConcatenated<MutatedCylinders<sparseId>, Disks>);
-static_assert(!SurfaceSpecsCanBeConcatenated<Disks, MutatedCylinders<sparseId>>);
 static_assert(!SurfaceSpecsCanBeConcatenated<Cylinders, CrossBoundaryIdentityCollision>);
 static_assert(SurfaceSpecsCanBeConcatenated<ThirtyOneSurfaces, OneSurface>);
 static_assert(!SurfaceSpecsCanBeConcatenated<ThirtyTwoSurfaces, OneSurface>);
@@ -216,12 +208,8 @@ BOOST_AUTO_TEST_CASE(SurfaceDescriptorRuntimeAbiLock)
   BOOST_CHECK_EQUAL(defaultStatic.material.arealDensityGPerCm2, 0.f);
 }
 
-BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
+BOOST_AUTO_TEST_CASE(ConcatenationPreservesFields)
 {
-  BOOST_CHECK_EQUAL(Combined::surfaces[0].id.value(), 0);
-  BOOST_CHECK_EQUAL(Combined::surfaces[1].id.value(), 1);
-  BOOST_CHECK_EQUAL(Combined::surfaces[2].id.value(), 2);
-  BOOST_CHECK_EQUAL(Combined::surfaces[3].id.value(), 3);
   BOOST_CHECK((Combined::surfaces[0].identity == DetectorLayerIdentity{37, 0}));
   BOOST_CHECK((Combined::surfaces[1].identity == DetectorLayerIdentity{37, 1}));
   BOOST_CHECK((Combined::surfaces[2].identity == DetectorLayerIdentity{201, 0}));
@@ -234,7 +222,6 @@ BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
 BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
 {
   const auto projectedCylinder = toRuntimeSurfaceDescriptor(Cylinders::surfaces[1]);
-  BOOST_CHECK(projectedCylinder.id == LayerId{1});
   BOOST_CHECK_EQUAL(projectedCylinder.detectorId, 37);
   BOOST_CHECK_EQUAL(projectedCylinder.detectorSurfaceIndex, 1);
   BOOST_CHECK(projectedCylinder.kind == SurfaceKind::Cylinder);
@@ -244,7 +231,6 @@ BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
   BOOST_CHECK_EQUAL(projectedCylinder.material.arealDensityGPerCm2, Cylinders::surfaces[1].material.arealDensityGPerCm2);
 
   const auto projectedDisk = toRuntimeSurfaceDescriptor(Disks::surfaces[0]);
-  BOOST_CHECK(projectedDisk.id == LayerId{0});
   BOOST_CHECK_EQUAL(projectedDisk.detectorId, 201);
   BOOST_CHECK_EQUAL(projectedDisk.detectorSurfaceIndex, 0);
   BOOST_CHECK(projectedDisk.kind == SurfaceKind::Disk);
