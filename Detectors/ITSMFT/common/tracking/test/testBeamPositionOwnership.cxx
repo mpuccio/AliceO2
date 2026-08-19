@@ -1,35 +1,22 @@
 // Copyright 2019-2026 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
-//
-// This software is distributed under the terms of the GNU General Public
-// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
-
-// Gate 4 M7e adapter-ownership correction: the adapter-edge beam-position
-// operation must not consult
-// TrackerParamRef<ITS>::get() (o2::its::TrackerParamConfig, the frozen legacy
-// "ITSCATrackerParam" namespace) for overrideBeamEstimation -- the common
-// workflow constructor/configuration (the overrideBeamEstimation argument
-// itself, plus TrackingParameters::UseDiamond, both ultimately sourced from
-// ITSCommonCATrackerParam via TrackingMode::getTrackingParameters()) is the
-// sole owner of the selected static-diamond constraint. MFT is unchanged:
-// its branch never reads TrackerParamRef<MFT>::get() at all (it always uses
-// the diamond), so it needs no isolation and this file only re-confirms that
-// with a no-regression check.
-//
-// It is called directly here with a bare TimeFrame, with no
-// geometry/dictionary/GRP fixture required.
 
 #define BOOST_TEST_MODULE ITSMFT BeamPositionOwnership
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
-#include "DataFormatsCalibration/MeanVertexObject.h"
+#include <memory>
+
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITStracking/TrackingConfigParam.h"
+
+#include "TraversalTestSupport.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -42,8 +29,6 @@ o2::its::TrackerParamConfig& mutableLegacyITSTrackerParamConfig()
   return const_cast<o2::its::TrackerParamConfig&>(o2::its::TrackerParamConfig::Instance());
 }
 
-// Restores the legacy singleton field this test file stages, on scope exit
-// (including a thrown/failed check).
 struct ScopedLegacyOverrideBeamEstimation {
   ScopedLegacyOverrideBeamEstimation()
     : original(mutableLegacyITSTrackerParamConfig().overrideBeamEstimation)
@@ -56,103 +41,64 @@ struct ScopedLegacyOverrideBeamEstimation {
   bool original;
 };
 
-TrackingParameters diamondParameters(float dx, float dy, float dz)
-{
-  TrackingParameters p;
-  p.UseDiamond = true;
-  p.Diamond[0] = dx;
-  p.Diamond[1] = dy;
-  p.Diamond[2] = dz;
-  return p;
-}
+struct TrackerRig {
+  explicit TrackerRig(bool useDiamond)
+  {
+    resetDetectorDefaults(parameters, o2::detectors::DetID::ITS);
+    parameters.UseDiamond = useDiamond;
+    parameters.Diamond[0] = 1.f;
+    parameters.Diamond[1] = 2.f;
+    parameters.DiamondCov[3] = 0.25f;
 
-DetectorConfiguration detectorConfiguration(const TrackingParameters& p)
-{
-  DetectorConfiguration detector;
-  detector.layerResolution = p.LayerResolution;
-  detector.systError2Row = p.SystError2Row;
-  return detector;
-}
+    TrackerInitialization configuration;
+    configuration.catalog = {kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
+    configuration.layout = makeDetectorLayout();
+    configuration.parameters.push_back(parameters);
+    configuration.memoryPool = std::make_shared<BoundedMemoryResource>();
+    BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+  }
 
-// Distinct from the diamond above so a test can tell which source actually
-// won.
-o2::dataformats::MeanVertexObject meanVertexAt(float x, float y)
-{
-  return o2::dataformats::MeanVertexObject{x, y, 0.f, 0.02f, 0.02f, 6.f, 0.f, 0.f};
-}
+  TrackingParameters parameters;
+  TimeFrame frame;
+  Tracker tracker;
+};
 
 } // namespace
 
-// --- ITS: a legacy overrideBeamEstimation=true must not, by itself, steer
-// the common ITS beam position onto the MeanVertex source. Only the
-// constructor/configuration-supplied overrideBeamEstimation argument may. ---
-
-BOOST_FIXTURE_TEST_CASE(LegacyOverrideBeamEstimationAloneDoesNotSelectMeanVertex, ScopedLegacyOverrideBeamEstimation)
+BOOST_FIXTURE_TEST_CASE(TrackerAppliesItsOwnedDiamondConfiguration, ScopedLegacyOverrideBeamEstimation)
 {
   mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = true;
+  TrackerRig rig{/*useDiamond=*/true};
+  rig.frame.setBeamPosition(7.f, 8.f, 0.5f);
 
-  TimeFrame tf;
-  const auto p = diamondParameters(1.f, 2.f, 3.f);
-  const auto meanVertex = meanVertexAt(-9.f, -8.f);
+  TrackerTestAccess::configureBeamPosition(rig.tracker, rig.frame);
 
-  // overrideBeamEstimation argument itself is false: if the legacy field
-  // above still leaked in (the pre-fix "overrideBeamEstimation || tc.overrideBeamEstimation"
-  // condition), the beam position would come from meanVertex (-9, -8)
-  // instead of the diamond (1, 2).
-  detail::configureITSBeamPosition(tf, p, detectorConfiguration(p), &meanVertex, /*overrideBeamEstimation=*/false);
-
-  BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
-  BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
+  BOOST_CHECK_CLOSE(rig.frame.getBeamX(), 1.f, 1e-4);
+  BOOST_CHECK_CLOSE(rig.frame.getBeamY(), 2.f, 1e-4);
+  BOOST_CHECK_EQUAL(rig.frame.getBeamPositionVariance(), 0.25f);
 }
 
-BOOST_FIXTURE_TEST_CASE(ConstructorOverrideBeamEstimationStillSelectsMeanVertex, ScopedLegacyOverrideBeamEstimation)
+BOOST_AUTO_TEST_CASE(TrackerReappliesDiamondForEveryTimeFrame)
 {
-  // The legacy field is left at its default (false) here: the common
-  // workflow's own overrideBeamEstimation argument is the sole owner and
-  // must still work on its own, unassisted by the legacy field.
-  BOOST_REQUIRE_EQUAL(mutableLegacyITSTrackerParamConfig().overrideBeamEstimation, false);
+  TrackerRig rig{/*useDiamond=*/true};
+  TrackerTestAccess::configureBeamPosition(rig.tracker, rig.frame);
+  rig.frame.setBeamPosition(-9.f, -8.f, 0.5f);
 
-  TimeFrame tf;
-  const auto p = diamondParameters(1.f, 2.f, 3.f);
-  const auto meanVertex = meanVertexAt(-9.f, -8.f);
+  TrackerTestAccess::configureBeamPosition(rig.tracker, rig.frame);
 
-  detail::configureITSBeamPosition(tf, p, detectorConfiguration(p), &meanVertex, /*overrideBeamEstimation=*/true);
-
-  BOOST_CHECK_CLOSE(tf.getBeamX(), -9.f, 1e-4);
-  BOOST_CHECK_CLOSE(tf.getBeamY(), -8.f, 1e-4);
-  BOOST_CHECK_EQUAL(tf.getBeamPositionVariance(), meanVertex.getSigmaY2());
+  BOOST_CHECK_CLOSE(rig.frame.getBeamX(), 1.f, 1e-4);
+  BOOST_CHECK_CLOSE(rig.frame.getBeamY(), 2.f, 1e-4);
+  BOOST_CHECK_EQUAL(rig.frame.getBeamPositionVariance(), 0.25f);
 }
 
-BOOST_FIXTURE_TEST_CASE(ITSFallsBackToDiamondWhenNeitherOverrideIsSet, ScopedLegacyOverrideBeamEstimation)
+BOOST_AUTO_TEST_CASE(TrackerPreservesEstimatedBeamWhenDiamondIsDisabled)
 {
-  mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = false;
+  TrackerRig rig{/*useDiamond=*/false};
+  rig.frame.setBeamPosition(7.f, 8.f, 0.5f);
 
-  TimeFrame tf;
-  const auto p = diamondParameters(1.f, 2.f, 3.f);
-  const auto meanVertex = meanVertexAt(-9.f, -8.f);
+  TrackerTestAccess::configureBeamPosition(rig.tracker, rig.frame);
 
-  detail::configureITSBeamPosition(tf, p, detectorConfiguration(p), &meanVertex, /*overrideBeamEstimation=*/false);
-
-  BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
-  BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
-}
-
-// --- MFT: no regression. The MFT branch always uses the diamond and never
-// reads overrideBeamEstimation (constructor argument or legacy field). ---
-
-BOOST_FIXTURE_TEST_CASE(MFTAlwaysUsesDiamondRegardlessOfOverrideArguments, ScopedLegacyOverrideBeamEstimation)
-{
-  mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = true; // must have no effect on MFT either
-
-  TimeFrame tf;
-  TrackingParameters p;
-  p.Diamond[0] = 4.f;
-  p.Diamond[1] = 5.f;
-  p.Diamond[2] = 6.f;
-  const auto meanVertex = meanVertexAt(-9.f, -8.f);
-
-  detail::configureMFTBeamPosition(tf, p, detectorConfiguration(p));
-
-  BOOST_CHECK_CLOSE(tf.getBeamX(), 4.f, 1e-4);
-  BOOST_CHECK_CLOSE(tf.getBeamY(), 5.f, 1e-4);
+  BOOST_CHECK_CLOSE(rig.frame.getBeamX(), 7.f, 1e-4);
+  BOOST_CHECK_CLOSE(rig.frame.getBeamY(), 8.f, 1e-4);
+  BOOST_CHECK_EQUAL(rig.frame.getBeamPositionVariance(), 0.5f);
 }

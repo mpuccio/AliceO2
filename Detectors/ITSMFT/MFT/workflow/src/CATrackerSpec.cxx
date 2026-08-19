@@ -225,9 +225,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     return o2::itsmft::tracking::TrackingOutcome::Success;
   }
   const auto& params = mTracker->getIterationConfigurations().front().parameters;
-  const auto& detector = mTracker->getDetectorConfiguration();
   mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
-  o2::itsmft::tracking::detail::configureMFTBeamPosition(mFrame, params, detector);
   const auto views = mFrame.getROFViews();
   if (views.overlap.mLayerCount > 0 && rofs.size() != views.overlap.getLayer(0).mNROFsTF) {
     LOGP(warn, "MFT CA ROF count differs from continuous timing expectation: received {} expected {}",

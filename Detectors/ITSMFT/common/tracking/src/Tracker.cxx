@@ -559,11 +559,23 @@ void Tracker::computeTracksMClabels(TimeFrame& frame) const
   frame.getTrackLabels().swap(trackLabels);
 }
 
+void Tracker::configureBeamPosition(TimeFrame& frame) const
+{
+  const auto& params = mIterations.front().parameters;
+  if (!params.UseDiamond) {
+    return;
+  }
+  const float systErrY2 = mDetectorConfiguration.systError2Row.empty() ? 0.f : mDetectorConfiguration.systError2Row[0];
+  const float layerRes = mDetectorConfiguration.layerResolution.empty() ? 0.f : mDetectorConfiguration.layerResolution[0];
+  frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
+}
+
 TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 {
   if (mRefitFunction == nullptr || !isConfiguredFor(frame)) {
     throw TraversalException{-1, TraversalFailureReason::MissingLayout};
   }
+  configureBeamPosition(frame);
   auto& scratch = frame.getScratch();
   const auto& memoryPool = frame.getMemoryPool();
 

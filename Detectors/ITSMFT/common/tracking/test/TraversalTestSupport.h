@@ -59,6 +59,11 @@ struct TrackerTestAccess {
   {
     tracker.computeTracksMClabels(frame);
   }
+
+  static void configureBeamPosition(Tracker& tracker, TimeFrame& frame)
+  {
+    tracker.configureBeamPosition(frame);
+  }
 };
 
 } // namespace o2::itsmft::tracking

@@ -441,8 +441,7 @@ o2_add_test(beam-position-ownership
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
-                                  O2::MFTTracking
-                                  O2::DataFormatsCalibration)
+                                  O2::ITStracking)
 
 o2_add_test(ioutils-syserror-ownership
             SOURCES testIOUtilsSysErrorOwnership.cxx

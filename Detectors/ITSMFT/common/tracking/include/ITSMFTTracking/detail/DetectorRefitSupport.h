@@ -9,7 +9,6 @@
 
 #include <cmath>
 
-#include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IterationConfiguration.h"
 #include "ITSMFTTracking/RefitDriver.h"
@@ -18,29 +17,6 @@
 
 namespace o2::itsmft::tracking::detail
 {
-
-inline void configureITSBeamPosition(TimeFrame& frame,
-                                     const IterationParameters& params,
-                                     const DetectorConfiguration& detector,
-                                     const o2::dataformats::MeanVertexObject* meanVertex,
-                                     bool overrideBeamEstimation)
-{
-  const float systErrY2 = detector.systError2Row.empty() ? 0.f : detector.systError2Row[0];
-  const float layerRes = detector.layerResolution.empty() ? 0.f : detector.layerResolution[0];
-  if (overrideBeamEstimation && meanVertex != nullptr) {
-    frame.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
-  } else if (params.UseDiamond) {
-    frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
-  }
-}
-
-inline void configureMFTBeamPosition(TimeFrame& frame, const IterationParameters& params,
-                                     const DetectorConfiguration& detector)
-{
-  const float systErrY2 = detector.systError2Row.empty() ? 0.f : detector.systError2Row[0];
-  const float layerRes = detector.layerResolution.empty() ? 0.f : detector.layerResolution[0];
-  frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
-}
 
 inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 {
