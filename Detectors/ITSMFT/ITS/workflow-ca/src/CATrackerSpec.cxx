@@ -56,7 +56,7 @@ namespace
 using namespace o2::itsmft::tracking;
 
 template <int NLayers>
-constexpr std::array<LayerId, NLayers> identitySurfaceOrder()
+constexpr std::array<LayerId, NLayers> detectorLocalToLayoutLayers()
 {
   std::array<LayerId, NLayers> order{};
   for (int i = 0; i < NLayers; ++i) {
@@ -64,6 +64,8 @@ constexpr std::array<LayerId, NLayers> identitySurfaceOrder()
   }
   return order;
 }
+
+inline constexpr auto kLayerToLayout = detectorLocalToLayoutLayers<ITSNLayers>();
 
 template <int NLayers>
 bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
@@ -184,12 +186,11 @@ void CATrackerDPL::initialiseTracking()
   }
   mTrackerTraits->setNThreads(commonParams.nThreads, taskArena);
 
-  static constexpr auto ordered = identitySurfaceOrder<o2::itsmft::tracking::ITSNLayers>();
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = o2::itsmft::tracking::SurfaceCatalogView{o2::itsmft::tracking::kITSStaticSurfaceCatalog.data(),
                                                                    static_cast<uint32_t>(o2::itsmft::tracking::kITSStaticSurfaceCatalog.size())};
-  configuration.layout = o2::itsmft::tracking::makeSurfaceLayoutChain(
-    ordered, o2::itsmft::tracking::LayerMask{commonParams.holeLayerMask});
+  configuration.layout = o2::itsmft::tracking::makeDetectorLayout(
+    o2::itsmft::tracking::LayerMask{commonParams.holeLayerMask});
   const auto maxMemory = parameters.front().MaxMemory;
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory);
   configuration.parameters = parameters;
@@ -228,7 +229,6 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
         "ITS CA tracker cluster dictionary is not available"};
     }
-    const auto orderedSurfaces = mFrame.getLayout().getOrderedSurfaces();
     const auto rofViews = mFrame.getROFViews();
     if (rofViews.overlap.mLayerCount <= 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
@@ -244,7 +244,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     source.rofs = rofs;
     source.dictionary = mDictionary;
     source.labels = labels;
-    source.layerToSurface = orderedSurfaces;
+    source.layerToSurface = kLayerToLayout;
     source.timing = o2::itsmft::tracking::ROFTimingConfig{clock.mROFLength, clock.mROFDelay, clock.mROFBias, clock.mROFAddTimeErr};
     source.decoder = mClusterDecoder.get();
     source.rofViews = rofViews;
@@ -377,7 +377,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
       const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::ITS, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
-        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout().getOrderedSurfaces()},
+        kLayerToLayout,
         &mExternalIndicesBySurface, &mClusterSizesBySurface};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
       const auto staged = o2::itsmft::tracking::stageITSGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);

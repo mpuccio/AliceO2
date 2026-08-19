@@ -9,7 +9,7 @@
 #ifndef GPUCA_GPUCODE
 #include <optional>
 #include <vector>
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #endif
 
 #include "ITSMFTTracking/IdTypes.h"
@@ -45,12 +45,9 @@ struct TopologyRange {
 
 struct TraversalTopologyView {
   SurfaceCatalogView catalog{};
-  const LayerId* orderedSurfaces{nullptr};
-  uint32_t nOrderedSurfaces{0};
+  uint32_t nLayers{0};
   const LayerId* activeSurfaceList{nullptr};
   uint32_t nActiveSurfaces{0};
-  const int16_t* surfacePositionById{nullptr};
-  uint32_t nSurfacePositions{0};
   LayerMask activeLayers{};
   const Edge* edges{nullptr};
   uint32_t nEdges{0};
@@ -66,7 +63,7 @@ struct TraversalTopologyView {
   uint32_t nRoadStartComponentOffsets{0};
   LayerMask seedingLayers{};
 
-  const SurfaceDescriptor& getSurface(LayerId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
+  const SurfaceDescriptor& getSurface(LayerId id) const { return catalog.getSurface(id); }
   SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
   const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
   const CellPath& getPath(CellPathId id) const { return paths[id.value()]; }
@@ -79,9 +76,8 @@ struct TraversalTopologyView {
 
 #ifndef GPUCA_GPUCODE
 struct TraversalTopology {
-  std::vector<LayerId> orderedSurfaces;
+  uint16_t nLayers{0};
   std::vector<LayerId> activeSurfaceList;
-  std::vector<int16_t> surfacePositionById;
   LayerMask activeLayers{};
   LayerMask seedingLayers{};
   std::vector<Edge> edges;
@@ -95,9 +91,8 @@ struct TraversalTopology {
   TraversalTopologyView getView(SurfaceCatalogView catalog) const noexcept
   {
     return {catalog,
-            orderedSurfaces.data(), static_cast<uint32_t>(orderedSurfaces.size()),
+            nLayers,
             activeSurfaceList.data(), static_cast<uint32_t>(activeSurfaceList.size()),
-            surfacePositionById.data(), static_cast<uint32_t>(surfacePositionById.size()),
             activeLayers,
             edges.data(), static_cast<uint32_t>(edges.size()),
             paths.data(), static_cast<uint32_t>(paths.size()),
@@ -128,7 +123,7 @@ struct TraversalTopologyBuildResult {
 
 // Derive one iteration's topology from the invariant detector layout and the
 // Tracker-owned iteration parameters.
-TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout,
+TraversalTopologyBuildResult deriveTraversalTopology(const DetectorLayout& layout,
                                                      const o2::itsmft::IterationParameters& parameters);
 
 #endif // GPUCA_GPUCODE

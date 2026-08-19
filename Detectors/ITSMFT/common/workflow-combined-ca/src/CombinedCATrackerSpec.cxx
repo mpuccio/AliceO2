@@ -124,31 +124,28 @@ o2::itsmft::tracking::SurfaceCatalogView combinedCatalogView()
           static_cast<uint32_t>(o2::itsmft::tracking::kITSMFTCombinedStaticSurfaceCatalog.size())};
 }
 
-std::vector<o2::itsmft::tracking::LayerId> orderedSurfaceRange(uint16_t first, uint16_t count)
+template <std::size_t N>
+constexpr std::array<o2::itsmft::tracking::LayerId, N> componentLayerMapping(uint16_t first)
 {
-  std::vector<o2::itsmft::tracking::LayerId> result;
-  result.reserve(count);
-  for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(o2::itsmft::tracking::LayerId{static_cast<uint16_t>(first + i)});
+  std::array<o2::itsmft::tracking::LayerId, N> result{};
+  for (uint16_t i = 0; i < N; ++i) {
+    result[i] = o2::itsmft::tracking::LayerId{static_cast<uint16_t>(first + i)};
   }
   return result;
 }
 
-o2::itsmft::tracking::SurfaceLayoutDefinition combinedLayoutDefinition(
-  gsl::span<const o2::itsmft::tracking::LayerId> itsSurfaces,
+inline constexpr auto kITSLayerMapping = componentLayerMapping<o2::itsmft::tracking::ITSNLayers>(0);
+inline constexpr auto kMFTLayerMapping = componentLayerMapping<o2::itsmft::tracking::MFTNLayers>(o2::itsmft::tracking::ITSNLayers);
+
+o2::itsmft::tracking::DetectorLayoutDefinition combinedLayoutDefinition(
   o2::itsmft::tracking::LayerMask itsHoleLayers,
-  gsl::span<const o2::itsmft::tracking::LayerId> mftSurfaces,
   o2::itsmft::tracking::LayerMask mftHoleLayers)
 {
-  o2::itsmft::tracking::SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces.reserve(itsSurfaces.size() + mftSurfaces.size());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), itsSurfaces.begin(), itsSurfaces.end());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftSurfaces.begin(), mftSurfaces.end());
-
-  definition.componentOffsets = {0, static_cast<uint16_t>(itsSurfaces.size())};
+  o2::itsmft::tracking::DetectorLayoutDefinition definition;
+  definition.componentOffsets = {0, o2::itsmft::tracking::ITSNLayers};
 
   definition.holeLayers = itsHoleLayers |
-                          o2::itsmft::tracking::LayerMask{mftHoleLayers.value() << itsSurfaces.size()};
+                          o2::itsmft::tracking::LayerMask{mftHoleLayers.value() << o2::itsmft::tracking::ITSNLayers};
   return definition;
 }
 
@@ -225,8 +222,6 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   // Preflight guarantees Sync mode and one iteration per detector.
   auto itsParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, o2::itsmft::TrackingMode::Sync);
   auto mftParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
-  const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
-  const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
   const auto combinedParams = combinedTrackingParameters(itsParams[0], mftParams[0]);
 
   mTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
@@ -236,8 +231,8 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();
   configuration.layout = combinedLayoutDefinition(
-    itsSurfaces, o2::itsmft::tracking::LayerMask{o2::itsmft::ITSCommonCATrackerParam::Instance().holeLayerMask},
-    mftSurfaces, o2::itsmft::tracking::LayerMask{o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().holeLayerMask});
+    o2::itsmft::tracking::LayerMask{o2::itsmft::ITSCommonCATrackerParam::Instance().holeLayerMask},
+    o2::itsmft::tracking::LayerMask{o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().holeLayerMask});
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(
     std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory));
   configuration.parameters.push_back(combinedParams);
@@ -266,6 +261,16 @@ std::optional<LoadSourcesResult> CombinedCATrackerDPL::validateSources(const Clu
     return LoadSourcesResult{o2::itsmft::tracking::MultiSourceLoadError::UnsupportedDetector, mftSource.id};
   }
   return std::nullopt;
+}
+
+gsl::span<const o2::itsmft::tracking::LayerId> CombinedCATrackerDPL::getITSLayerMapping() const noexcept
+{
+  return mTracker != nullptr && mTracker->isConfiguredFor(mFrame) ? gsl::span<const o2::itsmft::tracking::LayerId>{kITSLayerMapping} : gsl::span<const o2::itsmft::tracking::LayerId>{};
+}
+
+gsl::span<const o2::itsmft::tracking::LayerId> CombinedCATrackerDPL::getMFTLayerMapping() const noexcept
+{
+  return mTracker != nullptr && mTracker->isConfiguredFor(mFrame) ? gsl::span<const o2::itsmft::tracking::LayerId>{kMFTLayerMapping} : gsl::span<const o2::itsmft::tracking::LayerId>{};
 }
 
 o2::itsmft::tracking::SurfaceCatalogView CombinedCATrackerDPL::catalogView() const noexcept
@@ -341,7 +346,7 @@ std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> CombinedCATra
     return std::nullopt;
   }
   return o2::itsmft::tracking::GenericTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *mITSClock,
-                                                             getITSOrderedSurfaces()};
+                                                             getITSLayerMapping()};
 }
 
 std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> CombinedCATrackerDPL::getMFTPublicationExport() const
@@ -350,7 +355,7 @@ std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> CombinedCATra
     return std::nullopt;
   }
   return o2::itsmft::tracking::GenericTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mMFTClock,
-                                                             getMFTOrderedSurfaces()};
+                                                             getMFTLayerMapping()};
 }
 
 TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource,
@@ -467,8 +472,8 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   itsSource.rofs = itsRofs;
   itsSource.dictionary = mITSDict;
   itsSource.labels = itsLabels;
-  // Use the plan's ordered surfaces rather than re-deriving detector offsets.
-  itsSource.layerToSurface = getITSOrderedSurfaces();
+  // Translate detector-local input layers at the application boundary.
+  itsSource.layerToSurface = getITSLayerMapping();
   itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(
     mTracker->getDetectorConfiguration().addTimeError, 0);
   itsSource.decoder = mITSDecoder.get();
@@ -481,7 +486,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.rofs = mftRofs;
   mftSource.dictionary = mMFTDict;
   mftSource.labels = mftLabels;
-  mftSource.layerToSurface = getMFTOrderedSurfaces();
+  mftSource.layerToSurface = getMFTLayerMapping();
   mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(
     mTracker->getDetectorConfiguration().addTimeError, o2::itsmft::tracking::ITSNLayers);
   mftSource.decoder = mMFTDecoder.get();
@@ -507,10 +512,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
       throw std::runtime_error{"Combined ITS+MFT GenericTrack output publication context is unavailable after a successful trackFrame()"};
     }
     const o2::itsmft::tracking::GenericTrackPublicationContext itsContext{
-      itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces,
+      itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->layerMapping,
       &mExternalIndicesBySurface, &mClusterSizesBySurface};
     const o2::itsmft::tracking::GenericTrackPublicationContext mftContext{
-      mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces,
+      mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->layerMapping,
       &mExternalIndicesBySurface, &mClusterSizesBySurface};
 
     // Stage both outputs before requesting either output stream.

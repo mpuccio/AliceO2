@@ -89,11 +89,11 @@ class DetectorPublicationAdapter<ITSNLayers>
     const auto& references = frame.getTrackClusterIndices();
     if (layer < 0 || !isValidTrackRange(track, static_cast<uint32_t>(references.size())) ||
         track.firstClusterRef == track.clusterRefEnd ||
-        static_cast<std::size_t>(layer) >= frame.getLayout().getOrderedSurfaces().size()) {
+        static_cast<std::size_t>(layer) >= frame.getLayout().size()) {
       return std::nullopt;
     }
     const auto& reference = references[track.firstClusterRef];
-    if (reference.layer != frame.getLayout().getOrderedSurfaces()[layer] || !reference.isValid()) {
+    if (reference.layer != LayerId{static_cast<uint16_t>(layer)} || !reference.isValid()) {
       return std::nullopt;
     }
     const auto& state = track.innerState;

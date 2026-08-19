@@ -50,13 +50,13 @@ constexpr NominalSurfaceMaterial itsLayerMaterial(std::size_t layer) noexcept
 
 struct ITSSurfaceSpec {
   inline static constexpr std::array<StaticSurfaceDescriptor, ITSNLayers> surfaces{
-    StaticSurfaceDescriptor{LayerId{0}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 0}, SurfaceKind::Cylinder, 2.3259652f, itsLayerMaterial(0), {-kITSLookupZHalfExtent[0], kITSLookupZHalfExtent[0]}},
-    StaticSurfaceDescriptor{LayerId{1}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 1}, SurfaceKind::Cylinder, 3.1353536f, itsLayerMaterial(1), {-kITSLookupZHalfExtent[1], kITSLookupZHalfExtent[1]}},
-    StaticSurfaceDescriptor{LayerId{2}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 2}, SurfaceKind::Cylinder, 3.9162421f, itsLayerMaterial(2), {-kITSLookupZHalfExtent[2], kITSLookupZHalfExtent[2]}},
-    StaticSurfaceDescriptor{LayerId{3}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 3}, SurfaceKind::Cylinder, 19.58824f, itsLayerMaterial(3), {-kITSLookupZHalfExtent[3], kITSLookupZHalfExtent[3]}},
-    StaticSurfaceDescriptor{LayerId{4}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 4}, SurfaceKind::Cylinder, 24.527159f, itsLayerMaterial(4), {-kITSLookupZHalfExtent[4], kITSLookupZHalfExtent[4]}},
-    StaticSurfaceDescriptor{LayerId{5}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 5}, SurfaceKind::Cylinder, 34.354595f, itsLayerMaterial(5), {-kITSLookupZHalfExtent[5], kITSLookupZHalfExtent[5]}},
-    StaticSurfaceDescriptor{LayerId{6}, {static_cast<uint8_t>(o2::detectors::DetID::ITS), 6}, SurfaceKind::Cylinder, 39.310642f, itsLayerMaterial(6), {-kITSLookupZHalfExtent[6], kITSLookupZHalfExtent[6]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 0}, SurfaceKind::Cylinder, 2.3259652f, itsLayerMaterial(0), {-kITSLookupZHalfExtent[0], kITSLookupZHalfExtent[0]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 1}, SurfaceKind::Cylinder, 3.1353536f, itsLayerMaterial(1), {-kITSLookupZHalfExtent[1], kITSLookupZHalfExtent[1]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 2}, SurfaceKind::Cylinder, 3.9162421f, itsLayerMaterial(2), {-kITSLookupZHalfExtent[2], kITSLookupZHalfExtent[2]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 3}, SurfaceKind::Cylinder, 19.58824f, itsLayerMaterial(3), {-kITSLookupZHalfExtent[3], kITSLookupZHalfExtent[3]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 4}, SurfaceKind::Cylinder, 24.527159f, itsLayerMaterial(4), {-kITSLookupZHalfExtent[4], kITSLookupZHalfExtent[4]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 5}, SurfaceKind::Cylinder, 34.354595f, itsLayerMaterial(5), {-kITSLookupZHalfExtent[5], kITSLookupZHalfExtent[5]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::ITS), 6}, SurfaceKind::Cylinder, 39.310642f, itsLayerMaterial(6), {-kITSLookupZHalfExtent[6], kITSLookupZHalfExtent[6]}},
   };
 };
 
@@ -71,16 +71,16 @@ constexpr NominalSurfaceMaterial mftLayerMaterial(std::size_t layer) noexcept
 
 struct MFTSurfaceSpec {
   inline static constexpr std::array<StaticSurfaceDescriptor, MFTNLayers> surfaces{
-    StaticSurfaceDescriptor{LayerId{0}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 0}, SurfaceKind::Disk, -45.2889f, mftLayerMaterial(0), {kMFTLookupRMin[0], kMFTLookupRMax[0]}},
-    StaticSurfaceDescriptor{LayerId{1}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 1}, SurfaceKind::Disk, -46.7111f, mftLayerMaterial(1), {kMFTLookupRMin[1], kMFTLookupRMax[1]}},
-    StaticSurfaceDescriptor{LayerId{2}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 2}, SurfaceKind::Disk, -48.5889f, mftLayerMaterial(2), {kMFTLookupRMin[2], kMFTLookupRMax[2]}},
-    StaticSurfaceDescriptor{LayerId{3}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 3}, SurfaceKind::Disk, -50.0111f, mftLayerMaterial(3), {kMFTLookupRMin[3], kMFTLookupRMax[3]}},
-    StaticSurfaceDescriptor{LayerId{4}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 4}, SurfaceKind::Disk, -52.3889f, mftLayerMaterial(4), {kMFTLookupRMin[4], kMFTLookupRMax[4]}},
-    StaticSurfaceDescriptor{LayerId{5}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 5}, SurfaceKind::Disk, -53.8111f, mftLayerMaterial(5), {kMFTLookupRMin[5], kMFTLookupRMax[5]}},
-    StaticSurfaceDescriptor{LayerId{6}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 6}, SurfaceKind::Disk, -67.6889f, mftLayerMaterial(6), {kMFTLookupRMin[6], kMFTLookupRMax[6]}},
-    StaticSurfaceDescriptor{LayerId{7}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 7}, SurfaceKind::Disk, -69.1111f, mftLayerMaterial(7), {kMFTLookupRMin[7], kMFTLookupRMax[7]}},
-    StaticSurfaceDescriptor{LayerId{8}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 8}, SurfaceKind::Disk, -76.0889f, mftLayerMaterial(8), {kMFTLookupRMin[8], kMFTLookupRMax[8]}},
-    StaticSurfaceDescriptor{LayerId{9}, {static_cast<uint8_t>(o2::detectors::DetID::MFT), 9}, SurfaceKind::Disk, -77.5111f, mftLayerMaterial(9), {kMFTLookupRMin[9], kMFTLookupRMax[9]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 0}, SurfaceKind::Disk, -45.2889f, mftLayerMaterial(0), {kMFTLookupRMin[0], kMFTLookupRMax[0]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 1}, SurfaceKind::Disk, -46.7111f, mftLayerMaterial(1), {kMFTLookupRMin[1], kMFTLookupRMax[1]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 2}, SurfaceKind::Disk, -48.5889f, mftLayerMaterial(2), {kMFTLookupRMin[2], kMFTLookupRMax[2]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 3}, SurfaceKind::Disk, -50.0111f, mftLayerMaterial(3), {kMFTLookupRMin[3], kMFTLookupRMax[3]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 4}, SurfaceKind::Disk, -52.3889f, mftLayerMaterial(4), {kMFTLookupRMin[4], kMFTLookupRMax[4]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 5}, SurfaceKind::Disk, -53.8111f, mftLayerMaterial(5), {kMFTLookupRMin[5], kMFTLookupRMax[5]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 6}, SurfaceKind::Disk, -67.6889f, mftLayerMaterial(6), {kMFTLookupRMin[6], kMFTLookupRMax[6]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 7}, SurfaceKind::Disk, -69.1111f, mftLayerMaterial(7), {kMFTLookupRMin[7], kMFTLookupRMax[7]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 8}, SurfaceKind::Disk, -76.0889f, mftLayerMaterial(8), {kMFTLookupRMin[8], kMFTLookupRMax[8]}},
+    StaticSurfaceDescriptor{{static_cast<uint8_t>(o2::detectors::DetID::MFT), 9}, SurfaceKind::Disk, -77.5111f, mftLayerMaterial(9), {kMFTLookupRMin[9], kMFTLookupRMax[9]}},
   };
 };
 
@@ -103,12 +103,9 @@ inline constexpr auto kMFTStaticSurfaceCatalog = projectStaticSurfaceCatalog<MFT
 static_assert(kITSStaticSurfaceCatalog.size() == ITSNLayers);
 static_assert(kMFTStaticSurfaceCatalog.size() == MFTNLayers);
 
-// One combined ITS+MFT global id space, compile-time concatenated via the
-// existing ConcatenatedSurfaceSpec mechanism -- not a new abstraction.
-// concatenateAndRebase() rebases `id` densely across the two specs while
-// leaving each StaticSurfaceDescriptor::identity (detector-qualified: own
-// detectorId, own local detectorSurfaceIndex) untouched, so every surface's
-// detector-local identity survives global rebasing unchanged.
+// One combined ITS+MFT descriptor sequence, compile-time concatenated while
+// leaving each detector-local identity untouched. The descriptor position in
+// the eventual DetectorLayout supplies its dense LayerId.
 using CombinedITSMFTSurfaceSpec = ConcatenatedSurfaceSpec<ITSSurfaceSpec, MFTSurfaceSpec>;
 static_assert(SurfaceSpecsCanBeConcatenated<ITSSurfaceSpec, MFTSurfaceSpec>);
 static_assert(SurfaceSpec<CombinedITSMFTSurfaceSpec>);

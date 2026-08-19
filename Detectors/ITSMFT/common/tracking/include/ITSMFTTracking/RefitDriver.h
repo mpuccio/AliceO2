@@ -44,12 +44,11 @@ inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   const TrackSeed& seed,
   const TimeFrame& frame,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-  gsl::span<const LayerId> orderedSurfaces,
   int start, int end, int step,
   gsl::span<RefitMeasurementSlot> out,
   bool& valid) noexcept
 {
-  valid = layerGlobals.size() == orderedSurfaces.size();
+  valid = layerGlobals.size() <= MaxLayoutSurfaces;
   int position = 0;
   for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
     const int clsIdx = seed.getCluster(surfacePosition);
@@ -62,7 +61,7 @@ inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
       return {};
     }
     const auto& global = layerGlobals[surfacePosition][clsIdx];
-    const auto surface = orderedSurfaces[surfacePosition];
+    const auto surface = LayerId{static_cast<uint16_t>(surfacePosition)};
     const auto* measurement = frame.getSurfaceMeasurement(surface, global.clusterId);
     if (measurement == nullptr) {
       valid = false;
@@ -105,10 +104,6 @@ inline bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationRefe
       return false;
     }
     const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(slot.surface);
-    if (descriptor.id != slot.surface) {
-      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
-      return false;
-    }
     if (!Propagator::propagateToMeasurement(scratchState, scratchLinRef, descriptor, slot.measurement, bz, direction,
                                             scratchAcceptedHitCount >= kChi2GateMinAcceptedHits, maxChi2, scratchChi2,
                                             shiftReferenceToMeasurement, reason)) {
@@ -168,7 +163,6 @@ inline bool fitTrackSeedLegs(
   const TimeFrame& frame,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
   SurfaceCatalogView surfaceCatalog,
-  gsl::span<const LayerId> orderedSurfaces,
   float bz,
   bool shiftReferenceToMeasurement,
   float maxChi2ClusterAttachment,
@@ -201,7 +195,7 @@ inline bool fitTrackSeedLegs(
   const int activeSurfaceCount = static_cast<int>(layerGlobals.size());
   std::vector<detail::RefitMeasurementSlot> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
   bool validSlots = false;
-  const auto slotsA = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, 0, activeSurfaceCount, 1, slotsBufferA, validSlots);
+  const auto slotsA = detail::assembleRefitLegSlots(seed, frame, layerGlobals, 0, activeSurfaceCount, 1, slotsBufferA, validSlots);
   if (!validSlots) {
     reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
     return false;
@@ -227,7 +221,7 @@ inline bool fitTrackSeedLegs(
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
   std::vector<detail::RefitMeasurementSlot> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, activeSurfaceCount - 1, -1, -1, slotsBufferB, validSlots);
+  const auto slotsB = detail::assembleRefitLegSlots(seed, frame, layerGlobals, activeSurfaceCount - 1, -1, -1, slotsBufferB, validSlots);
   if (!validSlots) {
     reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
     return false;
@@ -266,7 +260,7 @@ inline bool fitTrackSeedLegs(
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
     std::vector<detail::RefitMeasurementSlot> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = detail::assembleRefitLegSlots(seed, frame, layerGlobals, orderedSurfaces, 0, activeSurfaceCount, 1, slotsBufferC, validSlots);
+    const auto slotsC = detail::assembleRefitLegSlots(seed, frame, layerGlobals, 0, activeSurfaceCount, 1, slotsBufferC, validSlots);
     if (!validSlots) {
       reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
       return false;

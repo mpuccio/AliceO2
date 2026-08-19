@@ -34,7 +34,6 @@ struct DetectorLayerIdentity {
 };
 
 struct StaticSurfaceDescriptor {
-  LayerId id{};
   DetectorLayerIdentity identity{};
   SurfaceKind kind{SurfaceKind::Undefined};
   float nominalReferenceCoordinate{0.f};
@@ -48,8 +47,7 @@ struct StaticSurfaceDescriptor {
 // catalogue.
 GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurfaceDescriptor& source) noexcept
 {
-  return SurfaceDescriptor{source.id,
-                           source.identity.detectorSurfaceIndex,
+  return SurfaceDescriptor{source.identity.detectorSurfaceIndex,
                            source.identity.detectorId,
                            source.kind,
                            0,
@@ -69,9 +67,8 @@ O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 28, 4);
 
 static_assert(offsetof(DetectorLayerIdentity, detectorId) == 0);
 static_assert(offsetof(DetectorLayerIdentity, detectorSurfaceIndex) == 2);
-static_assert(offsetof(StaticSurfaceDescriptor, id) == 0);
-static_assert(offsetof(StaticSurfaceDescriptor, identity) == 2);
-static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
+static_assert(offsetof(StaticSurfaceDescriptor, identity) == 0);
+static_assert(offsetof(StaticSurfaceDescriptor, kind) == 4);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalReferenceCoordinate) == 8);
 static_assert(offsetof(StaticSurfaceDescriptor, material) == 12);
 static_assert(offsetof(StaticSurfaceDescriptor, chartRange) == 20);
@@ -125,8 +122,7 @@ consteval bool validateSurfaceArray(const std::array<StaticSurfaceDescriptor, N>
 
   for (std::size_t i = 0; i < N; ++i) {
     const auto& surface = surfaces[i];
-    if (!surface.id.isValid() || surface.id.value() != i || !isEnabled(surface.kind) ||
-        !isFinite(surface.nominalReferenceCoordinate) ||
+    if (!isEnabled(surface.kind) || !isFinite(surface.nominalReferenceCoordinate) ||
         (surface.kind == SurfaceKind::Cylinder && surface.nominalReferenceCoordinate <= 0.f)) {
       return false;
     }
@@ -198,21 +194,17 @@ consteval bool validateSurfaceSpec()
 namespace detail
 {
 template <SurfaceSpecDefinition A, SurfaceSpecDefinition B>
-consteval auto concatenateAndRebase()
+consteval auto concatenate()
 {
   constexpr auto countA = std::tuple_size_v<std::remove_cv_t<decltype(A::surfaces)>>;
   constexpr auto countB = std::tuple_size_v<std::remove_cv_t<decltype(B::surfaces)>>;
   std::array<StaticSurfaceDescriptor, countA + countB> result{};
   std::size_t output = 0;
   for (const auto& surface : A::surfaces) {
-    result[output] = surface;
-    result[output].id = LayerId{static_cast<uint16_t>(output)};
-    ++output;
+    result[output++] = surface;
   }
   for (const auto& surface : B::surfaces) {
-    result[output] = surface;
-    result[output].id = LayerId{static_cast<uint16_t>(output)};
-    ++output;
+    result[output++] = surface;
   }
   return result;
 }
@@ -225,7 +217,7 @@ consteval bool surfaceSpecsCanBeConcatenated()
   } else if constexpr (SurfaceCount<A> + SurfaceCount<B> > MaxLayoutSurfaces) {
     return false;
   } else {
-    return validateSurfaceArray(concatenateAndRebase<A, B>());
+    return validateSurfaceArray(concatenate<A, B>());
   }
 }
 } // namespace detail
@@ -236,7 +228,7 @@ inline constexpr bool SurfaceSpecsCanBeConcatenated = detail::surfaceSpecsCanBeC
 template <SurfaceSpec A, SurfaceSpec B>
 struct ConcatenatedSurfaceSpec {
   static_assert(SurfaceSpecsCanBeConcatenated<A, B>, "SurfaceSpecs cannot be concatenated into a valid catalogue");
-  inline static constexpr auto surfaces = detail::concatenateAndRebase<A, B>();
+  inline static constexpr auto surfaces = detail::concatenate<A, B>();
 };
 
 } // namespace o2::itsmft::tracking

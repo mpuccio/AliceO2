@@ -35,12 +35,9 @@ struct IterationConfiguration {
   std::vector<CellPathId> cells;
   TrackingKernelParameters kernelParameters{};
 
-  std::optional<uint16_t> getSurfaceSlot(LayerId id) const noexcept
+  bool hasLayer(LayerId id) const noexcept
   {
-    if (!id.isValid() || id.value() >= topology.surfacePositionById.size() || topology.surfacePositionById[id.value()] < 0) {
-      return std::nullopt;
-    }
-    return static_cast<uint16_t>(topology.surfacePositionById[id.value()]);
+    return id.isValid() && id.value() < topology.nLayers;
   }
 
   std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept

@@ -49,7 +49,6 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    float bz,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    SurfaceCatalogView surfaceCatalog,
-                                   gsl::span<const LayerId> orderedSurfaces,
                                    TrackingCandidate& candidate);
 
 #endif
@@ -99,8 +98,6 @@ enum class TraversalFailureReason : uint8_t {
   // Per-position normalized measurements disagree with the loaded frame or
   // compatibility data. Raised before tracking state is touched; spans commit only on success.
   NormalizedMeasurementMismatch,
-  // orderedSurfaces does not map plan positions bijectively to global LayerId.
-  SurfaceLayerMappingMismatch,
   // The iteration configuration cannot translate a traversal ID to a compact scratch slot.
   // This is a binding/layout mismatch, detected before scratch access.
   TraversalBindingMismatch

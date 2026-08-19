@@ -68,10 +68,9 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
                              float bz,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              SurfaceCatalogView surfaceCatalog,
-                             gsl::span<const LayerId> orderedSurfaces,
                              TrackingCandidate& candidate)
 {
-  if (orderedSurfaces.size() != layerGlobals.size()) {
+  if (layerGlobals.size() > MaxLayoutSurfaces || layerGlobals.size() != surfaceCatalog.nSurfaces) {
     return false;
   }
   bool hasMeasurement = false;
@@ -84,7 +83,7 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
       return false;
     }
     const auto& global = layerGlobals[position][clusterIndex];
-    const auto surface = orderedSurfaces[position];
+    const auto surface = LayerId{static_cast<uint16_t>(position)};
     const auto* measurement = frame.getSurfaceMeasurement(surface, global.clusterId);
     if (!surfaceCatalog.hasSurface(surface) || !global.hasValidClusterId() || measurement == nullptr ||
         !std::isfinite(measurement->frame.u) || !std::isfinite(measurement->frame.v) || !std::isfinite(measurement->frame.q) ||
@@ -101,7 +100,7 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs(seed, frame, layerGlobals, surfaceCatalog, orderedSurfaces, bz,
+  if (!fitTrackSeedLegs(seed, frame, layerGlobals, surfaceCatalog, bz,
                         params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                         params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                         paramIn, paramOut, chi2, reason)) {

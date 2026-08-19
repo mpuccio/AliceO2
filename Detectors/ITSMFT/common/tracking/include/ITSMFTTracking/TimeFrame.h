@@ -33,7 +33,7 @@
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/TrackingPrimitives.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/ROFViews.h"
@@ -151,10 +151,10 @@ struct TimeFrame {
   TimeFrameScratch& getScratch();
   const TimeFrameScratch& getScratch() const;
 
-  bool configure(SurfaceLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
+  bool configure(DetectorLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
                  std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
-  const SurfaceLayout& getLayout() const noexcept { return mLayout; }
+  const DetectorLayout& getLayout() const noexcept { return mLayout; }
 
   // Results are valid only with this TimeFrame's measurements.
   auto& getGenericTracks() { return mGenericTracks; }
@@ -206,7 +206,7 @@ struct TimeFrame {
   bool mHasMCInformation{false};
 
   bool mConfigurationValid = false;
-  SurfaceLayout mLayout;
+  DetectorLayout mLayout;
   TimeFrameScratch mScratch;
   void prepareIndexTables(gsl::span<const IndexTableUtilsCore> indexTableConfigs);
   void prepareClusters(int maxLayers);

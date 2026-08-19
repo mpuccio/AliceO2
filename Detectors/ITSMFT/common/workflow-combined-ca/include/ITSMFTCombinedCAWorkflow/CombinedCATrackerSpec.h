@@ -94,21 +94,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   {
     return mITSCompatibility;
   }
-  gsl::span<const o2::itsmft::tracking::LayerId> getITSOrderedSurfaces() const noexcept
-  {
-    if (mTracker == nullptr || !mTracker->isConfiguredFor(mFrame)) {
-      return {};
-    }
-    return mFrame.getLayout().getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
-  }
-  gsl::span<const o2::itsmft::tracking::LayerId> getMFTOrderedSurfaces() const noexcept
-  {
-    if (mTracker == nullptr || !mTracker->isConfiguredFor(mFrame)) {
-      return {};
-    }
-    return mFrame.getLayout().getOrderedSurfaces().subspan(
-      o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
-  }
+  gsl::span<const o2::itsmft::tracking::LayerId> getITSLayerMapping() const noexcept;
+  gsl::span<const o2::itsmft::tracking::LayerId> getMFTLayerMapping() const noexcept;
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;

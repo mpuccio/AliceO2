@@ -111,7 +111,7 @@ struct GenericTrackPublicationExport {
   o2::detectors::DetID::ID detector{};
   ClusterSourceId source{};
   ClockTimingPublicationView clock;
-  gsl::span<const LayerId> orderedSurfaces;
+  gsl::span<const LayerId> layerMapping;
 };
 
 struct GenericTrackPublicationContext {
@@ -119,7 +119,7 @@ struct GenericTrackPublicationContext {
   ClusterSourceId source{};
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
   ClockTimingPublicationView clock;
-  gsl::span<const LayerId> orderedSurfaces;
+  gsl::span<const LayerId> layerMapping;
   const std::vector<std::vector<uint32_t>>* externalIndicesBySurface{nullptr};
   const std::vector<std::vector<uint32_t>>* clusterSizesBySurface{nullptr};
 };
@@ -259,7 +259,7 @@ inline void setOutputClusterRange(o2::mft::TrackMFT& track, int first, int count
 }
 
 template <typename OutputTrack>
-inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const LayerId> orderedSurfaces,
+inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const LayerId> layerMapping,
                               uint32_t maxLayers, std::vector<int>& outputIndices, OutputTrack& output,
                               MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error,
                               const std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
@@ -273,12 +273,12 @@ inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common
       error = GenericTrackOutputAdapterError::UnresolvedReference;
       return false;
     }
-    const auto where = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), key.layer);
-    if (where == orderedSurfaces.end() || static_cast<uint32_t>(where - orderedSurfaces.begin()) >= maxLayers) {
+    const auto where = std::find(layerMapping.begin(), layerMapping.end(), key.layer);
+    if (where == layerMapping.end() || static_cast<uint32_t>(where - layerMapping.begin()) >= maxLayers) {
       error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
     }
-    const auto layer = static_cast<uint32_t>(where - orderedSurfaces.begin());
+    const auto layer = static_cast<uint32_t>(where - layerMapping.begin());
     if (byLayer[layer] != nullptr) {
       error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
@@ -446,7 +446,7 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
     error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageITSGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error,
+  return stageITSGenericTrackOutput(frame, context.source, context.layerMapping, {context.inputROFs, context.clock}, compatibility, withMC, error,
                                     context.externalIndicesBySurface, context.clusterSizesBySurface);
 }
 
@@ -457,7 +457,7 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
     error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, withMC, error,
+  return stageMFTGenericTrackOutput(frame, context.source, context.layerMapping, {context.inputROFs, context.clock}, withMC, error,
                                     context.externalIndicesBySurface, context.clusterSizesBySurface);
 }
 

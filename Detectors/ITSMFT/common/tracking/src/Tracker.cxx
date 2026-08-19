@@ -76,7 +76,7 @@ void validateSparsePlan(const IterationConfiguration& configuration, int iterati
       fail();
     }
     const auto& edge = topology.getEdge(id);
-    if (!configuration.getSurfaceSlot(edge.from) || !configuration.getSurfaceSlot(edge.to)) {
+    if (!configuration.hasLayer(edge.from) || !configuration.hasLayer(edge.to)) {
       fail();
     }
   }
@@ -87,14 +87,12 @@ void validateSparsePlan(const IterationConfiguration& configuration, int iterati
     const auto& path = topology.getPath(id);
     const auto& firstEdge = topology.getEdge(path.first);
     const auto& secondEdge = topology.getEdge(path.second);
-    const auto firstFrom = configuration.getSurfaceSlot(firstEdge.from);
-    const auto firstTo = configuration.getSurfaceSlot(firstEdge.to);
-    const auto secondTo = configuration.getSurfaceSlot(secondEdge.to);
     if (!configuration.getEdgeSlot(path.first) || !configuration.getEdgeSlot(path.second) ||
-        !firstFrom || !firstTo || !secondTo ||
-        !configuration.topology.activeLayers.has(*firstFrom) ||
-        !configuration.topology.activeLayers.has(*firstTo) ||
-        !configuration.topology.activeLayers.has(*secondTo)) {
+        !configuration.hasLayer(firstEdge.from) || !configuration.hasLayer(firstEdge.to) ||
+        !configuration.hasLayer(secondEdge.to) ||
+        !configuration.topology.activeLayers.has(firstEdge.from.value()) ||
+        !configuration.topology.activeLayers.has(firstEdge.to.value()) ||
+        !configuration.topology.activeLayers.has(secondEdge.to.value())) {
       fail();
     }
   }
@@ -110,12 +108,11 @@ void validateSparsePlan(const IterationConfiguration& configuration, int iterati
   }
 }
 
-DetectorConfiguration prepareDetectorConfiguration(const SurfaceLayout& layout, const TrackingParameters& parameters)
+DetectorConfiguration prepareDetectorConfiguration(const DetectorLayout& layout, const TrackingParameters& parameters)
 {
   DetectorConfiguration configuration;
-  const auto orderedSurfaces = layout.getOrderedSurfaces();
   const auto catalog = layout.getSurfaceCatalog();
-  const auto surfaceCount = orderedSurfaces.size();
+  const auto surfaceCount = layout.size();
   if (surfaceCount == 0 || surfaceCount > MaxLayoutSurfaces ||
       parameters.LayerRadii.size() < surfaceCount ||
       parameters.AddTimeError.size() < surfaceCount ||
@@ -125,7 +122,7 @@ DetectorConfiguration prepareDetectorConfiguration(const SurfaceLayout& layout, 
       parameters.LayerxX0.size() != surfaceCount) {
     throw TraversalException{-1, TraversalFailureReason::InvalidSurfaceParameters};
   }
-  configuration.layerMaterial.resize(orderedSurfaces.size());
+  configuration.layerMaterial.resize(surfaceCount);
   configuration.layerRadii.assign(parameters.LayerRadii.begin(), parameters.LayerRadii.begin() + surfaceCount);
   configuration.addTimeError.assign(parameters.AddTimeError.begin(), parameters.AddTimeError.begin() + surfaceCount);
   configuration.layerResolution.assign(parameters.LayerResolution.begin(), parameters.LayerResolution.begin() + surfaceCount);
@@ -133,12 +130,8 @@ DetectorConfiguration prepareDetectorConfiguration(const SurfaceLayout& layout, 
   configuration.systError2Col.assign(parameters.SystError2Col.begin(), parameters.SystError2Col.begin() + surfaceCount);
   configuration.positionResolutions.resize(surfaceCount);
   std::vector<SurfaceChartRange> chartRanges(surfaceCount);
-  for (std::size_t position = 0; position < orderedSurfaces.size(); ++position) {
-    const auto surface = orderedSurfaces[position];
-    if (!surface.isValid() ||
-        std::find(orderedSurfaces.begin(), orderedSurfaces.begin() + position, surface) != orderedSurfaces.begin() + position) {
-      throw TraversalException{-1, TraversalFailureReason::SurfaceLayerMappingMismatch};
-    }
+  for (std::size_t position = 0; position < surfaceCount; ++position) {
+    const auto surface = LayerId{static_cast<uint16_t>(position)};
     const auto& descriptor = catalog.getSurface(surface);
     configuration.layerMaterial[position] = descriptor.material;
     if (parameters.LayerxX0[position] != descriptor.material.xOverX0) {
@@ -154,7 +147,7 @@ DetectorConfiguration prepareDetectorConfiguration(const SurfaceLayout& layout, 
   for (std::size_t position = 0; position < surfaceCount; ++position) {
     if (bindIndexTableConfiguration(configuration.indexTableConfigs[position], parameters,
                                     static_cast<int>(surfaceCount),
-                                    catalog.getSurface(orderedSurfaces[position]).kind,
+                                    catalog.getSurface(LayerId{static_cast<uint16_t>(position)}).kind,
                                     chartRangeView) != IndexTableConfigError::None) {
       throw TraversalException{-1, TraversalFailureReason::InvalidIndexTableConfiguration};
     }
@@ -179,33 +172,29 @@ bool sameDetectorConfiguration(const DetectorConfiguration& lhs, const DetectorC
   return true;
 }
 
-void prepareIterationConfiguration(const SurfaceLayout& layout, const DetectorConfiguration& detector,
+void prepareIterationConfiguration(const DetectorLayout& layout, const DetectorConfiguration& detector,
                                    IterationConfiguration& configuration, int iteration)
 {
   const auto topology = configuration.getTopologyView(layout.getSurfaceCatalog());
   const auto& parameters = configuration.parameters;
-  const auto orderedSurfaces = gsl::span<const LayerId>{configuration.topology.orderedSurfaces};
-  const auto activeSurfaceCount = orderedSurfaces.size();
-  if (activeSurfaceCount == 0 || activeSurfaceCount > MaxLayoutSurfaces ||
-      parameters.NLayers != static_cast<int>(activeSurfaceCount)) {
+  const auto layerCount = configuration.topology.nLayers;
+  if (layerCount == 0 || layerCount > MaxLayoutSurfaces ||
+      parameters.NLayers != static_cast<int>(layerCount)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
 
-  for (std::size_t position = 0; position < activeSurfaceCount; ++position) {
-    const auto surface = orderedSurfaces[position];
-    if (!surface.isValid() || surface.value() >= topology.catalog.nSurfaces) {
-      throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
-    }
+  for (uint16_t position = 0; position < layerCount; ++position) {
+    const auto surface = LayerId{position};
     const auto& descriptor = topology.getSurface(surface);
     if (materialCorrectionModeSupport(descriptor.kind, parameters.CorrType) == MaterialCorrectionModeSupport::Unsupported) {
       throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
     }
   }
 
-  if (!bindAttachHitConfig(detector.layerMaterial, parameters).isValid(static_cast<int>(activeSurfaceCount)) ||
-      detector.layerRadii.size() < activeSurfaceCount ||
-      detector.positionResolutions.size() < activeSurfaceCount ||
-      detector.indexTableConfigs.size() < activeSurfaceCount) {
+  if (!bindAttachHitConfig(detector.layerMaterial, parameters).isValid(static_cast<int>(layerCount)) ||
+      detector.layerRadii.size() < layerCount ||
+      detector.positionResolutions.size() < layerCount ||
+      detector.indexTableConfigs.size() < layerCount) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
   configuration.kernelParameters = bindTrackingKernelParameters(parameters);
@@ -227,11 +216,10 @@ void prepareTraversalEdgeTolerances(
   const auto& trkParam = context.configuration.parameters;
   const auto& topology = graph;
 
-  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
-  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
+  const int layerCount = context.configuration.topology.nLayers;
   std::array<float, MaxLayoutSurfaces> msAngles{};
-  for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
-    const auto surface = orderedSurfaces[iLayer];
+  for (int iLayer{0}; iLayer < layerCount; ++iLayer) {
+    const auto surface = LayerId{static_cast<uint16_t>(iLayer)};
     if (topology.getSurface(surface).kind == SurfaceKind::Cylinder) {
       msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
         CylinderLayerScatteringInputs{attachHitConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
@@ -253,21 +241,18 @@ void prepareTraversalEdgeTolerances(
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
     }
     const auto& edge = topology.getEdge(edgeId);
-    const auto fromPosition = context.configuration.getSurfaceSlot(edge.from);
-    const auto toPosition = context.configuration.getSurfaceSlot(edge.to);
-    if (!fromPosition || !toPosition || *fromPosition >= static_cast<std::size_t>(activeSurfaceCount) ||
-        *toPosition >= static_cast<std::size_t>(activeSurfaceCount)) {
+    if (!context.configuration.hasLayer(edge.from) || !context.configuration.hasLayer(edge.to)) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
     }
-    const int fromLayer = static_cast<int>(*fromPosition);
-    const int toLayer = static_cast<int>(*toPosition);
+    const int fromLayer = edge.from.value();
+    const int toLayer = edge.to.value();
     const float r1 = std::min(context.detectorConfiguration.layerRadii[fromLayer], context.detectorConfiguration.layerRadii[toLayer]);
     const float r2 = std::max(context.detectorConfiguration.layerRadii[fromLayer], context.detectorConfiguration.layerRadii[toLayer]);
     const float edgeOneOverR = clampEdgeCurvature(oneOverR, r2);
     const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, context.detectorConfiguration.positionResolutions[fromLayer]);
     const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, context.detectorConfiguration.positionResolutions[toLayer]);
     const auto prep = ::o2::itsmft::tracking::prepareEdgeScatteringAndBending(
-      gsl::span<const float>(msAngles.data(), static_cast<std::size_t>(activeSurfaceCount)), fromLayer, toLayer, r1, r2, edgeOneOverR, res1, res2);
+      gsl::span<const float>(msAngles.data(), static_cast<std::size_t>(layerCount)), fromLayer, toLayer, r1, r2, edgeOneOverR, res1, res2);
     edgeMSAngles[*edgeSlot] = prep.msAngle;
     edgePhiCuts[*edgeSlot] = prep.phiCut;
   }
@@ -284,21 +269,21 @@ void Tracker::initializeIteration(IterationContext& context) const
   const auto& parameters = configuration.parameters;
   auto& frame = context.frame;
   auto& scratch = context.scratch;
-  const auto activeSurfaceCount = configuration.topology.orderedSurfaces.size();
+  const auto layerCount = configuration.topology.nLayers;
 
   if (parameters.PassFlags[IterationStep::FirstPass]) {
     frame.prepareIndexTables(context.detectorConfiguration.indexTableConfigs);
   } else {
-    for (std::size_t position = 0; position < activeSurfaceCount; ++position) {
+    for (std::size_t position = 0; position < layerCount; ++position) {
       if (!indexTableConfigurationsMatch(context.detectorConfiguration.indexTableConfigs[position],
                                          frame.getIndexTableUtils(static_cast<int>(position)),
-                                         static_cast<int>(activeSurfaceCount))) {
+                                         static_cast<int>(layerCount))) {
         throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
       }
     }
   }
   if (parameters.PassFlags[IterationStep::RebuildClusterLUT]) {
-    frame.prepareClusters(static_cast<int>(activeSurfaceCount));
+    frame.prepareClusters(static_cast<int>(layerCount));
   }
 
   const auto& edgeIds = context.configuration.edges;
@@ -306,11 +291,11 @@ void Tracker::initializeIteration(IterationContext& context) const
   std::vector<std::size_t> trackletLookupSizes;
   trackletLookupSizes.reserve(edgeIds.size());
   for (const auto edgeId : edgeIds) {
-    const auto fromSlot = configuration.getSurfaceSlot(context.topology.getEdge(edgeId).from);
-    if (!fromSlot || *fromSlot >= context.layerGlobalMeasurements.size()) {
+    const auto from = context.topology.getEdge(edgeId).from;
+    if (!configuration.hasLayer(from) || from.value() >= context.layerGlobalMeasurements.size()) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
     }
-    trackletLookupSizes.push_back(context.layerGlobalMeasurements[*fromSlot].size());
+    trackletLookupSizes.push_back(context.layerGlobalMeasurements[from.value()].size());
   }
   scratch.beginIteration(edgeIds.size(), cellIds.size(), trackletLookupSizes);
 
@@ -320,15 +305,13 @@ void Tracker::initializeIteration(IterationContext& context) const
   std::array<bool, MaxLayoutSurfaces> candidateReachableLayers{};
   for (const auto edgeId : edgeIds) {
     const auto& edge = context.topology.getEdge(edgeId);
-    const auto fromSlot = configuration.getSurfaceSlot(edge.from);
-    const auto toSlot = configuration.getSurfaceSlot(edge.to);
-    if (!fromSlot || !toSlot || *fromSlot >= candidateReachableLayers.size() || *toSlot >= candidateReachableLayers.size()) {
+    if (!configuration.hasLayer(edge.from) || !configuration.hasLayer(edge.to)) {
       throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
     }
-    candidateReachableLayers[*fromSlot] = true;
-    candidateReachableLayers[*toSlot] = true;
+    candidateReachableLayers[edge.from.value()] = true;
+    candidateReachableLayers[edge.to.value()] = true;
   }
-  for (std::size_t layer = 0; layer < activeSurfaceCount; ++layer) {
+  for (std::size_t layer = 0; layer < layerCount; ++layer) {
     if (!candidateReachableLayers[layer]) {
       continue;
     }
@@ -357,7 +340,7 @@ void Tracker::initializeIteration(IterationContext& context) const
       seen.reserve(sorted.size());
       for (const auto& measurement : sorted) {
         if (!measurement.hasValidClusterId() ||
-            frame.getSurfaceMeasurement(configuration.topology.orderedSurfaces[layer], measurement.clusterId) == nullptr) {
+            frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(layer)}, measurement.clusterId) == nullptr) {
           throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
         }
         seen.push_back(measurement.clusterId);
@@ -374,11 +357,11 @@ void Tracker::initializeIteration(IterationContext& context) const
 
 std::vector<gsl::span<const GlobalMeasurement>> Tracker::prepareTimeFrame(TimeFrame& frame) const
 {
-  const auto& orderedSurfaces = mIterations.front().topology.orderedSurfaces;
+  const auto layerCount = mIterations.front().topology.nLayers;
   std::vector<gsl::span<const GlobalMeasurement>> measurements;
-  measurements.reserve(orderedSurfaces.size());
-  for (std::size_t position = 0; position < orderedSurfaces.size(); ++position) {
-    const auto surface = orderedSurfaces[position];
+  measurements.reserve(layerCount);
+  for (uint16_t position = 0; position < layerCount; ++position) {
+    const auto surface = LayerId{position};
     const auto globals = frame.getGlobalMeasurements(surface);
     if (globals.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{-1, TraversalFailureReason::NormalizedMeasurementMismatch};
@@ -426,16 +409,12 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
     return result;
   }
 
-  SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{configuration.catalog.surfaces,
-                                                          configuration.catalog.nSurfaces},
-                       configuration.layout};
+  DetectorLayout layout{gsl::span<const SurfaceDescriptor>{configuration.catalog.surfaces,
+                                                           configuration.catalog.nSurfaces},
+                        configuration.layout};
   if (!layout.valid()) {
     result.error = TrackerInitializationError::LayoutInvalid;
     result.layoutError = layout.getError();
-    return result;
-  }
-  if (configuration.layout.orderedSurfaces.empty()) {
-    result.error = TrackerInitializationError::TraversalPlanBuildFailed;
     return result;
   }
   DetectorConfiguration detectorConfiguration;
@@ -453,7 +432,7 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
 
   for (std::size_t iteration = 0; iteration < configuration.parameters.size(); ++iteration) {
     const auto& input = configuration.parameters[iteration];
-    if (input.NLayers != 0 && input.NLayers != configuration.layout.orderedSurfaces.size()) {
+    if (input.NLayers != 0 && input.NLayers != layout.size()) {
       result.error = TrackerInitializationError::CapacityMismatch;
       result.failedIteration = iteration;
       return result;
@@ -477,7 +456,7 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
     }
     IterationConfiguration iterationConfiguration;
     iterationConfiguration.parameters = input;
-    iterationConfiguration.parameters.NLayers = static_cast<int>(configuration.layout.orderedSurfaces.size());
+    iterationConfiguration.parameters.NLayers = static_cast<int>(layout.size());
     iterationConfiguration.topology = *topology.topology;
     iterationConfiguration.edges.reserve(iterationConfiguration.topology.edges.size());
     for (uint16_t edge = 0; edge < iterationConfiguration.topology.edges.size(); ++edge) {

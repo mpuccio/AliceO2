@@ -70,8 +70,7 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
 
 bool appendGenericTrack(TimeFrame& frame,
                         const TrackingCandidate& candidate,
-                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
-                        gsl::span<const LayerId> orderedSurfaces)
+                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   GenericTrack track = candidate.track;
   track.hitLayers = {};
@@ -85,11 +84,8 @@ bool appendGenericTrack(TimeFrame& frame,
     if (localIndex < 0 || static_cast<std::size_t>(localIndex) >= layerMeasurements[position].size()) {
       return false;
     }
-    if (position >= orderedSurfaces.size()) {
-      return false;
-    }
     const auto& measurement = layerMeasurements[position][localIndex];
-    const TrackClusterReference reference{orderedSurfaces[position], 0, measurement.clusterId};
+    const TrackClusterReference reference{LayerId{static_cast<uint16_t>(position)}, 0, measurement.clusterId};
     if (!reference.isValid()) {
       return false;
     }
@@ -180,14 +176,10 @@ int requireScratchCellSlot(const IterationContext& context, int iteration, CellP
 
 int requireSurfacePosition(const IterationContext& context, int iteration, LayerId id)
 {
-  if (!id.isValid()) {
+  if (!context.configuration.hasLayer(id)) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  const auto position = context.configuration.getSurfaceSlot(id);
-  if (!position || *position >= context.configuration.topology.orderedSurfaces.size()) {
-    throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
-  }
-  return static_cast<int>(*position);
+  return id.value();
 }
 
 void TrackerTraits::computeLayerTracklets(IterationContext& context, const int iteration, int iVertex)
@@ -217,7 +209,6 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.configuration.kernelParameters;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
   const auto& topology = mTraversalGraph;
   const Vertex diamondVert(trkParam.Diamond, trkParam.DiamondCov, 1, 1.f);
 
@@ -447,8 +438,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
           MCCompLabel label;
           const auto currentId = mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId;
           const auto nextId = mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId;
-          for (const auto& lab1 : mFrame->getLabels(orderedSurfaces[fromLayer], currentId)) {
-            for (const auto& lab2 : mFrame->getLabels(orderedSurfaces[toLayer], nextId)) {
+          for (const auto& lab1 : mFrame->getLabels(LayerId{static_cast<uint16_t>(fromLayer)}, currentId)) {
+            for (const auto& lab2 : mFrame->getLabels(LayerId{static_cast<uint16_t>(toLayer)}, nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
@@ -481,7 +472,7 @@ void TrackerTraits::computeLayerCells(IterationContext& context, const int itera
   }
 
   if (!bindAttachHitConfig(context.detectorConfiguration.layerMaterial, context.configuration.parameters)
-         .isValid(static_cast<int>(context.configuration.topology.orderedSurfaces.size()))) {
+         .isValid(context.configuration.topology.nLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
@@ -550,9 +541,9 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][sortedId[0]];
         const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][sortedId[1]];
         const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][sortedId[2]];
-        const auto* measurementInner = context.frame.getSurfaceMeasurement(hitBinding.surfaces[0].id, globalInner.clusterId);
-        const auto* measurementMiddle = context.frame.getSurfaceMeasurement(hitBinding.surfaces[1].id, globalMiddle.clusterId);
-        const auto* measurementOuter = context.frame.getSurfaceMeasurement(hitBinding.surfaces[2].id, globalOuter.clusterId);
+        const auto* measurementInner = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[0])}, globalInner.clusterId);
+        const auto* measurementMiddle = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[1])}, globalMiddle.clusterId);
+        const auto* measurementOuter = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[2])}, globalOuter.clusterId);
         if (measurementInner == nullptr || measurementMiddle == nullptr || measurementOuter == nullptr) {
           continue;
         }
@@ -889,8 +880,7 @@ void TrackerTraits::processNeighbours(IterationContext& context, int iteration, 
                                                     context.configuration.parameters);
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
-  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
+  const int activeSurfaceCount = context.configuration.topology.nLayers;
 
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
@@ -944,7 +934,7 @@ void TrackerTraits::processNeighbours(IterationContext& context, int iteration, 
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        const auto* measurement = context.frame.getSurfaceMeasurement(orderedSurfaces[neighbourLayer], neighbourGlobal.clusterId);
+        const auto* measurement = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(neighbourLayer)}, neighbourGlobal.clusterId);
         if (measurement == nullptr) {
           continue;
         }
@@ -1037,12 +1027,12 @@ void TrackerTraits::findRoadsImpl(IterationContext& context, const int iteration
   const auto& mKernelParameters = context.configuration.kernelParameters;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   const gsl::span<const CellPathId> roadStartCells = context.configuration.topology.roadStartPaths;
-  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
-  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
+  const int activeSurfaceCount = context.configuration.topology.nLayers;
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
   // Road starts are the binding's seeding-eligible sparse-plan subsequence.
-  // CellPathId values use compact slots; LayerId is never a vector index.
+  // CellPathId values use compact slots; LayerId directly indexes layout-owned
+  // layer data.
   // Filter roads by absolute q/pT in parameters[4]'s units, identically for
   // both families. Non-finite values fail the finite-bound comparison.
   constexpr float maxAbsQOverPt = 1.e3f;
@@ -1122,7 +1112,6 @@ void TrackerTraits::findRoadsImpl(IterationContext& context, const int iteration
                                                   mBz,
                                                   mLayerGlobalMeasurements,
                                                   mTraversalGraph.getSurfaceCatalogView(),
-                                                  orderedSurfaces,
                                                   temporaryTrack);
           if (refitSuccess) {
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
@@ -1187,8 +1176,7 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
   auto* mFrame = &context.frame;
   const auto& trkParam = context.configuration.parameters;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const auto& orderedSurfaces = context.configuration.topology.orderedSurfaces;
-  const int activeSurfaceCount = static_cast<int>(orderedSurfaces.size());
+  const int activeSurfaceCount = context.configuration.topology.nLayers;
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
@@ -1250,7 +1238,7 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
     const float selectedTimestampError = std::min(selectedTimestampSymmetric.getTimeStampError(), smallestROFHalf);
     track.track.timestamp = {static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() - selectedTimestampError),
                              static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() + selectedTimestampError)};
-    if (!appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements, orderedSurfaces)) {
+    if (!appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements)) {
       LOGP(fatal, "GenericTrack publication failed for an accepted CA track");
     }
 

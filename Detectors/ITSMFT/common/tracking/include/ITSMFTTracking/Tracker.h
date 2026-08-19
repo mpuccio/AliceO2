@@ -26,7 +26,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IterationConfiguration.h"
-#include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -58,7 +58,7 @@ struct TrackingResult {
 
 struct TrackerInitialization {
   SurfaceCatalogView catalog;
-  SurfaceLayoutDefinition layout;
+  DetectorLayoutDefinition layout;
   std::vector<TrackingParameters> parameters;
   std::shared_ptr<BoundedMemoryResource> memoryPool;
 };
@@ -78,7 +78,7 @@ enum class TrackerInitializationError : uint8_t {
 struct TrackerInitializationResult {
   TrackerInitializationError error{TrackerInitializationError::None};
   std::size_t failedIteration{static_cast<std::size_t>(-1)};
-  SurfaceLayoutError layoutError{SurfaceLayoutError::None};
+  DetectorLayoutError layoutError{DetectorLayoutError::None};
   bool ok() const noexcept { return error == TrackerInitializationError::None; }
 };
 

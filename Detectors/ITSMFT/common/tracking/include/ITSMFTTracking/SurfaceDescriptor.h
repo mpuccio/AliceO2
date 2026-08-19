@@ -41,9 +41,10 @@ static_assert(std::is_standard_layout_v<SurfaceChartRange>);
 static_assert(std::is_trivially_copyable_v<SurfaceChartRange>);
 static_assert(sizeof(SurfaceChartRange) == 8);
 
-// Immutable surface identity, geometry and nominal material.
+// Immutable surface geometry and nominal material. Its LayerId is the dense
+// position of this descriptor in DetectorLayout and is intentionally not
+// duplicated here.
 struct SurfaceDescriptor {
-  LayerId id{};
   uint16_t detectorSurfaceIndex{0};
   uint8_t detectorId{0};
   SurfaceKind kind{SurfaceKind::Undefined};
@@ -57,11 +58,10 @@ static_assert(std::is_standard_layout_v<SurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<SurfaceDescriptor>);
 static_assert(sizeof(SurfaceDescriptor) == 28);
 static_assert(alignof(SurfaceDescriptor) == 4);
-static_assert(offsetof(SurfaceDescriptor, id) == 0);
-static_assert(offsetof(SurfaceDescriptor, detectorSurfaceIndex) == 2);
-static_assert(offsetof(SurfaceDescriptor, detectorId) == 4);
-static_assert(offsetof(SurfaceDescriptor, kind) == 5);
-static_assert(offsetof(SurfaceDescriptor, flags) == 6);
+static_assert(offsetof(SurfaceDescriptor, detectorSurfaceIndex) == 0);
+static_assert(offsetof(SurfaceDescriptor, detectorId) == 2);
+static_assert(offsetof(SurfaceDescriptor, kind) == 3);
+static_assert(offsetof(SurfaceDescriptor, flags) == 4);
 static_assert(offsetof(SurfaceDescriptor, referenceCoordinate) == 8);
 static_assert(offsetof(SurfaceDescriptor, material) == 12);
 static_assert(offsetof(SurfaceDescriptor, chartRange) == 20);
@@ -71,26 +71,10 @@ static_assert(offsetof(SurfaceDescriptor, chartRange) == 20);
 struct SurfaceCatalogView {
   const SurfaceDescriptor* surfaces{nullptr};
   uint32_t nSurfaces{0};
-  // Optional lookup for non-dense IDs; null keeps dense catalog indexing.
-  const uint8_t* surfaceIndicesById{nullptr};
 
   GPUhdi() uint32_t getSurfaceIndex(LayerId id) const
   {
-    if (!id.isValid() || id.value() >= MaxLayoutSurfaces) {
-      return nSurfaces;
-    }
-    if (surfaceIndicesById != nullptr) {
-      return surfaceIndicesById[id.value()];
-    }
-    if (id.value() < nSurfaces && surfaces[id.value()].id == id) {
-      return id.value();
-    }
-    for (uint32_t i = 0; i < nSurfaces; ++i) {
-      if (surfaces[i].id == id) {
-        return i;
-      }
-    }
-    return nSurfaces;
+    return id.isValid() && id.value() < nSurfaces ? id.value() : nSurfaces;
   }
 
   GPUhdi() bool hasSurface(LayerId id) const { return getSurfaceIndex(id) < nSurfaces; }

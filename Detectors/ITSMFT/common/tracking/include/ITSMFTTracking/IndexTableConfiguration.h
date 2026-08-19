@@ -40,7 +40,7 @@ enum class IndexTableConfigError : uint8_t {
 
 /// Validates and binds one iteration's parameters into `staged` for its
 /// active endpoint SurfaceKind. Resolve `kind` from the validated
-/// SurfaceLayout and the pass-local traversal workspace, never from NLayers or DetId. On error,
+/// DetectorLayout and the pass-local traversal workspace, never from NLayers or DetId. On error,
 /// `staged` is unchanged. Call once per iteration, outside candidate loops.
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,

@@ -180,13 +180,12 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
   }
 
   const auto& layout = frame.getLayout();
-  const auto orderedSurfaces = layout.getOrderedSurfaces();
-  if (orderedSurfaces.empty()) {
+  if (layout.empty()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
   std::array<bool, MaxLayoutSurfaces> configuredSurfaces{};
-  for (const auto surface : orderedSurfaces) {
-    configuredSurfaces[surface.value()] = true;
+  for (std::size_t position = 0; position < layout.size(); ++position) {
+    configuredSurfaces[position] = true;
   }
   std::array<bool, MaxLayoutSurfaces> mappedSurfaces{};
   for (const auto& source : sources) {
@@ -203,7 +202,8 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
   }
   if (mappedSurfaces != configuredSurfaces) {
     // Attribute an omitted surface only when one source owns its detector.
-    for (const auto surface : orderedSurfaces) {
+    for (uint16_t position = 0; position < layout.size(); ++position) {
+      const auto surface = LayerId{position};
       if (mappedSurfaces[surface.value()]) {
         continue;
       }
@@ -223,8 +223,8 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
   }
 
   frame.setROFViews(sources.front().rofViews);
-  for (std::size_t position = 0; position < orderedSurfaces.size(); ++position) {
-    const auto surface = orderedSurfaces[position];
+  for (uint16_t position = 0; position < layout.size(); ++position) {
+    const auto surface = LayerId{position};
     const ClusterSourceInput* owner = nullptr;
     uint16_t localLayer = 0;
     for (const auto& source : sources) {

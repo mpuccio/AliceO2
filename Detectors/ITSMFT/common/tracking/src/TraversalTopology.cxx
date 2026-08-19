@@ -26,7 +26,7 @@ LayerMask skippedBetween(uint16_t fromPosition, uint16_t toPosition) noexcept
 }
 } // namespace
 
-TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout,
+TraversalTopologyBuildResult deriveTraversalTopology(const DetectorLayout& layout,
                                                      const o2::itsmft::IterationParameters& parameters)
 {
   TraversalTopologyBuildResult result;
@@ -35,8 +35,7 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
     return result;
   }
 
-  const auto orderedSurfaces = layout.getOrderedSurfaces();
-  if (parameters.NLayers != 0 && parameters.NLayers != orderedSurfaces.size()) {
+  if (parameters.NLayers != 0 && parameters.NLayers != layout.size()) {
     result.error = TraversalTopologyError::LayerCountMismatch;
     return result;
   }
@@ -49,13 +48,11 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
   const auto disabledLayers = parameters.InactiveLayerMask;
 
   TraversalTopology topology;
-  topology.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
-  for (uint16_t position = 0; position < orderedSurfaces.size(); ++position) {
-    topology.surfacePositionById[orderedSurfaces[position].value()] = static_cast<int16_t>(position);
+  topology.nLayers = static_cast<uint16_t>(layout.size());
+  for (uint16_t position = 0; position < layout.size(); ++position) {
     if (!disabledLayers.has(position)) {
       topology.activeLayers.set(position);
-      topology.activeSurfaceList.push_back(orderedSurfaces[position]);
+      topology.activeSurfaceList.push_back(LayerId{position});
     }
   }
   if (topology.activeSurfaceList.empty()) {
@@ -70,11 +67,11 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
     return componentForPosition(componentOffsets, position);
   };
 
-  for (uint16_t fromPosition = 0; fromPosition + 1 < orderedSurfaces.size(); ++fromPosition) {
+  for (uint16_t fromPosition = 0; fromPosition + 1 < layout.size(); ++fromPosition) {
     if (!topology.seedingLayers.has(fromPosition)) {
       continue;
     }
-    for (uint16_t toPosition = fromPosition + 1; toPosition < orderedSurfaces.size(); ++toPosition) {
+    for (uint16_t toPosition = fromPosition + 1; toPosition < layout.size(); ++toPosition) {
       if (!topology.seedingLayers.has(toPosition) ||
           componentOf(fromPosition) != componentOf(toPosition)) {
         continue;
@@ -87,7 +84,7 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
         result.error = TraversalTopologyError::TooManyEdges;
         return result;
       }
-      topology.edges.push_back(Edge{orderedSurfaces[fromPosition], orderedSurfaces[toPosition]});
+      topology.edges.push_back(Edge{LayerId{fromPosition}, LayerId{toPosition}});
     }
   }
 
@@ -98,12 +95,8 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
       if (firstEdge.to != secondEdge.from || firstEdge.from == secondEdge.to) {
         continue;
       }
-      const auto firstFrom = topology.surfacePositionById[firstEdge.from.value()];
-      const auto firstTo = topology.surfacePositionById[firstEdge.to.value()];
-      const auto secondFrom = topology.surfacePositionById[secondEdge.from.value()];
-      const auto secondTo = topology.surfacePositionById[secondEdge.to.value()];
-      const auto skipped = (skippedBetween(static_cast<uint16_t>(firstFrom), static_cast<uint16_t>(firstTo)) |
-                            skippedBetween(static_cast<uint16_t>(secondFrom), static_cast<uint16_t>(secondTo))) &
+      const auto skipped = (skippedBetween(firstEdge.from.value(), firstEdge.to.value()) |
+                            skippedBetween(secondEdge.from.value(), secondEdge.to.value())) &
                            topology.seedingLayers;
       if (skipped.count() > parameters.MaxHoles || !skipped.isSubsetOf(holeLayers)) {
         continue;
@@ -136,16 +129,14 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
   const auto pathOrder = [&](CellPathId lhs, CellPathId rhs) {
     const auto lhsTarget = topology.edges[topology.paths[lhs.value()].second.value()].to;
     const auto rhsTarget = topology.edges[topology.paths[rhs.value()].second.value()].to;
-    const auto lhsPosition = topology.surfacePositionById[lhsTarget.value()];
-    const auto rhsPosition = topology.surfacePositionById[rhsTarget.value()];
-    return lhsPosition != rhsPosition ? lhsPosition < rhsPosition : lhs < rhs;
+    return lhsTarget != rhsTarget ? lhsTarget < rhsTarget : lhs < rhs;
   };
   std::sort(topology.scheduledPaths.begin(), topology.scheduledPaths.end(), pathOrder);
 
   topology.roadStartPaths.reserve(topology.paths.size());
   for (const auto path : topology.scheduledPaths) {
     const auto target = topology.edges[topology.paths[path.value()].second.value()].to;
-    if (roadStartLayers.has(topology.surfacePositionById[target.value()])) {
+    if (roadStartLayers.has(target.value())) {
       topology.roadStartPaths.push_back(path);
     }
   }
@@ -154,7 +145,7 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
   for (uint32_t index = 0; index < topology.roadStartPaths.size(); ++index) {
     const auto path = topology.roadStartPaths[index];
     const auto target = topology.edges[topology.paths[path.value()].second.value()].to;
-    const auto component = componentOf(static_cast<uint16_t>(topology.surfacePositionById[target.value()]));
+    const auto component = componentOf(target.value());
     if (component != previousComponent && index != 0) {
       topology.roadStartComponentOffsets.push_back(index);
     }

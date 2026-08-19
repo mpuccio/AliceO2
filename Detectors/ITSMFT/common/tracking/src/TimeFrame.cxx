@@ -199,7 +199,7 @@ std::size_t TimeFrame::getNumberOfUsedClusters() const
 void TimeFrame::setROFViews(RuntimeROFViews views) noexcept
 {
   mROFViews = views;
-  mROFViewsBySurface.assign(mLayout.getOrderedSurfaces().size(), views);
+  mROFViewsBySurface.assign(mLayout.size(), views);
   mROFLocalLayerBySurface.resize(mROFViewsBySurface.size());
   std::iota(mROFLocalLayerBySurface.begin(), mROFLocalLayerBySurface.end(), uint16_t{0});
   mUseUPC = false;
@@ -274,14 +274,14 @@ gsl::span<const MCCompLabel> TimeFrame::getClusterLabels(int layer, int cluster)
   return getLabels(LayerId{static_cast<uint16_t>(layer)}, mLayerGlobalMeasurements[layer][cluster].clusterId);
 }
 
-bool TimeFrame::configure(SurfaceLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
+bool TimeFrame::configure(DetectorLayout&& layout, std::size_t maxEdges, std::size_t maxCells,
                           std::shared_ptr<BoundedMemoryResource> memoryPool)
 {
-  if (mConfigurationValid || !memoryPool || !layout.valid() || layout.getOrderedSurfaces().empty()) {
+  if (mConfigurationValid || !memoryPool || !layout.valid() || layout.empty()) {
     return false;
   }
-  const auto nOwnedSurfaces = layout.getOrderedSurfaces().size();
-  const auto nMeasurementSurfaces = layout.getSurfaceCatalog().nSurfaces;
+  const auto nOwnedSurfaces = layout.size();
+  const auto nMeasurementSurfaces = layout.size();
   mScratch.setMemoryPool(memoryPool);
   setMemoryPool(std::move(memoryPool));
   try {
