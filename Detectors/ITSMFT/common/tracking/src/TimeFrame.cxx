@@ -337,9 +337,10 @@ void TimeFrame::resetTimeFrame() noexcept
   mScratch.reset();
   deepVectorClear(mPrimaryVertices);
   deepVectorClear(mPrimaryVerticesLabels);
-  // Common tracks and their cluster references are valid only for the current
-  // TimeFrame measurements, so clear both together.
+  // Common tracks, labels, and cluster references are valid only for the
+  // current TimeFrame measurements, so clear them together.
   deepVectorClear(mGenericTracks);
+  deepVectorClear(mTrackLabels);
   deepVectorClear(mTrackClusterIndices);
   for (auto& measurements : mLayerGlobalMeasurements) {
     measurements.clear();
@@ -379,6 +380,7 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   initVector(mPrimaryVertices);
   initVector(mPrimaryVerticesLabels);
   initVector(mGenericTracks);
+  initVector(mTrackLabels);
   initVector(mTrackClusterIndices);
   for (auto& table : mIndexTables) {
     initVector(table);

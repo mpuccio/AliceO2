@@ -21,7 +21,6 @@
 #include "DataFormatsMFT/TrackMFT.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MCLabelAccumulator.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -88,7 +87,8 @@ enum class GenericTrackOutputAdapterError : uint8_t {
   InvalidTimestamp,
   InvalidROF,
   InvalidState,
-  MissingCompatibility
+  MissingCompatibility,
+  MissingMCLabels
 };
 
 struct GenericTrackOutputAdapterSelection {
@@ -261,7 +261,7 @@ inline void setOutputClusterRange(o2::mft::TrackMFT& track, int first, int count
 template <typename OutputTrack>
 inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const LayerId> layerMapping,
                               uint32_t maxLayers, std::vector<int>& outputIndices, OutputTrack& output,
-                              MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error,
+                              uint32_t& pattern, GenericTrackOutputAdapterError& error,
                               const std::vector<std::vector<uint32_t>>* externalIndicesBySurface,
                               const std::vector<std::vector<uint32_t>>* clusterSizesBySurface)
 {
@@ -317,13 +317,6 @@ inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common
     ++count;
   }
   setOutputClusterRange(output, first, static_cast<int>(count));
-  if (labels != nullptr) {
-    for (const auto* reference : byLayer) {
-      if (reference != nullptr) {
-        labels->addCluster(frame.getLabels(reference->layer, reference->clusterId));
-      }
-    }
-  }
   return true;
 }
 
@@ -339,6 +332,10 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
   if (!selection || (!selection->globalIndices.empty() && !compatibility.isSealed())) {
     if (error == GenericTrackOutputAdapterError::None)
       error = GenericTrackOutputAdapterError::MissingCompatibility;
+    return std::nullopt;
+  }
+  if (withMC && frame.getTrackLabels().size() != frame.getGenericTracks().size()) {
+    error = GenericTrackOutputAdapterError::MissingMCLabels;
     return std::nullopt;
   }
   const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
@@ -366,9 +363,8 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
       return std::nullopt;
     }
     o2::its::TrackITS output{inner, common.chi2, outer};
-    MCLabelAccumulator accumulator;
     uint32_t pattern = 0;
-    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error,
+    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, pattern, error,
                            externalIndicesBySurface, clusterSizesBySurface))
       return std::nullopt;
     output.setPattern(pattern);
@@ -377,7 +373,7 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
     staged.tracks.push_back(std::move(output));
     times.push_back(orderedTrack.timestamp);
     if (withMC)
-      staged.labels.push_back(accumulator.finalize());
+      staged.labels.push_back(frame.getTrackLabels()[index]);
   }
   if (!finalizeROFs(staged.trackROFs, times, context, error))
     return std::nullopt;
@@ -394,6 +390,10 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
   const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::MFT, source, surfaces, error);
   if (!selection)
     return std::nullopt;
+  if (withMC && frame.getTrackLabels().size() != frame.getGenericTracks().size()) {
+    error = GenericTrackOutputAdapterError::MissingMCLabels;
+    return std::nullopt;
+  }
   const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
   if (!ordered) {
     return std::nullopt;
@@ -422,16 +422,15 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
     output.setCA(true);
     output.setInvQPtSeed(0.);
     output.setChi2QPtSeed(0.);
-    MCLabelAccumulator accumulator;
     uint32_t pattern = 0;
-    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error,
+    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, pattern, error,
                            externalIndicesBySurface, clusterSizesBySurface))
       return std::nullopt;
     staged.tracks.push_back(std::move(output));
     staged.seedPatterns.push_back(static_cast<uint16_t>(pattern));
     times.push_back(orderedTrack.timestamp);
     if (withMC)
-      staged.labels.push_back(accumulator.finalize());
+      staged.labels.push_back(frame.getTrackLabels()[index]);
   }
   if (!finalizeROFs(staged.trackROFs, times, context, error))
     return std::nullopt;

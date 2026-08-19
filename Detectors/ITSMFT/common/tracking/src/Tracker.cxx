@@ -22,6 +22,7 @@
 #include <numeric>
 #include <queue>
 #include <ranges>
+#include <stdexcept>
 #include <utility>
 
 #include "Framework/Logger.h"
@@ -493,6 +494,71 @@ bool Tracker::isConfiguredFor(const TimeFrame& frame) const noexcept
   return mFrame == &frame && !mIterations.empty() && frame.isConfigured();
 }
 
+void Tracker::computeTracksMClabels(TimeFrame& frame) const
+{
+  bounded_vector<MCCompLabel> trackLabels(frame.getMemoryPool().get());
+  if (!frame.hasMCinformation()) {
+    frame.getTrackLabels().swap(trackLabels);
+    return;
+  }
+
+  const auto& tracks = frame.getGenericTracks();
+  const auto& references = frame.getTrackClusterIndices();
+  trackLabels.reserve(tracks.size());
+
+  struct Candidate {
+    MCCompLabel representative;
+    std::size_t count{0};
+    std::size_t lastSeenCluster{0};
+  };
+
+  for (const auto& track : tracks) {
+    if (!isValidTrackRange(track, static_cast<uint32_t>(references.size()))) {
+      throw std::logic_error{"Tracker::computeTracksMClabels(): invalid track cluster-reference range"};
+    }
+
+    std::vector<Candidate> candidates;
+    std::size_t attachedClusters = 0;
+    for (uint32_t index = track.firstClusterRef; index < track.clusterRefEnd; ++index) {
+      const auto& reference = references[index];
+      if (!reference.isValid() || frame.getSurfaceMeasurement(reference.layer, reference.clusterId) == nullptr) {
+        throw std::logic_error{"Tracker::computeTracksMClabels(): unresolved track cluster reference"};
+      }
+
+      ++attachedClusters;
+      for (const auto& label : frame.getLabels(reference.layer, reference.clusterId)) {
+        const auto candidate = std::find_if(candidates.begin(), candidates.end(), [&label](const auto& current) {
+          return label == current.representative;
+        });
+        if (candidate == candidates.end()) {
+          candidates.push_back({label, 1, attachedClusters});
+        } else if (candidate->lastSeenCluster != attachedClusters) {
+          ++candidate->count;
+          candidate->lastSeenCluster = attachedClusters;
+        }
+      }
+    }
+
+    MCCompLabel winner;
+    if (candidates.empty()) {
+      winner.setFakeFlag();
+    } else {
+      const auto best = std::max_element(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+        return left.count < right.count;
+      });
+      winner = best->representative;
+      // A single attached cluster without the winning identity makes the
+      // reconstructed track fake.
+      if (best->count != attachedClusters) {
+        winner.setFakeFlag();
+      }
+    }
+    trackLabels.push_back(winner);
+  }
+
+  frame.getTrackLabels().swap(trackLabels);
+}
+
 TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 {
   if (mRefitFunction == nullptr || !isConfiguredFor(frame)) {
@@ -528,6 +594,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       traits.runTraversal(context, mRefitFunction);
       acceptedTrackCounts.push_back(frame.getGenericTracks().size() - acceptedTrackBegin);
     }
+    computeTracksMClabels(frame);
   } catch (const TraversalException& err) {
     // Structural/configuration failures are not per-TF data failures, so
     // DropTFUponFailure does not apply. Reset before propagating.

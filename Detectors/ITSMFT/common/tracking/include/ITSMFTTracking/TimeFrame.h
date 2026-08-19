@@ -159,6 +159,8 @@ struct TimeFrame {
   // Results are valid only with this TimeFrame's measurements.
   auto& getGenericTracks() { return mGenericTracks; }
   const auto& getGenericTracks() const { return mGenericTracks; }
+  auto& getTrackLabels() { return mTrackLabels; }
+  const auto& getTrackLabels() const { return mTrackLabels; }
   // Flat inner-to-outer references; IDs are stable pre-sort positions in the
   // TimeFrame-owned per-surface arrays.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
@@ -198,6 +200,7 @@ struct TimeFrame {
   bounded_vector<VertexLabel> mPrimaryVerticesLabels;
 
   bounded_vector<GenericTrack> mGenericTracks;
+  bounded_vector<MCCompLabel> mTrackLabels;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
   std::vector<std::vector<GlobalMeasurement>> mLayerGlobalMeasurements;

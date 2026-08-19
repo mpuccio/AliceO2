@@ -98,7 +98,7 @@ Classification keys used below are exactly the requested categories:
 | `IndexTableConfiguration.h` | 1 | Host binding/validation kept apart from the device-portable LUT type; remove its temporary policy-tag template in the retirement campaign. |
 | `IndexTableUtils.h` | 1 | Device-portable LUT geometry and search operations. |
 | `LayerMask.h` | 3 | Merge into `LayerMask.h`; the 16-bit positional compatibility mask and 32-bit surface mask form one mask contract. |
-| `MCLabelAccumulator.h` | 1 | Coherent host-side MC-label reduction algorithm; not merely an alias or flag. |
+| Former `MCLabelAccumulator.h` | Deleted | Reduction now runs once in `Tracker::computeTracksMClabels`; `TimeFrame` owns the result sidecar and both publication adapters consume it. |
 | `MFTFwdTrackHelpers.h` | 2 | MFT compatibility projection/refit helpers used by implementation code only. |
 | `MFTPublicationCompatibility.h` | 2 | Workflow-owned MFT publication sidecar and transaction. |
 | `MFTSurfaceSpec.h` | 3 | Merge into `ITSMFTDetectorDefinitions.h`; same reason as the ITS spec. |
@@ -510,7 +510,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `IndexTableConfiguration.h` | K 13-21 host/device boundary; C 48-63 bind/equality contracts; K 86-89 checked-overflow contract. |
 | `IndexTableUtils.h` | K/C 48-67 axis/device-capacity contract, 143-154 configuration equality/capacity facts, 198-199 and 280-281 family coordinate rules. |
 | `LayerMask.h` | No substantial maintenance comment beyond file boilerplate; add none during merge. |
-| `MCLabelAccumulator.h` | K/C 27-29 call/ordinal contract and 40-41 repeated-label behavior. |
+| `Tracker.cxx::computeTracksMClabels` | K/C the per-cluster identity counting contract: repeated identities count once, empty spans remain attached clusters, and one unsupported cluster makes the winner fake. |
 | `MFTFwdTrackHelpers.h` | C 36-37 half-disk indexing invariant. M 129-139 removed-function history. K/C 146-154 normalized-measurement/source identity contract. |
 | `MFTPublicationCompatibility.h` | D/M 23-27 temporary/history wording. K/C 42-44 and 84-86 accepted-sequence and transaction contracts. |
 | `MFTSurfaceSpec.h` | D the 25-line banner/history before declarations; catalog values and names are self-describing. |

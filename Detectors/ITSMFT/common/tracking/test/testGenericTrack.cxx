@@ -15,10 +15,10 @@
 //  - that a completed track's hitLayers is the union of the LayerId of
 //    every measurement its range references, and that each resolved
 //    measurement's own surface matches the reference it was resolved from;
-//  - that TimeFrame loading clears GenericTrack/trackClusterIndices storage
-//    on both success and failure;
-//  - that TimeFrame::resetTimeFrame() invalidates GenericTrack/trackClusterIndices
-//    storage together;
+//  - that TimeFrame loading clears GenericTrack/track-label/track-reference
+//    storage on both success and failure;
+//  - that TimeFrame::resetTimeFrame() invalidates those result sidecars
+//    together;
 //  - that GenericTrack itself has no detector/public-output dependency.
 //
 // This slice does not populate GenericTrack from CA seeds: every track/range
@@ -605,8 +605,8 @@ uint32_t storeTestGenericTrack(TimeFrame& frame, TestGenericTrack record)
   return index;
 }
 
-// Populates tf's GenericTrack/trackClusterIndices with arbitrary, self-
-// consistent content so a subsequent clear can be observed.
+// Populates the common result sidecars with arbitrary, self-consistent
+// content so a subsequent clear can be observed.
 void populateCommonResults(TimeFrame& tf)
 {
   tf.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, 0, 0});
@@ -617,26 +617,27 @@ void populateCommonResults(TimeFrame& tf)
   track.hitLayers.set(0);
   track.hitLayers.set(1);
   tf.getGenericTracks().push_back(track);
+  tf.getTrackLabels().push_back(o2::MCCompLabel{1, 0, 0, false});
 }
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsGenericTrackAndTrackClusterIndices)
+BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsCommonTrackResults)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
 
   populateCommonResults(fixture.tf);
   BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getTrackLabels().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
 
   // A second, independently successful load on the same TimeFrame: the
-  // normalized frame is replaced, and GenericTrack/trackClusterIndices --
-  // built against the *previous* normalized frame -- must be cleared in
-  // that same successful commit, since they are no longer meaningful once
-  // the frame they referenced is gone.
+  // normalized frame is replaced, and the common track result sidecars built
+  // against the previous frame must be cleared in the same successful commit.
   BOOST_REQUIRE(fixture.load().ok());
   BOOST_CHECK(fixture.tf.getGenericTracks().empty());
+  BOOST_CHECK(fixture.tf.getTrackLabels().empty());
   BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }
 
@@ -724,13 +725,14 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_CHECK(sidecar.entries().empty());
 }
 
-BOOST_AUTO_TEST_CASE(FailedLoadClearsGenericTrackAndTrackClusterIndices)
+BOOST_AUTO_TEST_CASE(FailedLoadClearsCommonTrackResults)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
 
   populateCommonResults(fixture.tf);
   BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getTrackLabels().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
   BOOST_REQUIRE(fixture.tf.getTotalMeasurements() > 0u);
 
@@ -748,21 +750,24 @@ BOOST_AUTO_TEST_CASE(FailedLoadClearsGenericTrackAndTrackClusterIndices)
 
   BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), 0u);
   BOOST_CHECK(fixture.tf.getGenericTracks().empty());
+  BOOST_CHECK(fixture.tf.getTrackLabels().empty());
   BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }
 
-BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndicesTogether)
+BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTrackResultsTogether)
 {
   TimeFrame tf;
   populateCommonResults(tf);
 
   BOOST_REQUIRE_EQUAL(tf.getGenericTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(tf.getTrackLabels().size(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getTrackClusterIndices().size(), 2u);
   BOOST_REQUIRE(isValidTrackRange(tf.getGenericTracks()[0], static_cast<uint32_t>(tf.getTrackClusterIndices().size())));
 
   tf.resetTimeFrame();
 
   BOOST_CHECK(tf.getGenericTracks().empty());
+  BOOST_CHECK(tf.getTrackLabels().empty());
   BOOST_CHECK(tf.getTrackClusterIndices().empty());
 
   // Reload after wipe: both containers accept new content independently of
@@ -855,6 +860,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   record.track.chi2 = 3.f;
   ITSSharedClusterCompatibility shared;
   const auto genericTrackIndex = storeTestGenericTrack(fixture.tf, record);
+  const o2::MCCompLabel storedLabel{7, 3, 1, true};
+  fixture.tf.getTrackLabels().push_back(storedLabel);
   ITSSharedClusterCompatibilityTransaction transaction{shared};
   BOOST_REQUIRE(transaction.validate(genericTrackIndex));
   transaction.reserve();
@@ -889,6 +896,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
+  BOOST_REQUIRE_EQUAL(output->labels.size(), 1u);
+  BOOST_CHECK_EQUAL(output->labels[0].getRawValue(), storedLabel.getRawValue());
 
   // This is the workflow-facing binding: the workflow combines its own ROF
   // span with the immutable export returned by the tracking interface.  The
@@ -906,6 +915,11 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
     BOOST_CHECK_EQUAL(contextOutput->clusterIndices[i], output->clusterIndices[i]);
   }
   BOOST_CHECK_EQUAL(contextOutput->trackROFs.size(), output->trackROFs.size());
+
+  fixture.tf.getTrackLabels().clear();
+  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, publicationContext, shared, true, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingMCLabels);
+  fixture.tf.getTrackLabels().push_back(storedLabel);
 
   auto wrongDetectorContext = publicationContext;
   wrongDetectorContext.detector = o2::detectors::DetID::MFT;
@@ -971,6 +985,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTCompatibilityWithoutSeedP
   record.track.hitLayers.set(3);
   record.references.push_back({LayerId{3}, 0, 0});
   storeTestGenericTrack(frame, record);
+  const o2::MCCompLabel storedLabel{11, 4, 2, false};
+  frame.getTrackLabels().push_back(storedLabel);
   const auto& measurement = frame.getGlobalMeasurements(LayerId{3})[0];
   const auto source = ClusterSourceId{1};
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
@@ -998,6 +1014,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTCompatibilityWithoutSeedP
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
+  BOOST_REQUIRE_EQUAL(output->labels.size(), 1u);
+  BOOST_CHECK_EQUAL(output->labels[0].getRawValue(), storedLabel.getRawValue());
 
   const GenericTrackPublicationContext publicationContext{
     o2::detectors::DetID::MFT, source, rofs, ClockTimingPublicationView{clock}, surfaces,

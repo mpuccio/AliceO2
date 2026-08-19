@@ -54,6 +54,11 @@ struct TrackerTestAccess {
   {
     traits.findRoads(view, view.iteration, refit);
   }
+
+  static void computeTracksMClabels(Tracker& tracker, TimeFrame& frame)
+  {
+    tracker.computeTracksMClabels(frame);
+  }
 };
 
 } // namespace o2::itsmft::tracking
