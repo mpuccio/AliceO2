@@ -305,13 +305,23 @@ BOOST_AUTO_TEST_CASE(BuildTrackSeedOwnsTheCellToTrackStateBoundary)
 
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeTripletFitObservation("), 0u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 0u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::attachMeasurement("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::attachMeasurement("), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::propagateToMeasurement("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "context.topology.getSurface(surface)"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "getEdgeMSAngle("), 0u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "TrackSeed{cell, state, chi2}"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "switch (kind)"), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "surfaces[2]->kind"), 1u);
+  BOOST_CHECK(code.find("firstEdge") == std::string::npos);
+  BOOST_CHECK(code.find("getPath(") == std::string::npos);
+  BOOST_CHECK(code.find("getEdge(") == std::string::npos);
   BOOST_CHECK_NE(code.find("state.kind = kind"), std::string::npos);
   BOOST_CHECK(code.find("buildCylinderCellSeed(") == std::string::npos);
   BOOST_CHECK(code.find("buildDiskCellSeed(") == std::string::npos);
+  for (const auto token : {"DetID", "ClusterSourceId", "ITS", "MFT"}) {
+    BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
+                        "track-seed construction contains detector/source dispatch token " << token);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(TransverseTrackletDirectionUsesOneFamilyNeutralAlgorithm)

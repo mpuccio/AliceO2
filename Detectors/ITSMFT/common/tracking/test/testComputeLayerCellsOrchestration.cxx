@@ -150,11 +150,13 @@ std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 // initialiseTimeFrame()'s LegacyMaterialMismatch compatibility check (which
 // compares the two) always passes here; this file exercises computeLayerCells()
 // orchestration, not that compatibility check.
-std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID det, SurfaceKind kind, gsl::span<const float> layerxX0)
+std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID det,
+                                           gsl::span<const SurfaceKind> kinds, gsl::span<const float> layerxX0)
 {
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
+    const auto kind = kinds[i];
     surfaces.push_back(SurfaceDescriptor{i, static_cast<uint8_t>(det), kind});
     surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     surfaces.back().referenceCoordinate = kind == SurfaceKind::Cylinder
@@ -236,19 +238,19 @@ void checkTripletFitFactorEqual(const TripletFitFactor& lhs, const TripletFitFac
   }
 }
 
-void checkTrackSeedMaterialization(TrackerTraits& traits, IterationContext& view,
-                                   int cellPathId, const CellSeed& cell,
-                                   SurfaceKind expectedKind)
+void checkTrackSeedContents(const TrackSeed& trackSeed, const CellSeed& cell,
+                            SurfaceKind expectedKind)
 {
-  TrackSeed trackSeed{};
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(TrackerTestAccess::buildTrackSeed(
-    traits, view, cellPathId, cell, trackSeed, reason));
   BOOST_CHECK_EQUAL(trackSeed.getHitLayerMask().value(), cell.getHitLayerMask().value());
   for (int slot = 0; slot < 3; ++slot) {
     const auto reference = cell.getClusterReference(slot);
     BOOST_CHECK_EQUAL(trackSeed.getCluster(reference.surfacePosition), reference.clusterIndex);
   }
+  BOOST_CHECK_EQUAL(trackSeed.getLevel(), cell.getLevel());
+  BOOST_CHECK_EQUAL(trackSeed.getFirstTrackletIndex(), cell.getFirstTrackletIndex());
+  BOOST_CHECK_EQUAL(trackSeed.getSecondTrackletIndex(), cell.getSecondTrackletIndex());
+  BOOST_CHECK_EQUAL(trackSeed.getTimeStamp().getTimeStamp(), cell.getTimeStamp().getTimeStamp());
+  BOOST_CHECK_EQUAL(trackSeed.getTimeStamp().getTimeStampError(), cell.getTimeStamp().getTimeStampError());
   BOOST_CHECK(trackSeed.state().kind == expectedKind);
   BOOST_CHECK(std::isfinite(trackSeed.getChi2()));
   for (const float parameter : trackSeed.state().parameters) {
@@ -257,6 +259,43 @@ void checkTrackSeedMaterialization(TrackerTraits& traits, IterationContext& view
   for (const float covariance : trackSeed.state().covariance) {
     BOOST_CHECK(std::isfinite(covariance));
   }
+}
+
+void checkTrackSeedsEqual(const TrackSeed& lhs, const TrackSeed& rhs)
+{
+  BOOST_CHECK_EQUAL(lhs.getHitLayerMask().value(), rhs.getHitLayerMask().value());
+  BOOST_CHECK_EQUAL(lhs.getChi2(), rhs.getChi2());
+  BOOST_CHECK_EQUAL(lhs.getLevel(), rhs.getLevel());
+  BOOST_CHECK_EQUAL(lhs.getFirstTrackletIndex(), rhs.getFirstTrackletIndex());
+  BOOST_CHECK_EQUAL(lhs.getSecondTrackletIndex(), rhs.getSecondTrackletIndex());
+  BOOST_CHECK_EQUAL(lhs.getTimeStamp().getTimeStamp(), rhs.getTimeStamp().getTimeStamp());
+  BOOST_CHECK_EQUAL(lhs.getTimeStamp().getTimeStampError(), rhs.getTimeStamp().getTimeStampError());
+  for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
+    BOOST_CHECK_EQUAL(lhs.getCluster(position), rhs.getCluster(position));
+  }
+  for (int parameter = 0; parameter < 5; ++parameter) {
+    BOOST_CHECK_EQUAL(lhs.state().parameters[parameter], rhs.state().parameters[parameter]);
+  }
+  for (int covariance = 0; covariance < 15; ++covariance) {
+    BOOST_CHECK_EQUAL(lhs.state().covariance[covariance], rhs.state().covariance[covariance]);
+  }
+  BOOST_CHECK_EQUAL(lhs.state().referenceCoordinate, rhs.state().referenceCoordinate);
+  BOOST_CHECK_EQUAL(lhs.state().alpha, rhs.state().alpha);
+  BOOST_CHECK(lhs.state().kind == rhs.state().kind);
+  BOOST_CHECK_EQUAL(lhs.state().flags, rhs.state().flags);
+  BOOST_CHECK_EQUAL(lhs.state().absCharge, rhs.state().absCharge);
+  BOOST_CHECK(lhs.state().pid == rhs.state().pid);
+}
+
+void checkTrackSeedMaterialization(TrackerTraits& traits, IterationContext& view,
+                                   int cellPathId, const CellSeed& cell,
+                                   SurfaceKind expectedKind)
+{
+  TrackSeed trackSeed{};
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(TrackerTestAccess::buildTrackSeed(
+    traits, view, cellPathId, cell, trackSeed, reason));
+  checkTrackSeedContents(trackSeed, cell, expectedKind);
 }
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
@@ -280,7 +319,7 @@ struct Rig : RigFrameStorage {
   Rig(o2::detectors::DetID::ID det, SurfaceKind kind, int nThreads = 1)
     : params(1),
       mDet(det),
-      mKind(kind)
+      mKinds(NLayers, kind)
   {
     resetDetectorDefaults(params[0], det);
     // This file bypasses computeLayerTracklets()'s phi/z/index-table cuts
@@ -306,7 +345,7 @@ struct Rig : RigFrameStorage {
   // compatibility check, which this file does not itself exercise.
   void establishLayout()
   {
-    catalog = makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind, gsl::span<const float>(params[0].LayerxX0));
+    catalog = makeCatalog(static_cast<uint16_t>(NLayers), mDet, gsl::span<const SurfaceKind>{mKinds}, gsl::span<const float>(params[0].LayerxX0));
     const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TrackerInitialization configuration;
@@ -330,7 +369,9 @@ struct Rig : RigFrameStorage {
   }
 
   o2::detectors::DetID::ID detector() const noexcept { return mDet; }
-  SurfaceKind kind() const noexcept { return mKind; }
+  SurfaceKind kind() const noexcept { return mKinds.front(); }
+  SurfaceKind kind(int layer) const noexcept { return mKinds[layer]; }
+  void setSurfaceKind(int layer, SurfaceKind kind) { mKinds[layer] = kind; }
 
   std::vector<TrackingParameters> params;
   LayerMask holeLayers{};
@@ -345,7 +386,7 @@ struct Rig : RigFrameStorage {
 
  private:
   o2::detectors::DetID::ID mDet;
-  SurfaceKind mKind;
+  std::vector<SurfaceKind> mKinds;
 };
 
 template <int NLayers>
@@ -376,13 +417,14 @@ void loadCandidateClusters(Rig<NLayers>& rig,
                            const std::array<GlobalMeasurement, 3>& clusters,
                            const std::array<TestLocalMeasurement, 3>& hits)
 {
-  const bool isDisk = rig.kind() == SurfaceKind::Disk;
   FixedMeasurementDecoder decoder{rig.detector(), rig.kind()};
   std::vector<CompClusterExt> compClusters;
   compClusters.reserve(3);
   for (int layer = 0; layer < 3; ++layer) {
     compClusters.emplace_back(0, 0, CompCluster::InvalidPatternID, static_cast<uint16_t>(layer));
-    const auto measurement = isDisk ? diskMeasurementFor(clusters[layer], hits[layer]) : barrelMeasurementFor(clusters[layer], hits[layer]);
+    const auto measurement = rig.kind(layer) == SurfaceKind::Disk
+                               ? diskMeasurementFor(clusters[layer], hits[layer])
+                               : barrelMeasurementFor(clusters[layer], hits[layer]);
     decoder.setMeasurement(layer, measurement);
   }
   const std::vector<unsigned char> noPatterns;
@@ -465,13 +507,14 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
                                    const std::array<GlobalMeasurement, N>& clusters,
                                    const std::array<TestLocalMeasurement, N>& hits)
 {
-  const bool isDisk = rig.kind() == SurfaceKind::Disk;
   FixedMeasurementDecoder decoder{rig.detector(), rig.kind()};
   std::vector<CompClusterExt> compClusters;
   compClusters.reserve(N);
   for (size_t i = 0; i < N; ++i) {
     compClusters.emplace_back(0, 0, CompCluster::InvalidPatternID, static_cast<uint16_t>(layers[i]));
-    const auto measurement = isDisk ? diskMeasurementFor(clusters[i], hits[i]) : barrelMeasurementFor(clusters[i], hits[i]);
+    const auto measurement = rig.kind(layers[i]) == SurfaceKind::Disk
+                               ? diskMeasurementFor(clusters[i], hits[i])
+                               : barrelMeasurementFor(clusters[i], hits[i]);
     decoder.setMeasurement(layers[i], measurement);
   }
   const std::vector<unsigned char> noPatterns;
@@ -532,7 +575,122 @@ void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& 
   }
 }
 
+std::array<TestLocalMeasurement, 3> makeLocalMeasurements(
+  const std::array<SurfaceKind, 3>& kinds,
+  const std::array<GlobalMeasurement, 3>& clusters)
+{
+  std::array<TestLocalMeasurement, 3> hits{};
+  for (int layer = 0; layer < 3; ++layer) {
+    const auto& position = clusters[layer].position;
+    hits[layer] = kinds[layer] == SurfaceKind::Disk
+                    ? makeDiskHit(position.z, position.x, position.y)
+                    : makeBarrelHit(position.x, 0.f, position.y, position.z);
+  }
+  return hits;
+}
+
+template <int NLayers>
+void checkDirectTrackSeedConstruction(const std::array<SurfaceKind, 3>& kinds,
+                                      const std::array<GlobalMeasurement, 3>& clusters)
+{
+  Rig<NLayers> rig{o2::detectors::DetID::ITS, kinds[0]};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  for (int layer = 0; layer < 3; ++layer) {
+    rig.setSurfaceKind(layer, kinds[layer]);
+    rig.params[0].LayerxX0[layer] = 0.f;
+  }
+  rig.establishLayout();
+  loadCandidateClusters(rig, clusters, makeLocalMeasurements(kinds, clusters));
+
+  auto view = prepare(rig);
+  const int cellPathId = findCellIndex(topologyView(rig), 0, 1, 2);
+  BOOST_REQUIRE_GE(cellPathId, 0);
+  CellSeed cell{0, 0, 0, 0, 17, 23, o2::its::TimeEstBC{111, 9}};
+  cell.setLevel(6);
+
+  TrackSeed first{};
+  TrackSeed second{};
+  OperationFailureReason firstReason{};
+  OperationFailureReason secondReason{};
+  BOOST_REQUIRE(TrackerTestAccess::buildTrackSeed(
+    rig.traits, view, cellPathId, cell, first, firstReason));
+  BOOST_REQUIRE(TrackerTestAccess::buildTrackSeed(
+    rig.traits, view, cellPathId, cell, second, secondReason));
+
+  checkTrackSeedContents(first, cell, kinds[0]);
+  checkTrackSeedsEqual(first, second);
+}
+
+constexpr std::array<SurfaceKind, 3> CylinderCylinderCylinder{
+  SurfaceKind::Cylinder, SurfaceKind::Cylinder, SurfaceKind::Cylinder};
+constexpr std::array<SurfaceKind, 3> DiskDiskDisk{
+  SurfaceKind::Disk, SurfaceKind::Disk, SurfaceKind::Disk};
+constexpr std::array<SurfaceKind, 3> CylinderDiskCylinder{
+  SurfaceKind::Cylinder, SurfaceKind::Disk, SurfaceKind::Cylinder};
+constexpr std::array<SurfaceKind, 3> DiskCylinderDisk{
+  SurfaceKind::Disk, SurfaceKind::Cylinder, SurfaceKind::Disk};
+
+const std::array<GlobalMeasurement, 3> NominalTrackSeedClusters{
+  makeGlobalCluster(3.0f, 0.100f, 0.90f, 0),
+  makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+  makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+
 } // namespace
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedCylinderCylinderCylinderIsDeterministic)
+{
+  checkDirectTrackSeedConstruction<ITSNLayers>(CylinderCylinderCylinder, NominalTrackSeedClusters);
+}
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedDiskDiskDiskIsDeterministic)
+{
+  checkDirectTrackSeedConstruction<ITSNLayers>(DiskDiskDisk, NominalTrackSeedClusters);
+}
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedCylinderDiskCylinderConvertsBackToCylinder)
+{
+  checkDirectTrackSeedConstruction<ITSNLayers>(CylinderDiskCylinder, NominalTrackSeedClusters);
+}
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedDiskCylinderDiskConvertsBackToDisk)
+{
+  checkDirectTrackSeedConstruction<ITSNLayers>(DiskCylinderDisk, NominalTrackSeedClusters);
+}
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedDegenerateMixedTripletPreservesDestination)
+{
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  for (int layer = 0; layer < 3; ++layer) {
+    rig.setSurfaceKind(layer, CylinderDiskCylinder[layer]);
+    rig.params[0].LayerxX0[layer] = 0.f;
+  }
+  rig.establishLayout();
+
+  const std::array<GlobalMeasurement, 3> degenerateClusters{
+    makeGlobalCluster(3.f, 0.1f, 0.9f, 0),
+    makeGlobalCluster(3.f, 0.1f, 1.0f, 0),
+    makeGlobalCluster(3.f, 0.1f, 1.1f, 0)};
+  loadCandidateClusters(rig, degenerateClusters,
+                        makeLocalMeasurements(CylinderDiskCylinder, degenerateClusters));
+  auto view = prepare(rig);
+  const int cellPathId = findCellIndex(topologyView(rig), 0, 1, 2);
+  BOOST_REQUIRE_GE(cellPathId, 0);
+  CellSeed cell{0, 0, 0, 0, 17, 23, o2::its::TimeEstBC{111, 9}};
+  cell.setLevel(6);
+
+  SurfaceKinematicState sentinelState{};
+  sentinelState.kind = SurfaceKind::Disk;
+  sentinelState.referenceCoordinate = -42.f;
+  sentinelState.parameters[0] = 13.f;
+  TrackSeed destination{cell, sentinelState, 71.f};
+  const TrackSeed before = destination;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!TrackerTestAccess::buildTrackSeed(
+    rig.traits, view, cellPathId, cell, destination, reason));
+  BOOST_CHECK(reason == OperationFailureReason::NonFiniteInput);
+  checkTrackSeedsEqual(destination, before);
+}
 
 // --- Barrel: real orchestration matches the cell-seed leaves oracle -----
 
