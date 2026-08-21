@@ -928,12 +928,6 @@ bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
   state.absCharge = kCompatibilityAbsCharge;
   state.pid = kCompatibilityPID;
 
-  SurfaceLinearizationReference linRef{};
-  if (!makeLinearizationReference(state, linRef)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-
   const std::array<const SurfaceMeasurement*, 2> attachmentMeasurements{measurements[1], measurements[0]};
   const std::array<const SurfaceDescriptor*, 2> attachmentSurfaces{surfaces[1], surfaces[0]};
   for (int step = 0; step < 2; ++step) {
@@ -942,7 +936,7 @@ bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
     // nonlinear attachment arithmetic. The linearized refit propagation is a
     // different numerical algorithm and is not field-identical here.
     if (state.kind != targetSurface.kind &&
-        !Propagator::convertKind(state, &linRef, targetSurface.kind, reason)) {
+        !Propagator::convertKind(state, nullptr, targetSurface.kind, reason)) {
       return false;
     }
     if (!Propagator::attachMeasurement(
@@ -951,10 +945,6 @@ bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
           step == 1,
           context.configuration.kernelParameters.maxChi2ClusterAttachment,
           chi2, reason)) {
-      return false;
-    }
-    if (step == 0 && !makeLinearizationReference(state, linRef)) {
-      reason = OperationFailureReason::NonFiniteOutput;
       return false;
     }
   }
