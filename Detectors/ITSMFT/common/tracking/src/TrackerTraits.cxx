@@ -841,29 +841,25 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   });
 }
 
-bool TrackerTraits::buildTrackSeed(IterationContext& context, int cellPathId,
+bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
                                    const CellSeed& cell, TrackSeed& output,
                                    OperationFailureReason& reason) const
 {
-  const auto pathId = context.configuration.cells[cellPathId];
-  const auto& path = context.topology.getPath(pathId);
-  const auto& firstEdge = context.topology.getEdge(path.first);
-  const auto kind = context.topology.getSurface(firstEdge.from).kind;
-
   std::array<const GlobalMeasurement*, 3> globals{};
   std::array<const SurfaceMeasurement*, 3> measurements{};
-  std::array<NominalSurfaceMaterial, 3> hitMaterial{};
+  std::array<const SurfaceDescriptor*, 3> surfaces{};
   for (int hit = 0; hit < 3; ++hit) {
     const auto reference = cell.getClusterReference(hit);
+    const auto surface = LayerId{static_cast<uint16_t>(reference.surfacePosition)};
     globals[hit] = &context.layerGlobalMeasurements[reference.surfacePosition][reference.clusterIndex];
-    measurements[hit] = context.frame.getSurfaceMeasurement(
-      LayerId{static_cast<uint16_t>(reference.surfacePosition)}, globals[hit]->clusterId);
-    hitMaterial[hit] = context.detectorConfiguration.layerMaterial[reference.surfacePosition];
+    measurements[hit] = context.frame.getSurfaceMeasurement(surface, globals[hit]->clusterId);
+    surfaces[hit] = &context.topology.getSurface(surface);
   }
 
   SurfaceKinematicState state{};
   float chi2{0.f};
   const auto& outer = *measurements[2];
+  const auto kind = surfaces[2]->kind;
 
   float sinPhi = 0.f, cosPhi = 0.f, tanLambda = 0.f, qOverPt = 1.f / o2::track::kMostProbablePt;
   float curvatureSquared = 1.f;
@@ -932,15 +928,21 @@ bool TrackerTraits::buildTrackSeed(IterationContext& context, int cellPathId,
   state.absCharge = kCompatibilityAbsCharge;
   state.pid = kCompatibilityPID;
 
+  SurfaceLinearizationReference linRef{};
+  if (!makeLinearizationReference(state, linRef)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+
   const std::array<const SurfaceMeasurement*, 2> attachmentMeasurements{measurements[1], measurements[0]};
-  const std::array<NominalSurfaceMaterial, 2> attachmentMaterial{hitMaterial[1], hitMaterial[0]};
+  const std::array<const SurfaceDescriptor*, 2> attachmentSurfaces{surfaces[1], surfaces[0]};
   for (int step = 0; step < 2; ++step) {
-    if (!Propagator::attachMeasurement(
-          state, *attachmentMeasurements[step], attachmentMaterial[step], context.bz,
+    if (!Propagator::propagateToMeasurement(
+          state, linRef, *attachmentSurfaces[step], *attachmentMeasurements[step], context.bz,
           material::MaterialTraversalDirection::OppositeMomentum,
           step == 1,
           context.configuration.kernelParameters.maxChi2ClusterAttachment,
-          chi2, reason)) {
+          chi2, false, reason)) {
       return false;
     }
   }
