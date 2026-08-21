@@ -305,16 +305,16 @@ The shared `Tracker` and `TrackerTraits` own orchestration only:
 3. Combine compatible tracklets into cells.
 4. Build cell-neighbour relations.
 5. Traverse roads through the explicit topology.
-6. Invoke policy fitting/attachment operations.
+6. Materialize `TrackSeed` state at the selected-cell boundary and attach hits.
 7. Rank and select internal tracks.
 
 The policy boundary supplies operations equivalent to:
 
 ```cpp
 SearchWindow projectSearchWindow(...);
-bool buildCellSeed(..., SeedState& out, float& chi2);
+bool buildTrackSeed(const CellSeed&, TrackSeed& out, OperationFailureReason& reason);
 bool cellsAreCompatible(...);
-bool attachHit(..., SeedState& inOut, float& chi2);
+bool attachHit(..., TrackSeed& inOut);
 bool finalRefit(..., InternalTrack& out);
 ```
 

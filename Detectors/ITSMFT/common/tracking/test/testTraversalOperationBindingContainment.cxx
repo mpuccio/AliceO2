@@ -270,7 +270,7 @@ BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)
   }
 }
 
-BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
+BOOST_AUTO_TEST_CASE(CellCandidateLoopStoresOneFamilyNeutralTripletFactor)
 {
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "computeLayerCellsImpl"));
@@ -281,7 +281,9 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeTransverseDirectionObservation("), 3u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "getEdgeMSAngle(secondEdgeId)"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "DirectionProcessNoise"), 1u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "makeTripletFitObservation("), 3u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "makeTripletFitFactor("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 0u);
   BOOST_CHECK(code.find("CellDeltaTanLambdaSigma") == std::string::npos);
   BOOST_CHECK(code.find("deltaTanLambdaSigma") == std::string::npos);
   BOOST_CHECK(code.find("buildCylinderCellSeed(") == std::string::npos);
@@ -294,6 +296,22 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                         "cell orchestration contains detector/source/cut dispatch token " << token);
   }
+}
+
+BOOST_AUTO_TEST_CASE(BuildTrackSeedOwnsTheCellToTrackStateBoundary)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto code = stripLineComments(extractMethodBody(source, "buildTrackSeed"));
+
+  BOOST_CHECK_EQUAL(countOccurrences(code, "makeTripletFitObservation("), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::attachMeasurement("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "getEdgeMSAngle("), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "TrackSeed{cell, state, chi2}"), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "switch (kind)"), 0u);
+  BOOST_CHECK_NE(code.find("state.kind = kind"), std::string::npos);
+  BOOST_CHECK(code.find("buildCylinderCellSeed(") == std::string::npos);
+  BOOST_CHECK(code.find("buildDiskCellSeed(") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(TransverseTrackletDirectionUsesOneFamilyNeutralAlgorithm)
@@ -325,10 +343,8 @@ BOOST_AUTO_TEST_CASE(CellDirectionUsesOneFamilyNeutralAlgorithmAndConsolidatedBo
 
   const auto source = readCandidateFindingSource();
   const auto begin = source.find("bool cellDirectionsAreCompatible(");
-  const auto end = source.find("bool buildCylinderCellSeed(", begin);
   BOOST_REQUIRE(begin != std::string::npos);
-  BOOST_REQUIRE(end != std::string::npos);
-  const auto compatibility = source.substr(begin, end - begin);
+  const auto compatibility = source.substr(begin);
   for (const auto forbidden : {"SurfaceKind", "switch", "if constexpr",
                                "Cylinder", "Disk", "DetID", "ClusterSourceId"}) {
     BOOST_CHECK_MESSAGE(compatibility.find(forbidden) == std::string::npos,
@@ -385,19 +401,31 @@ BOOST_AUTO_TEST_CASE(KernelPolicyIsOneSurfaceNeutralRecord)
   BOOST_CHECK(kernelHeader.find("SurfaceKind") == std::string::npos);
 }
 
-BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInCandidateFindingLeaves)
+BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesOnlyInProjectionLeaves)
 {
   const auto source = readCandidateFindingSource();
   BOOST_CHECK(source.find("case SurfaceKind::Cylinder:") != std::string::npos);
   BOOST_CHECK(source.find("case SurfaceKind::Disk:") != std::string::npos);
   BOOST_CHECK(source.find("projectCylinderSearchWindow(") != std::string::npos);
   BOOST_CHECK(source.find("projectDiskSearchWindow(") != std::string::npos);
-  BOOST_CHECK(source.find("buildCylinderCellSeed(") != std::string::npos);
-  BOOST_CHECK(source.find("buildDiskCellSeed(") != std::string::npos);
+  BOOST_CHECK(source.find("buildCellSeed(") == std::string::npos);
+  BOOST_CHECK(source.find("buildCylinderCellSeed(") == std::string::npos);
+  BOOST_CHECK(source.find("buildDiskCellSeed(") == std::string::npos);
   BOOST_CHECK(source.find("makeDirectionObservation(") != std::string::npos);
   BOOST_CHECK(source.find("makeTransverseDirectionObservation(") != std::string::npos);
   BOOST_CHECK(source.find("makeCylinderDirectionObservation(") == std::string::npos);
   BOOST_CHECK(source.find("makeDiskDirectionObservation(") == std::string::npos);
   BOOST_CHECK(source.find("makeCylinderTransverseDirectionObservation(") == std::string::npos);
   BOOST_CHECK(source.find("makeDiskTransverseDirectionObservation(") == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(RetiredSeedBuildersAreAbsentFromSurfaceLeaves)
+{
+  const auto root = commonTrackingRoot();
+  const auto header = readFile((root / "include/ITSMFTTracking/detail/SurfaceStateOperations.h").string());
+  const auto barrel = readFile((root / "src/PropagatorBarrelOperations.cxx").string());
+  const auto forward = readFile((root / "src/PropagatorForwardOperations.cxx").string());
+  BOOST_CHECK(header.find("buildSeed(") == std::string::npos);
+  BOOST_CHECK(barrel.find("buildSeed(") == std::string::npos);
+  BOOST_CHECK(forward.find("buildSeed(") == std::string::npos);
 }

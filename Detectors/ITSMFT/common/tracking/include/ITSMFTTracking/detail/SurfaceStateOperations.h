@@ -8,14 +8,13 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_DETAIL_SURFACESTATEOPERATIONS_H_
 #define ALICEO2_ITSMFT_TRACKING_DETAIL_SURFACESTATEOPERATIONS_H_
 
-#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-// Coordinate-family leaves used only by Propagator, candidate construction,
-// and their numerical tests. Production callers use Propagator's
+// Coordinate-family leaves used only by Propagator and their numerical
+// tests. Production callers use Propagator's
 // descriptor/state-driven API rather than selecting a family themselves.
 namespace o2::itsmft::tracking::detail
 {
@@ -33,10 +32,6 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
                OperationFailureReason& reason) noexcept;
 
 #ifndef GPUCA_GPUCODE
-bool buildSeed(const GlobalPoint3F& globalInner, const GlobalPoint3F& globalMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetAlpha, float bz,
             OperationFailureReason& reason) noexcept;
 bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetX, float bz,
@@ -67,10 +62,6 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
                OperationFailureReason& reason) noexcept;
 
 #ifndef GPUCA_GPUCODE
-bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept;
 #endif

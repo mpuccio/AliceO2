@@ -15,9 +15,6 @@
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ITSMFTTracking/TrackingPrimitives.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #endif
@@ -95,18 +92,6 @@ bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              const GlobalMeasurement& targetMeasurement,
                              SurfaceKind kind, float nSigmaCut,
                              float& tanLambdaOut) noexcept;
-
-bool buildCellSeed(SurfaceKind kind,
-                   const GlobalMeasurement& globalInner,
-                   const GlobalMeasurement& globalMiddle,
-                   const SurfaceMeasurement& measurementInner,
-                   const SurfaceMeasurement& measurementMiddle,
-                   const SurfaceMeasurement& measurementOuter,
-                   const std::array<NominalSurfaceMaterial, 3>& material,
-                   float bz, uint8_t absCharge, o2::track::PID pid,
-                   SurfaceKinematicState& outState, float& chi2,
-                   const TrackingKernelParameters& params,
-                   OperationFailureReason& reason) noexcept;
 
 #endif
 

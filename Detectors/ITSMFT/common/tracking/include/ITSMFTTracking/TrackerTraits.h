@@ -29,6 +29,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IterationConfiguration.h"
+#include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -156,6 +157,10 @@ class TrackerTraits
 
   void findRoads(IterationContext& context, int iteration, SeedRefitFunction refitFunction);
   void findRoadsImpl(IterationContext& context, int iteration, SeedRefitFunction refitFunction);
+
+  bool buildTrackSeed(IterationContext& context, int cellPathId,
+                      const CellSeed& cell, TrackSeed& output,
+                      OperationFailureReason& reason) const;
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <typename InputSeed>

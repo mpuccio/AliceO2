@@ -68,12 +68,12 @@ BOOST_AUTO_TEST_CASE(ConstructionFromCellCopiesStateAndMetadataCompletely)
   constexpr int innerLayer = 2;
   const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{static_cast<uint32_t>(123), static_cast<uint16_t>(4)};
-  CellSeed cell{innerLayer, 10, 20, 30, 5, 6, state, 7.5f, time};
+  CellSeed cell{innerLayer, 10, 20, 30, 5, 6, time};
 
-  TrackSeed seed{cell};
+  TrackSeed seed{cell, state, 7.5f};
 
-  BOOST_CHECK_EQUAL(std::memcmp(&seed.state(), &cell.state(), sizeof(SurfaceKinematicState)), 0);
-  BOOST_CHECK_EQUAL(seed.getChi2(), cell.getChi2());
+  BOOST_CHECK_EQUAL(std::memcmp(&seed.state(), &state, sizeof(SurfaceKinematicState)), 0);
+  BOOST_CHECK_EQUAL(seed.getChi2(), 7.5f);
   BOOST_CHECK_EQUAL(seed.getLevel(), cell.getLevel());
   BOOST_CHECK_EQUAL(seed.getTimeStamp().getTimeStamp(), cell.getTimeStamp().getTimeStamp());
   BOOST_CHECK_EQUAL(seed.getTimeStamp().getTimeStampError(), cell.getTimeStamp().getTimeStampError());
@@ -168,8 +168,8 @@ BOOST_AUTO_TEST_CASE(SlotAccessorsReturnUnusedIndexBeyondActiveCount)
 {
   const o2::its::TimeEstBC time{};
   const auto state = makeDistinctState(SurfaceKind::Disk);
-  CellSeed cell{0, 100, 200, 300, 1, 2, state, 0.f, time};
-  TrackSeed seed{cell}; // exactly 3 active slots
+  CellSeed cell{0, 100, 200, 300, 1, 2, time};
+  TrackSeed seed{cell, state, 0.f}; // exactly 3 active slots
 
   BOOST_CHECK_EQUAL(seed.getFirstClusterIndex(), 100);
   BOOST_CHECK_EQUAL(seed.getSecondClusterIndex(), 200);
@@ -190,8 +190,8 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawValueWithoutSquaringOrAbs)
   auto state = makeDistinctState(SurfaceKind::Disk);
   state.parameters[4] = -12.5f;
   const o2::its::TimeEstBC time{};
-  CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
-  TrackSeed seed{cell};
+  CellSeed cell{0, 0, 1, 2, 0, 1, time};
+  TrackSeed seed{cell, state, 0.f};
   BOOST_CHECK_EQUAL(seed.getQOverPt(), -12.5f);
   BOOST_CHECK_LT(seed.getQOverPt(), 0.f);
 }

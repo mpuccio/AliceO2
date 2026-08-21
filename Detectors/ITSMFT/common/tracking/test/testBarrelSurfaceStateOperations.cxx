@@ -19,10 +19,6 @@
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Cluster.h"
-// buildTrackSeed is the retained legacy oracle for buildSeed's test coverage
-// only (see BuildSeed* test cases below) -- production never calls it or
-// constructs the TrackParCov it returns (BarrelSurfaceStateOperations.cxx).
-#include "ITStracking/TrackHelpers.h"
 
 namespace
 {
@@ -90,76 +86,6 @@ template <typename T>
 bool bitEqual(const T& lhs, const T& rhs)
 {
   return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
-}
-
-// buildSeed fixtures: three well-separated, non-collinear points so
-// computeCurvature/computeCurvatureCentreX/computeTanDipAngle stay away from
-// their own degenerate fallbacks in the "success" oracle tests below.
-// "Mirror" negates the transverse offsets to flip the sign of the estimated
-// curvature/q2pt, matching an opposite-sign candidate at the same field.
-o2::its::Cluster makeInnerCluster(bool mirror = false)
-{
-  const float sign = mirror ? -1.f : 1.f;
-  return o2::its::Cluster{1.8f, sign * 0.10f, -0.60f, 0};
-}
-
-o2::its::Cluster makeMiddleCluster(bool mirror = false)
-{
-  const float sign = mirror ? -1.f : 1.f;
-  return o2::its::Cluster{3.0f, sign * 0.35f, 0.10f, 1};
-}
-
-o2::its::TrackingFrameInfo makeOuterHit(bool mirror = false)
-{
-  // xCoordinate/yCoordinate/zCoordinate are irrelevant to buildTrackSeed's
-  // formula (it reads only xTrackingFrame/alphaTrackingFrame/
-  // positionTrackingFrame/covarianceTrackingFrame) and are set to 0 here.
-  const float sign = mirror ? -1.f : 1.f;
-  return o2::its::TrackingFrameInfo{0.f, 0.f, 0.f, 4.4f, 0.15f, {sign * 0.5f, -0.8f}, {0.02f, 0.001f, 0.03f}};
-}
-
-void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expectedAbsCharge, o2::track::PID expectedPid)
-{
-  BOOST_CHECK(state.kind == SurfaceKind::Cylinder);
-  BOOST_CHECK_EQUAL(state.flags, uint8_t{0});
-  BOOST_CHECK_EQUAL(state.absCharge, expectedAbsCharge);
-  BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(expectedPid));
-}
-
-GlobalPoint3F globalPointFromCluster(const o2::its::Cluster& cluster)
-{
-  return {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-}
-
-// Test-local field-mapping helper: builds the SurfaceMeasurement fields
-// detail::barrel::buildSeed reads from the outer tracking-frame hit (Cylinder field
-// mapping: reference coordinate -> measurement.frame.q, frame angle ->
-// measurement.frame.frameAngle, measured local coordinates ->
-// measurement.frame.u/v, measured covariance -> measurement.covariance).
-SurfaceMeasurement measurementFromOuterHit(const o2::its::TrackingFrameInfo& hit)
-{
-  SurfaceMeasurement measurement{};
-  measurement.frame.q = hit.xTrackingFrame;
-  measurement.frame.frameAngle = hit.alphaTrackingFrame;
-  measurement.frame.u = hit.positionTrackingFrame[0];
-  measurement.frame.v = hit.positionTrackingFrame[1];
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = hit.covarianceTrackingFrame[1];
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
-  return measurement;
-}
-
-void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
-                                         const o2::its::TrackingFrameInfo& hitOuter, float bz,
-                                         OperationFailureReason expected)
-{
-  auto outState = makeState(); // deliberately non-default sentinel pattern
-  const auto before = outState;
-  OperationFailureReason reason{};
-  BOOST_CHECK(!detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                         measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
-  BOOST_CHECK(reason == expected);
-  BOOST_CHECK(bitEqual(outState, before));
 }
 
 void checkStateChi2FailurePreservesBytes(SurfaceKinematicState reference, SurfaceKinematicState candidate, float chi2,
@@ -231,6 +157,9 @@ void directUpdate(const SurfaceKinematicState& before, const SurfaceMeasurement&
   const float inverse01 = -s01 / determinant;
   const float inverse11 = s00 / determinant;
   float covariance[5][5]{};
+  float gain[5][2]{};
+  float transform[5][5]{};
+  float transformed[5][5]{};
   float updated[5][5]{};
   const float residual[2] = {measurement.frame.u - before.parameters[0], measurement.frame.v - before.parameters[1]};
   for (uint8_t row = 0; row < 5; ++row) {
@@ -239,16 +168,34 @@ void directUpdate(const SurfaceKinematicState& before, const SurfaceMeasurement&
     }
   }
   for (uint8_t row = 0; row < 5; ++row) {
-    const float gain0 = covariance[row][0] * inverse00 + covariance[row][1] * inverse01;
-    const float gain1 = covariance[row][0] * inverse01 + covariance[row][1] * inverse11;
-    expected.parameters[row] += gain0 * residual[0] + gain1 * residual[1];
+    gain[row][0] = covariance[row][0] * inverse00 + covariance[row][1] * inverse01;
+    gain[row][1] = covariance[row][0] * inverse01 + covariance[row][1] * inverse11;
+    expected.parameters[row] += gain[row][0] * residual[0] + gain[row][1] * residual[1];
+    transform[row][row] = 1.f;
+    transform[row][0] -= gain[row][0];
+    transform[row][1] -= gain[row][1];
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
-      updated[row][column] = covariance[row][column] - gain0 * covariance[0][column] - gain1 * covariance[1][column];
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        transformed[row][column] += transform[row][inner] * covariance[inner][column];
+      }
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        updated[row][column] += transformed[row][inner] * transform[column][inner];
+      }
+      updated[row][column] +=
+        gain[row][0] * (measurement.covariance.uu * gain[column][0] + measurement.covariance.uv * gain[column][1]) +
+        gain[row][1] * (measurement.covariance.uv * gain[column][0] + measurement.covariance.vv * gain[column][1]);
     }
   }
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column <= row; ++column) {
-      expected.covariance[packedCovarianceIndex(row, column)] = updated[row][column];
+      expected.covariance[packedCovarianceIndex(row, column)] =
+        row == column ? updated[row][column] : 0.5f * (updated[row][column] + updated[column][row]);
     }
   }
   expectedChi2 = directPredictedChi2(before, measurement);
@@ -596,143 +543,4 @@ BOOST_AUTO_TEST_CASE(StateChi2PreservesInputsOnSuccessAndIsByteDeterministic)
   BOOST_CHECK(bitEqual(reference, referenceBefore));
   BOOST_CHECK(bitEqual(candidate, candidateBefore));
   BOOST_CHECK_EQUAL(firstChi2, secondChi2);
-}
-
-// --- detail::barrel::buildSeed (Stage-B Slice A) ---
-
-BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
-{
-  for (const bool mirror : {false, true}) {
-    const auto clusterInner = makeInnerCluster(mirror);
-    const auto clusterMiddle = makeMiddleCluster(mirror);
-    const auto hitOuter = makeOuterHit(mirror);
-    const float bz = 0.5f;
-    const auto oracle = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, bz);
-
-    SurfaceKinematicState outState{};
-    OperationFailureReason reason{};
-    BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                            measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
-
-    Drift drift{};
-    checkClose(outState.referenceCoordinate, oracle.getX(), drift);
-    checkClose(outState.alpha, oracle.getAlpha(), drift);
-    for (uint8_t i = 0; i < 5; ++i) {
-      checkClose(outState.parameters[i], oracle.getParam(i), drift);
-    }
-    for (uint8_t i = 0; i < 15; ++i) {
-      checkClose(outState.covariance[i], oracle.getCov()[i], drift);
-    }
-    checkBuildSeedMetadata(outState, 1, o2::track::PID::Pion);
-    BOOST_TEST_MESSAGE("buildSeed nonzero-field (mirror=" << mirror << ") retained-oracle max drift: abs=" << drift.absolute << " rel=" << drift.relative);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
-{
-  const auto clusterInner = makeInnerCluster();
-  const auto clusterMiddle = makeMiddleCluster();
-  const auto hitOuter = makeOuterHit();
-  const float bz = 0.005f; // |bz| < 0.01f -> zero-field branch
-  const auto oracle = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, bz);
-
-  SurfaceKinematicState outState{};
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                          measurementFromOuterHit(hitOuter), bz, 2, o2::track::PID::Kaon, outState, reason));
-
-  Drift drift{};
-  checkClose(outState.referenceCoordinate, oracle.getX(), drift);
-  checkClose(outState.alpha, oracle.getAlpha(), drift);
-  for (uint8_t i = 0; i < 5; ++i) {
-    checkClose(outState.parameters[i], oracle.getParam(i), drift);
-  }
-  for (uint8_t i = 0; i < 15; ++i) {
-    checkClose(outState.covariance[i], oracle.getCov()[i], drift);
-  }
-  checkBuildSeedMetadata(outState, 2, o2::track::PID::Kaon);
-  BOOST_TEST_MESSAGE("buildSeed zero-field retained-oracle max drift: abs=" << drift.absolute << " rel=" << drift.relative);
-}
-
-BOOST_AUTO_TEST_CASE(BuildSeedCurvatureSignFlipsWithMirroredGeometry)
-{
-  // Dedicated alpha=0 fixture (not makeOuterHit's alpha=0.15f): with a zero
-  // rotation, clusterInner.y/clusterMiddle.y/hitOuter's Y3 map identically
-  // onto computeCurvature's y1/y2/y3, so negating all three is an exact
-  // reflection about the local X axis. Under that reflection the retained
-  // formula's signed area (hence crv and q2pt) flips sign while
-  // computeCurvatureCentreX -- and therefore snp -- transforms consistently
-  // with it; this is not true for a mirror applied before a nonzero-alpha
-  // rotation (rotation mixes x and y), which is why the oracle-match
-  // fixtures above use their own alpha and are not reused here.
-  const float bz = 0.5f;
-  const o2::its::Cluster clusterInner{1.8f, 0.10f, -0.60f, 0};
-  const o2::its::Cluster clusterMiddle{3.0f, 0.35f, 0.10f, 1};
-  const o2::its::TrackingFrameInfo hitOuter{0.f, 0.f, 0.f, 4.4f, 0.f, {0.5f, -0.8f}, {0.02f, 0.001f, 0.03f}};
-  const o2::its::Cluster clusterInnerMirrored{1.8f, -0.10f, -0.60f, 0};
-  const o2::its::Cluster clusterMiddleMirrored{3.0f, -0.35f, 0.10f, 1};
-  const o2::its::TrackingFrameInfo hitOuterMirrored{0.f, 0.f, 0.f, 4.4f, 0.f, {-0.5f, -0.8f}, {0.02f, 0.001f, 0.03f}};
-
-  SurfaceKinematicState plain{};
-  SurfaceKinematicState mirrored{};
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, plain, reason));
-  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInnerMirrored), globalPointFromCluster(clusterMiddleMirrored),
-                                          measurementFromOuterHit(hitOuterMirrored), bz,
-                                          1, o2::track::PID::Pion, mirrored, reason));
-  BOOST_CHECK_LT(plain.parameters[4] * mirrored.parameters[4], 0.f);
-  BOOST_CHECK_LT(plain.parameters[2] * mirrored.parameters[2], 0.f);
-}
-
-BOOST_AUTO_TEST_CASE(BuildSeedRejectsNonFiniteInput)
-{
-  const auto clusterInner = makeInnerCluster();
-  const auto clusterMiddle = makeMiddleCluster();
-  const auto hitOuter = makeOuterHit();
-  const float bz = 0.5f;
-
-  auto badInner = clusterInner;
-  badInner.xCoordinate = std::numeric_limits<float>::quiet_NaN();
-  checkBuildSeedFailurePreservesBytes(badInner, clusterMiddle, hitOuter, bz, OperationFailureReason::NonFiniteInput);
-
-  auto badMiddle = clusterMiddle;
-  badMiddle.zCoordinate = std::numeric_limits<float>::infinity();
-  checkBuildSeedFailurePreservesBytes(clusterInner, badMiddle, hitOuter, bz, OperationFailureReason::NonFiniteInput);
-
-  auto badHit = hitOuter;
-  badHit.alphaTrackingFrame = std::numeric_limits<float>::quiet_NaN();
-  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, badHit, bz, OperationFailureReason::NonFiniteInput);
-
-  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, hitOuter, std::numeric_limits<float>::quiet_NaN(),
-                                      OperationFailureReason::NonFiniteInput);
-}
-
-BOOST_AUTO_TEST_CASE(BuildSeedDegenerateZeroFieldGeometryRejectsViaNonFiniteOutput)
-{
-  // alpha=0 makes the rotation identity; clusterInner is chosen to coincide
-  // exactly with (x3, y3) in that frame, forcing dx=dy=0 in the zero-field
-  // branch (0.f/hypot(0,0) == NaN) -- an inherent numeric singularity of the
-  // retained formula itself, not a new rejection added by this operation.
-  const o2::its::TrackingFrameInfo hitOuter{0.f, 0.f, 0.f, 4.0f, 0.f, {0.5f, -0.8f}, {0.02f, 0.001f, 0.03f}};
-  const o2::its::Cluster clusterInner{4.0f, 0.5f, -0.6f, 0};
-  const auto clusterMiddle = makeMiddleCluster();
-  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, hitOuter, 0.f, OperationFailureReason::NonFiniteOutput);
-}
-
-BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
-{
-  const auto clusterInner = makeInnerCluster();
-  const auto clusterMiddle = makeMiddleCluster();
-  const auto hitOuter = makeOuterHit();
-  const float bz = -0.35f;
-
-  SurfaceKinematicState firstState{};
-  SurfaceKinematicState secondState{};
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, firstState, reason));
-  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, secondState, reason));
-  BOOST_CHECK(bitEqual(firstState, secondState));
 }

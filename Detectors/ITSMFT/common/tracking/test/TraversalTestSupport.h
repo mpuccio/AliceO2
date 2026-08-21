@@ -50,6 +50,13 @@ struct TrackerTestAccess {
     traits.findCellsNeighbours(view, view.iteration);
   }
 
+  static bool buildTrackSeed(TrackerTraits& traits, IterationContext& view,
+                             int cellPathId, const CellSeed& cell,
+                             TrackSeed& output, OperationFailureReason& reason)
+  {
+    return traits.buildTrackSeed(view, cellPathId, cell, output, reason);
+  }
+
   static void findRoads(TrackerTraits& traits, IterationContext& view, SeedRefitFunction refit)
   {
     traits.findRoads(view, view.iteration, refit);

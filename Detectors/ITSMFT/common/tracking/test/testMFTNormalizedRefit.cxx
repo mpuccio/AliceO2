@@ -12,6 +12,7 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -21,7 +22,6 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -37,6 +37,35 @@ constexpr int NLayers = o2::mft::constants::mft::LayersNumber;
 // Field-off exercises the native linear propagation model deterministically.
 constexpr float Bz = 0.f;
 constexpr float DefaultSigma2 = 2.5e-7f; // (~0.5 micron)^2, MFT-scale resolution
+
+SurfaceKinematicState makeDiskRefitStateFixture(
+  const SurfaceMeasurement& inner, const SurfaceMeasurement& outer,
+  float trackletMinPt)
+{
+  const float dx = outer.frame.u - inner.frame.u;
+  const float dy = outer.frame.v - inner.frame.v;
+  const float transverseLength = std::hypot(dx, dy);
+  const float qOverPt = trackletMinPt > 0.f ? 1.f / trackletMinPt : 0.f;
+
+  SurfaceKinematicState state{};
+  state.referenceCoordinate = outer.frame.q;
+  state.parameters[0] = outer.frame.u;
+  state.parameters[1] = outer.frame.v;
+  state.parameters[2] = std::atan2(dy, dx);
+  state.parameters[3] = (outer.frame.q - inner.frame.q) / transverseLength;
+  state.parameters[4] = qOverPt;
+  state.covariance[packedCovarianceIndex(0, 0)] = outer.covariance.uu;
+  state.covariance[packedCovarianceIndex(1, 0)] = outer.covariance.uv;
+  state.covariance[packedCovarianceIndex(1, 1)] = outer.covariance.vv;
+  state.covariance[packedCovarianceIndex(2, 2)] = 1.f;
+  state.covariance[packedCovarianceIndex(3, 3)] = 1.f;
+  const float qOverPtSigma = std::clamp(std::abs(qOverPt), 1.f, 10.f);
+  state.covariance[packedCovarianceIndex(4, 4)] = qOverPtSigma * qOverPtSigma;
+  state.kind = SurfaceKind::Disk;
+  state.absCharge = 1;
+  state.pid = o2::track::PID::Pion;
+  return state;
+}
 
 // A straight track through every MFT disk.
 struct StraightTrackGeometry {
@@ -97,12 +126,9 @@ struct RefitFixture {
 
     // The native driver starts from the CA seed state.
     const int innerLayer = 0;
-    const int middleLayer = hits / 2;
     const int outerLayer = hits - 1;
-    OperationFailureReason seedReason{};
-    BOOST_REQUIRE(detail::forward::buildSeed(storage[innerLayer][0], storage[middleLayer][0],
-                                             storage[outerLayer][0], Bz, params.TrackletMinPt,
-                                             /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
+    seed.state() = makeDiskRefitStateFixture(
+      storage[innerLayer][0], storage[outerLayer][0], params.TrackletMinPt);
   }
 
   void setMeasurement(int layer, float x, float y, float z, float uu, float vv, float uv = 0.f)
@@ -417,10 +443,8 @@ BOOST_AUTO_TEST_CASE(GenericRefitUsesStablePreSortClusterIdentity)
   }
   seed.setHitLayerMask(LayerMask{mask});
 
-  OperationFailureReason seedReason{};
-  BOOST_REQUIRE(detail::forward::buildSeed(storage[0][1], storage[NLayers / 2][1],
-                                           storage[NLayers - 1][1], Bz, params.TrackletMinPt,
-                                           /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
+  seed.state() = makeDiskRefitStateFixture(
+    storage[0][1], storage[NLayers - 1][1], params.TrackletMinPt);
 
   TrackingCandidate track;
   std::vector<std::vector<GlobalMeasurement>> globals(NLayers);

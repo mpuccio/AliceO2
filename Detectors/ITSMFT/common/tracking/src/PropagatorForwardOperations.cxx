@@ -338,6 +338,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
   }
 
   DenseMatrix5 covariance{};
+  DenseMatrix5 josephTransform{};
+  DenseMatrix5 transformedCovariance{};
   DenseMatrix5 updatedCovariance{};
   float gain[5][2]{};
   unpackCovariance(state, covariance);
@@ -348,11 +350,36 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     gain[row][1] = covariance[row][0] * inverse01 + covariance[row][1] * inverse11;
     scratch.parameters[row] += gain[row][0] * residual[0] + gain[row][1] * residual[1];
   }
+
+  // Joseph covariance update: (I - K H) P (I - K H)^T + K R K^T.
+  // The surface measurement matrix H selects state parameters 0 and 1.
+  identity(josephTransform);
+  for (uint8_t row = 0; row < 5; ++row) {
+    josephTransform[row][0] -= gain[row][0];
+    josephTransform[row][1] -= gain[row][1];
+  }
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
-      updatedCovariance[row][column] = covariance[row][column] -
-                                       gain[row][0] * covariance[0][column] -
-                                       gain[row][1] * covariance[1][column];
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        transformedCovariance[row][column] += josephTransform[row][inner] * covariance[inner][column];
+      }
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        updatedCovariance[row][column] += transformedCovariance[row][inner] * josephTransform[column][inner];
+      }
+      updatedCovariance[row][column] +=
+        gain[row][0] * (measurement.covariance.uu * gain[column][0] + measurement.covariance.uv * gain[column][1]) +
+        gain[row][1] * (measurement.covariance.uv * gain[column][0] + measurement.covariance.vv * gain[column][1]);
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < row; ++column) {
+      const float symmetric = 0.5f * (updatedCovariance[row][column] + updatedCovariance[column][row]);
+      updatedCovariance[row][column] = symmetric;
+      updatedCovariance[column][row] = symmetric;
     }
   }
   packCovariance(updatedCovariance, scratch);
@@ -362,9 +389,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: non-Joseph covariance subtraction can expose an upstream
-  // out-of-bounds correlation as a small negative diagonal. Sanitize before
-  // committing so callers never observe it.
+  // Preserve the established covariance bounds after the Joseph update.
   sanitizeCovariance(scratch, kForwardMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
@@ -456,91 +481,6 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 namespace
 {
-
-// Shared closed-form seed construction. Direction uses the measurements in
-// fixed physical order; frameMeasurement supplies the reference frame/covariance.
-bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-                   const SurfaceMeasurement& measurementOuter, const SurfaceMeasurement& frameMeasurement,
-                   float bz, float trackletMinPt,
-                   uint8_t absCharge, o2::track::PID pid,
-                   SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  if (!std::isfinite(measurementInner.frame.u) || !std::isfinite(measurementInner.frame.v) || !std::isfinite(measurementInner.frame.q) ||
-      !std::isfinite(measurementMiddle.frame.u) || !std::isfinite(measurementMiddle.frame.v) || !std::isfinite(measurementMiddle.frame.q) ||
-      !std::isfinite(measurementOuter.frame.u) || !std::isfinite(measurementOuter.frame.v) || !std::isfinite(measurementOuter.frame.q) ||
-      !std::isfinite(frameMeasurement.frame.q) ||
-      !std::isfinite(frameMeasurement.covariance.uu) || !std::isfinite(frameMeasurement.covariance.vv) ||
-      !std::isfinite(bz) || !std::isfinite(trackletMinPt)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-
-  // Established strict boundary from buildDiskCellSeed and
-  // detail::mftFwdFitCellClusters. Report degenerate hit geometry as
-  // SeedGeometryDegenerate, independently of the reference-frame anchor.
-  if (measurementInner.frame.q <= measurementOuter.frame.q + 1.e-6f) {
-    reason = OperationFailureReason::SeedGeometryDegenerate;
-    return false;
-  }
-
-  const float dxTan = measurementMiddle.frame.u - measurementInner.frame.u;
-  const float dyTan = measurementMiddle.frame.v - measurementInner.frame.v;
-  const float dzTan = measurementMiddle.frame.q - measurementInner.frame.q;
-  const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
-  const float dxPhi = measurementOuter.frame.u - measurementInner.frame.u;
-  const float dyPhi = measurementOuter.frame.v - measurementInner.frame.v;
-  const float dzPhi = measurementOuter.frame.q - measurementInner.frame.q;
-  const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
-  if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
-    reason = OperationFailureReason::SeedGeometryDegenerate;
-    return false;
-  }
-
-  // Preserve the established trackletMinPt<=0 fallback: invQPt becomes 0.
-  const float invQPt = (trackletMinPt > 0.f) ? 1.f / trackletMinPt : 0.f;
-  float tanl = 0.f;
-  float phi = 0.f;
-  if (std::abs(bz) > 0.01f) {
-    tanl = -std::abs(dzTan) / drTan;
-    phi = std::atan2(dyPhi, dxPhi);
-    if (std::abs(tanl) > 1.e-6f) {
-      const float k = std::abs(o2::constants::math::B2C * bz);
-      const float hz = (bz > 0.f) ? 1.f : -1.f;
-      phi -= 0.5f * hz * invQPt * dzPhi * k / tanl;
-    }
-  } else {
-    tanl = -std::abs(dzPhi) / drPhi;
-    phi = std::atan2(dyPhi, dxPhi);
-  }
-
-  SurfaceKinematicState scratch{};
-  scratch.referenceCoordinate = frameMeasurement.frame.q;
-  scratch.alpha = 0.f;
-  scratch.parameters[0] = frameMeasurement.frame.u;
-  scratch.parameters[1] = frameMeasurement.frame.v;
-  scratch.parameters[2] = phi;
-  scratch.parameters[3] = tanl;
-  scratch.parameters[4] = invQPt;
-  // Match legacy seedCov: populate only the diagonal; off-diagonal entries
-  // remain value-initialized to 0.f.
-  scratch.covariance[packedCovarianceIndex(0, 0)] = frameMeasurement.covariance.uu > 0.f ? frameMeasurement.covariance.uu : 1.f;
-  scratch.covariance[packedCovarianceIndex(1, 1)] = frameMeasurement.covariance.vv > 0.f ? frameMeasurement.covariance.vv : 1.f;
-  scratch.covariance[packedCovarianceIndex(2, 2)] = 1.f;
-  scratch.covariance[packedCovarianceIndex(3, 3)] = 1.f;
-  const float qptSigma = std::clamp(std::abs(invQPt), 1.f, 10.f);
-  scratch.covariance[packedCovarianceIndex(4, 4)] = qptSigma * qptSigma;
-  scratch.kind = SurfaceKind::Disk;
-  scratch.flags = 0;
-  scratch.absCharge = absCharge;
-  scratch.pid = pid;
-
-  if (!finiteState(scratch)) {
-    reason = OperationFailureReason::NonFiniteOutput;
-    return false;
-  }
-  outState = scratch;
-  return true;
-}
 
 bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
 {
@@ -731,14 +671,6 @@ bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReferen
 }
 
 } // namespace
-
-bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle, const SurfaceMeasurement& measurementOuter,
-               float bz, float trackletMinPt,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementOuter, bz, trackletMinPt, absCharge, pid, outState, reason);
-}
 
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept

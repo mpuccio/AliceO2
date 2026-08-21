@@ -25,6 +25,7 @@
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/enumerable_thread_specific.h>
 
+#include "CommonConstants/MathConstants.h"
 #include "Framework/Logger.h"
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -43,6 +44,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"
+#include "ReconstructionDataFormats/TrackParametrization.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
@@ -496,15 +498,12 @@ void TrackerTraits::computeLayerCellsImpl(
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.configuration.kernelParameters;
-  const auto mAttachHitConfig = bindAttachHitConfig(context.detectorConfiguration.layerMaterial, trkParam);
-  const auto& mLayerMaterial = context.detectorConfiguration.layerMaterial;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
     struct CellHitBinding {
       std::array<int, 3> layers{};
-      std::array<SurfaceDescriptor, 3> surfaces{};
     };
 
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
@@ -515,12 +514,11 @@ void TrackerTraits::computeLayerCellsImpl(
       for (int i = 0; i < 3; ++i) {
         const auto LayerId = surfaces[i];
         binding.layers[i] = requireSurfacePosition(context, iteration, LayerId);
-        binding.surfaces[i] = topology.getSurface(LayerId);
       }
       return binding;
     };
 
-    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstEdgeId, int secondEdgeId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+    auto forTrackletCells = [&](auto Mode, int firstEdgeId, int secondEdgeId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
       const auto& hitLayers = hitBinding.layers;
       const Tracklet& currentTracklet{mScratch->getTracklets()[firstEdgeId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
@@ -541,12 +539,6 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][sortedId[0]];
         const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][sortedId[1]];
         const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][sortedId[2]];
-        const auto* measurementInner = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[0])}, globalInner.clusterId);
-        const auto* measurementMiddle = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[1])}, globalMiddle.clusterId);
-        const auto* measurementOuter = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(hitLayers[2])}, globalOuter.clusterId);
-        if (measurementInner == nullptr || measurementMiddle == nullptr || measurementOuter == nullptr) {
-          continue;
-        }
         const double edgeMSAngle = static_cast<double>(mScratch->getEdgeMSAngle(secondEdgeId));
         const DirectionProcessNoise directionProcessNoise{edgeMSAngle * edgeMSAngle};
         std::array<TransverseDirectionObservation, 3> transverseObservations{};
@@ -573,45 +565,25 @@ void TrackerTraits::computeLayerCellsImpl(
         if (cellDirectionsAreCompatible(directionObservations, directionProcessNoise, context.frame.getBeamPositionVariance(), mKernelParameters.nSigmaCut,
                                         directionCompatibility)) {
 
-          // Strictly {inner, middle, outer}: Cylinder reads [1] then
-          // [0] (outer slot unused), Disk reads [2], [1], [0].
-          const std::array<NominalSurfaceMaterial, 3> material{
-            mAttachHitConfig.layerMaterial[hitLayers[0]],
-            mAttachHitConfig.layerMaterial[hitLayers[1]],
-            mAttachHitConfig.layerMaterial[hitLayers[2]]};
-
-          SurfaceKinematicState state{};
-          float chi2{0.f};
-          OperationFailureReason buildReason{};
-          const bool good = buildCellSeed(kind, globalInner, globalMiddle,
-                                          *measurementInner, *measurementMiddle, *measurementOuter,
-                                          material, mBz, kCompatibilityAbsCharge, kCompatibilityPID,
-                                          state, chi2, mKernelParameters, buildReason);
-
-          if (good) {
+          std::array<TripletFitObservation, 3> observations{};
+          TripletFitFactor tripletFactor{};
+          if (makeTripletFitObservation(globalInner, observations[0]) &&
+              makeTripletFitObservation(globalMiddle, observations[1]) &&
+              makeTripletFitObservation(globalOuter, observations[2]) &&
+              makeTripletFitFactor(observations, tripletFactor)) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
             ts += nextTracklet.getTimeStamp();
             // Build directly from the resolved plan positions; plan validation
             // already checked them against the cell's hit-surface mask.
             const LayerMask hitLayerMask{hitLayers[0], hitLayers[1], hitLayers[2]};
-            TripletFitFactor tripletFactor{};
-            if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
-              std::array<TripletFitObservation, 3> observations{};
-              if (!makeTripletFitObservation(globalInner, observations[0]) ||
-                  !makeTripletFitObservation(globalMiddle, observations[1]) ||
-                  !makeTripletFitObservation(globalOuter, observations[2]) ||
-                  !makeTripletFitFactor(observations, tripletFactor)) {
-                tripletFactor = {};
-              }
-            }
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-              layerCells.emplace_back(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells.emplace_back(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, ts);
               layerCells.back().tripletFactor() = tripletFactor;
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
-              layerCells[offset++] = CellSeed(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells[offset++] = CellSeed(hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, ts);
               layerCells[offset - 1].tripletFactor() = tripletFactor;
               ++foundCells;
             } else {
@@ -626,7 +598,6 @@ void TrackerTraits::computeLayerCellsImpl(
     for (const auto typedCellId : cellIds) {
       const int cellPathId = requireScratchCellSlot(context, iteration, typedCellId);
       const auto& cellTopology = topology.getPath(typedCellId);
-      const auto kind = topology.getSurface(topology.getEdge(cellTopology.first).from).kind;
       const int firstEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.first);
       const int secondEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.second);
       if (mScratch->getTracklets()[firstEdgeId].empty() ||
@@ -640,12 +611,12 @@ void TrackerTraits::computeLayerCellsImpl(
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
         }
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
       } else {
         tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
         });
 
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
@@ -663,7 +634,7 @@ void TrackerTraits::computeLayerCellsImpl(
           if (offset == perTrackletCount[iTracklet + 1]) {
             return;
           }
-          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet, offset);
+          forTrackletCells(PassMode::TwoPassInsert{}, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet, offset);
         });
       }
 
@@ -870,6 +841,114 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   });
 }
 
+bool TrackerTraits::buildTrackSeed(IterationContext& context, int cellPathId,
+                                   const CellSeed& cell, TrackSeed& output,
+                                   OperationFailureReason& reason) const
+{
+  const auto pathId = context.configuration.cells[cellPathId];
+  const auto& path = context.topology.getPath(pathId);
+  const auto& firstEdge = context.topology.getEdge(path.first);
+  const auto kind = context.topology.getSurface(firstEdge.from).kind;
+
+  std::array<const GlobalMeasurement*, 3> globals{};
+  std::array<const SurfaceMeasurement*, 3> measurements{};
+  std::array<NominalSurfaceMaterial, 3> hitMaterial{};
+  for (int hit = 0; hit < 3; ++hit) {
+    const auto reference = cell.getClusterReference(hit);
+    globals[hit] = &context.layerGlobalMeasurements[reference.surfacePosition][reference.clusterIndex];
+    measurements[hit] = context.frame.getSurfaceMeasurement(
+      LayerId{static_cast<uint16_t>(reference.surfacePosition)}, globals[hit]->clusterId);
+    hitMaterial[hit] = context.detectorConfiguration.layerMaterial[reference.surfacePosition];
+  }
+
+  SurfaceKinematicState state{};
+  float chi2{0.f};
+  const auto& outer = *measurements[2];
+
+  float sinPhi = 0.f, cosPhi = 0.f, tanLambda = 0.f, qOverPt = 1.f / o2::track::kMostProbablePt;
+  float curvatureSquared = 1.f;
+
+  state.referenceCoordinate = outer.frame.q;
+  state.alpha = (kind == SurfaceKind::Cylinder) ? outer.frame.frameAngle : 0.f;
+  state.parameters[0] = outer.frame.u;
+  state.parameters[1] = outer.frame.v;
+
+  float cosAlpha, sinAlpha, x[3], y[3];
+  o2::math_utils::detail::sincos(state.alpha, sinAlpha, cosAlpha);
+  for (int i{0}; i < 3; ++i) {
+    const auto& pos = globals[i]->position;
+    x[i] = pos.x * cosAlpha + pos.y * sinAlpha;
+    y[i] = -pos.x * sinAlpha + pos.y * cosAlpha;
+  }
+  const float dx = x[2] - x[1];
+  const float dy = y[2] - y[1];
+  const float chordLength = std::hypot(dx, dy);
+  const float inverseLength = 1.f / chordLength;
+
+  const float chordCos = dx * inverseLength;
+  const float chordSin = dy * inverseLength;
+  tanLambda = -0.5f *
+              (math_utils::computeTanDipAngle(x[0], y[0], x[1], y[1], globals[0]->position.z, globals[1]->position.z) +
+               math_utils::computeTanDipAngle(x[1], y[1], x[2], y[2], globals[1]->position.z, globals[2]->position.z));
+
+  if (std::abs(context.bz) < 0.01f) {
+    cosPhi = chordCos;
+    sinPhi = chordSin;
+  } else {
+    const float curvature =
+      math_utils::computeCurvature(
+        x[2], y[2], x[1], y[1], x[0], y[0]);
+
+    const float halfSin = 0.5f * curvature * chordLength;
+    const float halfCos =
+      std::sqrt((1.f - halfSin) * (1.f + halfSin));
+
+    cosPhi = chordCos * halfCos - chordSin * halfSin;
+    sinPhi = chordSin * halfCos + chordCos * halfSin;
+    qOverPt = curvature /
+              (context.bz * o2::constants::math::B2C);
+    curvatureSquared = curvature * curvature;
+  }
+
+  float phi = o2::gpu::GPUCommonMath::ASin(sinPhi);
+  if (cosPhi < 0.f) {
+    phi = o2::constants::math::PI - phi;
+  } else if (phi < 0.f) {
+    phi += o2::constants::math::TwoPI;
+  }
+
+  state.parameters[2] = (kind == SurfaceKind::Cylinder) ? sinPhi : phi;
+  state.parameters[3] = tanLambda;
+  state.parameters[4] = qOverPt;
+  state.covariance[packedCovarianceIndex(0, 0)] = outer.covariance.uu;
+  state.covariance[packedCovarianceIndex(1, 0)] = outer.covariance.uv;
+  state.covariance[packedCovarianceIndex(1, 1)] = outer.covariance.vv;
+  state.covariance[packedCovarianceIndex(2, 2)] = (kind == SurfaceKind::Cylinder) ? o2::track::kCSnp2max : o2::track::kCSnp2max / (cosPhi * cosPhi);
+  state.covariance[packedCovarianceIndex(3, 3)] = o2::track::kCTgl2max;
+  state.covariance[packedCovarianceIndex(4, 4)] = o2::track::kC1Pt2max * std::clamp(curvatureSquared, 0.0005f, 1.f);
+
+  state.kind = kind;
+  state.flags = 0;
+  state.absCharge = kCompatibilityAbsCharge;
+  state.pid = kCompatibilityPID;
+
+  const std::array<const SurfaceMeasurement*, 2> attachmentMeasurements{measurements[1], measurements[0]};
+  const std::array<NominalSurfaceMaterial, 2> attachmentMaterial{hitMaterial[1], hitMaterial[0]};
+  for (int step = 0; step < 2; ++step) {
+    if (!Propagator::attachMeasurement(
+          state, *attachmentMeasurements[step], attachmentMaterial[step], context.bz,
+          material::MaterialTraversalDirection::OppositeMomentum,
+          step == 1,
+          context.configuration.kernelParameters.maxChi2ClusterAttachment,
+          chi2, reason)) {
+      return false;
+    }
+  }
+
+  output = TrackSeed{cell, state, chi2};
+  return true;
+}
+
 template <typename InputSeed>
 void TrackerTraits::processNeighbours(IterationContext& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsPathIds, const TrackingKernelParameters& params)
 {
@@ -908,6 +987,15 @@ void TrackerTraits::processNeighbours(IterationContext& context, int iteration, 
       }
       const int startNeighbourId{cellId ? mScratch->getCellsNeighboursLUT()[cellPathId][cellId - 1] : 0};
       const int endNeighbourId{mScratch->getCellsNeighboursLUT()[cellPathId][cellId]};
+      TrackSeed baseSeed{};
+      if constexpr (std::is_same_v<InputSeed, CellSeed>) {
+        OperationFailureReason buildReason{};
+        if (!buildTrackSeed(context, cellPathId, currentCell, baseSeed, buildReason)) {
+          return 0;
+        }
+      } else {
+        baseSeed = currentCell;
+      }
       int foundSeeds{0};
       for (int iNeighbourCell{startNeighbourId}; iNeighbourCell < endNeighbourId; ++iNeighbourCell) {
         const int neighbourCellPathId = mScratch->getCellsNeighboursTopology()[cellPathId][iNeighbourCell];
@@ -930,7 +1018,7 @@ void TrackerTraits::processNeighbours(IterationContext& context, int iteration, 
         }
 
         /// Let's start the fitting procedure
-        TrackSeed seed{currentCell};
+        TrackSeed seed{baseSeed};
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 

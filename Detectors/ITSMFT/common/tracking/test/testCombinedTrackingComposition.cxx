@@ -181,15 +181,10 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// crosses a given lab radius, then getXYZGloAt() to read the global point
 /// there -- both const, no incremental state mutation between layers).
 ///
-/// A perfectly collinear ("infinite pT" / zero-curvature) triple is a
-/// genuine, deliberate rejection of CandidateFinding.cxx's
-/// barrel::buildSeed circle fit -- see testBarrelSurfaceStateOperations.cxx's
-/// own BuildSeedDegenerateZeroFieldGeometryRejectsViaNonFiniteOutput and its
-/// "three well-separated, non-collinear points" fixture comment. A first
-/// attempt at this fixture used exactly such a collinear radial line and
-/// reproduced that same rejection (RotationFailure) on one specific
-/// three-layer cell, confirming it is not usable as an ITS road fixture;
-/// this helix construction is deliberately non-degenerate instead.
+/// A perfectly collinear ("infinite pT" / zero-curvature) triple does not
+/// define the linearized triplet factor used by cell construction. This
+/// helix construction therefore supplies a deliberately non-degenerate ITS
+/// road fixture.
 std::vector<DecodedCluster> buildItsHelixChainClusters(const std::vector<float>& radii, float bz, float pt, float phi0, float tanl)
 {
   const float px = pt * std::cos(phi0);

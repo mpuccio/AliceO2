@@ -19,10 +19,6 @@
 // no track object is constructed here.
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
-#ifndef GPUCA_GPUCODE
-#include "ITStracking/MathUtils.h"
-#endif
-
 namespace o2::itsmft::tracking::detail::barrel
 {
 namespace
@@ -321,6 +317,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     return false;
   }
   DenseMatrix5 covariance{};
+  DenseMatrix5 josephTransform{};
+  DenseMatrix5 transformedCovariance{};
   DenseMatrix5 updatedCovariance{};
   float gain[5][2]{};
   unpackCovariance(state, covariance);
@@ -330,8 +328,37 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     gain[row][0] = covariance[row][0] * inverse00 + covariance[row][1] * inverse01;
     gain[row][1] = covariance[row][0] * inverse01 + covariance[row][1] * inverse11;
     scratch.parameters[row] += gain[row][0] * residual[0] + gain[row][1] * residual[1];
+  }
+
+  // Joseph covariance update: (I - K H) P (I - K H)^T + K R K^T.
+  // The surface measurement matrix H selects state parameters 0 and 1.
+  identity(josephTransform);
+  for (uint8_t row = 0; row < 5; ++row) {
+    josephTransform[row][0] -= gain[row][0];
+    josephTransform[row][1] -= gain[row][1];
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
-      updatedCovariance[row][column] = covariance[row][column] - gain[row][0] * covariance[0][column] - gain[row][1] * covariance[1][column];
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        transformedCovariance[row][column] += josephTransform[row][inner] * covariance[inner][column];
+      }
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        updatedCovariance[row][column] += transformedCovariance[row][inner] * josephTransform[column][inner];
+      }
+      updatedCovariance[row][column] +=
+        gain[row][0] * (measurement.covariance.uu * gain[column][0] + measurement.covariance.uv * gain[column][1]) +
+        gain[row][1] * (measurement.covariance.uv * gain[column][0] + measurement.covariance.vv * gain[column][1]);
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < row; ++column) {
+      const float symmetric = 0.5f * (updatedCovariance[row][column] + updatedCovariance[column][row]);
+      updatedCovariance[row][column] = symmetric;
+      updatedCovariance[column][row] = symmetric;
     }
   }
   packCovariance(updatedCovariance, scratch);
@@ -341,8 +368,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: covariance subtraction can expose an upstream out-of-bounds
-  // correlation as a small negative diagonal. Sanitize before committing.
+  // Preserve the established covariance bounds after the Joseph update.
   sanitizeCovariance(scratch, kBarrelMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
@@ -404,88 +430,6 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 namespace
 {
-
-// Closed-form seed construction from o2::its::track::buildTrackSeed
-// (ITStracking/TrackHelpers.h), with arguments renamed to match this API.
-bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
-                   const SurfaceMeasurement& frameMeasurement, float bz, float sign,
-                   uint8_t absCharge, o2::track::PID pid,
-                   SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  if (!std::isfinite(clusterA.x) || !std::isfinite(clusterA.y) || !std::isfinite(clusterA.z) ||
-      !std::isfinite(clusterB.x) || !std::isfinite(clusterB.y) || !std::isfinite(clusterB.z) ||
-      !std::isfinite(frameMeasurement.frame.q) || !std::isfinite(frameMeasurement.frame.frameAngle) ||
-      !std::isfinite(frameMeasurement.frame.u) || !std::isfinite(frameMeasurement.frame.v) ||
-      !std::isfinite(frameMeasurement.covariance.uu) || !std::isfinite(frameMeasurement.covariance.uv) ||
-      !std::isfinite(frameMeasurement.covariance.vv) || !std::isfinite(bz)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-
-  const float cosAlpha = std::cos(frameMeasurement.frame.frameAngle);
-  const float sinAlpha = std::sin(frameMeasurement.frame.frameAngle);
-  const float x1 = (clusterA.x * cosAlpha) + (clusterA.y * sinAlpha);
-  const float y1 = (-clusterA.x * sinAlpha) + (clusterA.y * cosAlpha);
-  const float x2 = (clusterB.x * cosAlpha) + (clusterB.y * sinAlpha);
-  const float y2 = (-clusterB.x * sinAlpha) + (clusterB.y * cosAlpha);
-  const float x3 = frameMeasurement.frame.q;
-  const float y3 = frameMeasurement.frame.u;
-
-  float snp = 0.f;
-  float q2pt = 0.f;
-  float q2pt2 = 0.f;
-  if (std::abs(bz) < 0.01f) { // zero magnetic field
-    const float dx = x3 - x1;
-    const float dy = y3 - y1;
-    snp = sign * dy / std::hypot(dx, dy);
-    q2pt = 1.f / o2::track::kMostProbablePt;
-    q2pt2 = 1.f;
-  } else {
-    const float crv = o2::its::math_utils::computeCurvature(x3, y3, x2, y2, x1, y1);
-    snp = sign * crv * (x3 - o2::its::math_utils::computeCurvatureCentreX(x3, y3, x2, y2, x1, y1));
-    q2pt = sign * crv / (bz * o2::constants::math::B2C);
-    q2pt2 = crv * crv;
-  }
-  const float tgl = -0.5f * sign * (o2::its::math_utils::computeTanDipAngle(x1, y1, x2, y2, clusterA.z, clusterB.z) + o2::its::math_utils::computeTanDipAngle(x2, y2, x3, y3, clusterB.z, frameMeasurement.frame.v));
-  const float sg2q2pt = o2::track::kC1Pt2max * std::clamp(q2pt2, 0.0005f, 1.0f);
-
-  SurfaceKinematicState scratch{};
-  scratch.referenceCoordinate = x3;
-  scratch.alpha = frameMeasurement.frame.frameAngle;
-  scratch.parameters[0] = y3;
-  scratch.parameters[1] = frameMeasurement.frame.v;
-  scratch.parameters[2] = snp;
-  scratch.parameters[3] = tgl;
-  scratch.parameters[4] = q2pt;
-  // Packed layout matches TrackParametrizationWithError index-for-index, so
-  // the legacy covariance initializer needs no reshuffling.
-  scratch.covariance[packedCovarianceIndex(0, 0)] = frameMeasurement.covariance.uu;
-  scratch.covariance[packedCovarianceIndex(1, 0)] = frameMeasurement.covariance.uv;
-  scratch.covariance[packedCovarianceIndex(1, 1)] = frameMeasurement.covariance.vv;
-  scratch.covariance[packedCovarianceIndex(2, 0)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(2, 1)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(2, 2)] = o2::track::kCSnp2max;
-  scratch.covariance[packedCovarianceIndex(3, 0)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(3, 1)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(3, 2)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(3, 3)] = o2::track::kCTgl2max;
-  scratch.covariance[packedCovarianceIndex(4, 0)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(4, 1)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(4, 2)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(4, 3)] = 0.f;
-  scratch.covariance[packedCovarianceIndex(4, 4)] = sg2q2pt;
-  scratch.kind = SurfaceKind::Cylinder;
-  scratch.flags = 0;
-  scratch.absCharge = absCharge;
-  scratch.pid = pid;
-
-  if (!finiteState(scratch)) {
-    reason = OperationFailureReason::NonFiniteOutput;
-    return false;
-  }
-  outState = scratch;
-  return true;
-}
 
 // Covariance-free propagation of SurfaceLinearizationReference using the
 // TrackParametrization::propagateParamTo formula. stateAbsCharge supplies the
@@ -552,14 +496,6 @@ bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
 }
 
 } // namespace
-
-bool buildSeed(const GlobalPoint3F& globalInner, const GlobalPoint3F& globalMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  return buildSeedImpl(globalInner, globalMiddle, measurementOuter, bz, 1.f, absCharge, pid, outState, reason);
-}
 
 bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetAlpha, float bz,
             OperationFailureReason& reason) noexcept

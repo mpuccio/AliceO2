@@ -34,18 +34,29 @@ measured `(u,v)` covariance into global coordinates with exact `q`; for disks
 it copies the established global `(x,y)` covariance and expresses exact `z`
 with zero variance. Global covariance validity is checked once at loading.
 
-Tracklet search, cell direction compatibility, and triplet fitting consume
-only `GlobalMeasurement`. Seed construction, hit attachment, and native refit
-consume `SurfaceMeasurement`. Publication and label lookup use hit identity
-from `GlobalMeasurement`. Family-specific covariance projection therefore
-ends at decoding rather than being repeated in candidate loops.
+Tracklet search, cell direction compatibility, and triplet-factor construction
+consume `GlobalMeasurement`. Publication and label lookup use hit identity from
+`GlobalMeasurement`. Family-specific covariance projection therefore ends at
+decoding rather than being repeated in candidate loops.
 
-Cylindrical seed initialization remains a geometric exception to the native
-update rule: its established three-point formula takes the inner and middle
-global positions and anchors the state in the outer native frame. Rebuilding
-those two points from float surface-frame values changes the seed. The cell
-leaf therefore receives the global and native records explicitly; subsequent
-propagation and updates consume only the native record.
+`CellSeed` is the CA cell and geometric triplet. It contains the three hit
+references, two tracklet references, time/level metadata, and the linearized
+triplet-fit factor described below. It does not contain a
+`SurfaceKinematicState`, `q/pT`, or a fit `chi2`.
+
+`TrackerTraits::buildTrackSeed` is the single fallible transition from a
+selected `CellSeed` to the state-bearing `TrackSeed`. It resolves the three
+global/native measurements, anchors one state at the outer measurement, fills
+the native parameter/covariance values, and runs one common attachment loop
+over the middle and inner measurements. One constant-solenoid construction
+derives curvature, `q/pT`, averaged `tanLambda`, and the outer direction from
+the three global positions. The last-mile cylinder/disk branch stores that
+direction as `snp` or `phi` and applies the corresponding angular covariance.
+Hit attachment and refit then consume only native measurements.
+
+The former `buildCellSeed` facade and the family-local
+`detail::barrel::buildSeed`/`detail::forward::buildSeed` leaves are retired;
+there is no second seed-construction path alongside this boundary.
 
 Rank-deficient global covariances can acquire a negative projected variance
 at float roundoff. The neutral `(r,z)` projection validates the global matrix,
@@ -68,10 +79,9 @@ H   = d(Psi + rho*kappa) / d(x0,y0,z0,...,x2,y2,z2)
 `kappaRef = -Psi_phi/rho_phi`. The 2x9 matrix is stored as two xyz gradients
 for each of the three hits. Float conversion is checked and fails closed.
 The earlier local momentum and segment-error estimator is not part of this
-path: its outputs were discarded by production, so retaining it would make
-every cell pay for covariance contractions and automatic-differentiation
-propagation that neighbour finding does not consume. That prototype remains
-available in the repository history.
+path: its outputs are not consumed by production. `CellSeed` stores only the
+geometry/Jacobian factor used by adjacent-cell compatibility; track-state
+construction remains independent in `TrackerTraits::buildTrackSeed`.
 
 The cell already stores the three local cluster indices and their positional
 hit mask. `getClusterReference(i)` exposes their unambiguous
@@ -104,10 +114,10 @@ divided by the transverse arc length of the corresponding fitted segment.
 The factor is evaluated once when a cell is accepted. It depends only on the
 three global observations; magnetic field and material do not enter factor
 construction. Its 88-byte float payload stores `Psi`, `rho`, and all 18
-elements of `H`. An invalid factor does not reject the accepted cell during
-cell construction, but it fails closed if the cell is later considered for a
-neighbour. Neither global observation construction nor triplet linearization
-is repeated per prospective neighbour.
+elements of `H`. Invalid factor construction rejects the cell. The local fit
+then fails closed if its resolved covariance or material term is invalid.
+Neither triplet linearization nor state construction is repeated per
+prospective neighbour within a road step.
 
 Neighbour finding visits the global scheduled-cell span once. It verifies the
 two shared hit references, resolves the four unique global observations,
@@ -117,13 +127,11 @@ system by Cholesky decomposition, and applies the existing common
 source dispatch in this path. Cylinder/disk distinctions end when the decoder
 constructs `GlobalMeasurement`.
 
-The host characterization test evaluates 20,000 factors and reports about
-0.24 microseconds per factor on the validation machine. `CellSeed` grows from
-132 to 220 bytes for the 88-byte factor. The normalized per-hit storage grows
-from one 72-byte mixed record to a 72-byte global record plus a 28-byte native
-record. This deliberately spends 28 bytes per hit to remove repeated global
-projection and keep the candidate geometry independent from state-update
-coordinates.
+The host characterization test evaluates 20,000 factors. `CellSeed` no longer
+embeds the native state and `chi2`; the 88-byte factor is its only fit payload.
+`TrackSeed` remains the first state-bearing road object. The normalized
+per-hit storage uses a global record plus a native record, keeping candidate
+geometry independent from state-update coordinates.
 
 ## Closed-form adjacent fit
 

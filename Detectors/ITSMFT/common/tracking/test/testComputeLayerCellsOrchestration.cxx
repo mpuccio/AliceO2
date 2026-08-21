@@ -12,11 +12,9 @@
 // testTrackletFinding.cxx; this file does not re-derive or
 // duplicate that formula. It proves instead that the real public
 // computeLayerCells() entry point:
-//  - resolves the three clusters/hits/material values for a candidate in
-//    strict {inner, middle, outer} order and hands them to cell-seed leaves
-//    unchanged (checked against an oracle call to cell-seed leaves itself,
-//    built from the same values refetched through the TimeFrame, not
-//    re-typed literals);
+//  - resolves the three clusters for a candidate in strict
+//    {inner, middle, outer} order and stores the corresponding linearized
+//    triplet factor without prematurely constructing a track state;
 //  - exercises cylinder and disk cells through the same public orchestration
 //    entry point, with coordinate differences confined to cell-seed leaves;
 //  - leaves cellIndex indexing, the LUT, MC-label construction, and
@@ -54,7 +52,7 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/detail/CandidateFinding.h"
+#include "ITSMFTTracking/TripletFitting.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
@@ -62,12 +60,6 @@
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
-
-namespace
-{
-constexpr uint8_t kCompatibilityAbsCharge = 1;
-const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
-} // namespace
 
 namespace
 {
@@ -175,16 +167,6 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   return surfaces;
 }
 
-NominalSurfaceMaterial toMaterial(float xOverX0)
-{
-  return NominalSurfaceMaterial{xOverX0, xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho};
-}
-
-std::array<NominalSurfaceMaterial, 3> toMaterial(const std::array<float, 3>& xOverX0)
-{
-  return {toMaterial(xOverX0[0]), toMaterial(xOverX0[1]), toMaterial(xOverX0[2])};
-}
-
 // Same construction as testTrackletFinding.cxx's helpers -- plain
 // input-struct builders, not a reimplementation of any fit formula.
 GlobalMeasurement makeGlobalCluster(float x, float y, float z, int id = 0)
@@ -240,20 +222,41 @@ FixedMeasurementDecoder::MeasurementPair diskMeasurementFor(const GlobalMeasurem
   return measurement;
 }
 
-// Stage-B activation: the produced Cell no longer inherits a track
-// parametrization, so the oracle comparison is done directly on
-// SurfaceKinematicState (both the produced cell's own .state() and the
-// oracle's native cell-seed leaves output are this type).
-void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const SurfaceKinematicState& rhs)
+void checkTripletFitFactorEqual(const TripletFitFactor& lhs, const TripletFitFactor& rhs)
 {
-  for (int i = 0; i < 5; ++i) {
-    BOOST_CHECK_EQUAL(lhs.parameters[i], rhs.parameters[i]);
+  BOOST_CHECK_EQUAL(lhs.psi.theta, rhs.psi.theta);
+  BOOST_CHECK_EQUAL(lhs.psi.phi, rhs.psi.phi);
+  BOOST_CHECK_EQUAL(lhs.rho.theta, rhs.rho.theta);
+  BOOST_CHECK_EQUAL(lhs.rho.phi, rhs.rho.phi);
+  for (int hit = 0; hit < 3; ++hit) {
+    for (int coordinate = 0; coordinate < 3; ++coordinate) {
+      BOOST_CHECK_EQUAL(lhs.h[hit].theta[coordinate], rhs.h[hit].theta[coordinate]);
+      BOOST_CHECK_EQUAL(lhs.h[hit].phi[coordinate], rhs.h[hit].phi[coordinate]);
+    }
   }
-  for (int i = 0; i < 15; ++i) {
-    BOOST_CHECK_EQUAL(lhs.covariance[i], rhs.covariance[i]);
+}
+
+void checkTrackSeedMaterialization(TrackerTraits& traits, IterationContext& view,
+                                   int cellPathId, const CellSeed& cell,
+                                   SurfaceKind expectedKind)
+{
+  TrackSeed trackSeed{};
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(TrackerTestAccess::buildTrackSeed(
+    traits, view, cellPathId, cell, trackSeed, reason));
+  BOOST_CHECK_EQUAL(trackSeed.getHitLayerMask().value(), cell.getHitLayerMask().value());
+  for (int slot = 0; slot < 3; ++slot) {
+    const auto reference = cell.getClusterReference(slot);
+    BOOST_CHECK_EQUAL(trackSeed.getCluster(reference.surfacePosition), reference.clusterIndex);
   }
-  BOOST_CHECK_EQUAL(lhs.referenceCoordinate, rhs.referenceCoordinate);
-  BOOST_CHECK_EQUAL(lhs.alpha, rhs.alpha);
+  BOOST_CHECK(trackSeed.state().kind == expectedKind);
+  BOOST_CHECK(std::isfinite(trackSeed.getChi2()));
+  for (const float parameter : trackSeed.state().parameters) {
+    BOOST_CHECK(std::isfinite(parameter));
+  }
+  for (const float covariance : trackSeed.state().covariance) {
+    BOOST_CHECK(std::isfinite(covariance));
+  }
 }
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
@@ -592,34 +595,22 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   // construction is skipped, exactly as before this change.
   BOOST_CHECK(rig.tf->getCellsLabel(cellIndex).empty());
 
-  // Oracle: independently resolve the stable source-local cluster IDs through
-  // the TimeFrame and use the same generic seed construction contract.
+  // Oracle: independently reconstruct the geometry-only factor from the
+  // ordered global measurements. Track-state construction belongs to
+  // TrackerTraits::buildTrackSeed(), after the CA has selected a cell.
   const auto layerGlobalMeasurements = gsl::span<const gsl::span<const GlobalMeasurement>>{view.layerGlobalMeasurements};
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
-  const auto* oracleMeasurementInner = rig.frame.getSurfaceMeasurement(LayerId{0}, oracleGlobalInner.clusterId);
-  const auto* oracleMeasurementMiddle = rig.frame.getSurfaceMeasurement(LayerId{1}, oracleGlobalMiddle.clusterId);
-  const auto* oracleMeasurementOuter = rig.frame.getSurfaceMeasurement(LayerId{2}, oracleGlobalOuter.clusterId);
-  BOOST_REQUIRE(oracleMeasurementInner != nullptr);
-  BOOST_REQUIRE(oracleMeasurementMiddle != nullptr);
-  BOOST_REQUIRE(oracleMeasurementOuter != nullptr);
-  const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
-  const auto material = toMaterial(xOverX0);
-
-  TrackingKernelParameters trackingParams;
-  trackingParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
-
-  SurfaceKinematicState oracleState{};
-  float oracleChi2 = 0.f;
-  OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Cylinder, oracleGlobalInner, oracleGlobalMiddle,
-    *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
-    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
-
-  checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
-  BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
+  std::array<TripletFitObservation, 3> observations{};
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalInner, observations[0]));
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalMiddle, observations[1]));
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalOuter, observations[2]));
+  TripletFitFactor oracleFactor{};
+  BOOST_REQUIRE(makeTripletFitFactor(observations, oracleFactor));
+  checkTripletFitFactorEqual(producedCell.tripletFactor(), oracleFactor);
+  checkTrackSeedMaterialization(rig.traits, view, cellIndex, producedCell,
+                                SurfaceKind::Cylinder);
 }
 
 BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
@@ -698,29 +689,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleGlobalOuter = layerGlobalMeasurements[2][producedCell.getThirdClusterIndex()];
-  const auto* oracleMeasurementInner = rig.frame.getSurfaceMeasurement(LayerId{0}, oracleGlobalInner.clusterId);
-  const auto* oracleMeasurementMiddle = rig.frame.getSurfaceMeasurement(LayerId{1}, oracleGlobalMiddle.clusterId);
-  const auto* oracleMeasurementOuter = rig.frame.getSurfaceMeasurement(LayerId{2}, oracleGlobalOuter.clusterId);
-  BOOST_REQUIRE(oracleMeasurementInner != nullptr);
-  BOOST_REQUIRE(oracleMeasurementMiddle != nullptr);
-  BOOST_REQUIRE(oracleMeasurementOuter != nullptr);
-  const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
-  const auto material = toMaterial(xOverX0);
-
-  TrackingKernelParameters trackingParams;
-  trackingParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
-  trackingParams.trackletMinPt = rig.params[0].TrackletMinPt;
-
-  SurfaceKinematicState oracleState{};
-  float oracleChi2 = 0.f;
-  OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildCellSeed(
-    SurfaceKind::Disk, oracleGlobalInner, oracleGlobalMiddle,
-    *oracleMeasurementInner, *oracleMeasurementMiddle, *oracleMeasurementOuter,
-    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
-
-  checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
-  BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
+  std::array<TripletFitObservation, 3> observations{};
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalInner, observations[0]));
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalMiddle, observations[1]));
+  BOOST_REQUIRE(makeTripletFitObservation(oracleGlobalOuter, observations[2]));
+  TripletFitFactor oracleFactor{};
+  BOOST_REQUIRE(makeTripletFitFactor(observations, oracleFactor));
+  checkTripletFitFactorEqual(producedCell.tripletFactor(), oracleFactor);
+  checkTrackSeedMaterialization(rig.traits, view, cellIndex, producedCell,
+                                SurfaceKind::Disk);
 }
 
 // --- One-pass vs two-pass: identical result regardless of thread count ----
@@ -730,7 +707,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
   struct Result {
     int cellIndex{-1};
     std::vector<int> lut;
-    float chi2{0.f};
+    TripletFitFactor factor{};
     int cl0{-1}, cl1{-1}, cl2{-1};
   };
 
@@ -765,7 +742,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     r.lut.assign(lut.begin(), lut.end());
     BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
     const auto& cell = rig.tf->getCells()[cellIndex][0];
-    r.chi2 = cell.getChi2();
+    r.factor = cell.tripletFactor();
     r.cl0 = cell.getFirstClusterIndex();
     r.cl1 = cell.getSecondClusterIndex();
     r.cl2 = cell.getThirdClusterIndex();
@@ -777,7 +754,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
 
   BOOST_CHECK_EQUAL(onePass.cellIndex, twoPass.cellIndex);
   BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
-  BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
+  checkTripletFitFactorEqual(onePass.factor, twoPass.factor);
   BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
   BOOST_CHECK_EQUAL(onePass.cl1, twoPass.cl1);
   BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
@@ -788,7 +765,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
   struct Result {
     int cellIndex{-1};
     std::vector<int> lut;
-    float chi2{0.f};
+    TripletFitFactor factor{};
     int cl0{-1}, cl1{-1}, cl2{-1};
   };
 
@@ -822,7 +799,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     r.lut.assign(lut.begin(), lut.end());
     BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
     const auto& cell = rig.tf->getCells()[cellIndex][0];
-    r.chi2 = cell.getChi2();
+    r.factor = cell.tripletFactor();
     r.cl0 = cell.getFirstClusterIndex();
     r.cl1 = cell.getSecondClusterIndex();
     r.cl2 = cell.getThirdClusterIndex();
@@ -834,7 +811,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
 
   BOOST_CHECK_EQUAL(onePass.cellIndex, twoPass.cellIndex);
   BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
-  BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
+  checkTripletFitFactorEqual(onePass.factor, twoPass.factor);
   BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
   BOOST_CHECK_EQUAL(onePass.cl1, twoPass.cl1);
   BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
@@ -865,7 +842,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   TrackerTestAccess::computeCells(rig.traits, view);
   BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
-  const auto firstChi2 = rig.tf->getCells()[cellIndex][0].getChi2();
+  const auto firstFactor = rig.tf->getCells()[cellIndex][0].tripletFactor();
 
   TrackerTestAccess::computeCells(rig.traits, view);
   TrackerTestAccess::computeCells(rig.traits, view);
@@ -875,12 +852,12 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // invalidate the frame-owned source measurement lookup without a fresh
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
-  // reproduce the identical chi2 through the same cache.
+  // reproduce the identical triplet factor through the same cache.
   injectCandidateTracklets(rig, cellIndex, clusters);
   TrackerTestAccess::computeCells(rig.traits, view);
 
   BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
-  BOOST_CHECK_EQUAL(rig.tf->getCells()[cellIndex][0].getChi2(), firstChi2);
+  checkTripletFitFactorEqual(rig.tf->getCells()[cellIndex][0].tripletFactor(), firstFactor);
 }
 
 // Material-correction preflight has its own focused test target; this file

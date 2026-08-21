@@ -67,7 +67,7 @@ std::string readFile(const std::filesystem::path& path)
 
 // --- Composition, not inheritance -------------------------------------------
 
-BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegacyTrackTypes)
+BOOST_AUTO_TEST_CASE(CellSeedStoresTripletDataAndDoesNotInheritLegacyTrackTypes)
 {
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovF, CellSeed>));
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, CellSeed>));
@@ -75,14 +75,6 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, TrackSeed>));
 
   CellSeed cell{};
-  const auto state = makeDistinctState(SurfaceKind::Cylinder);
-  cell.state() = state;
-  BOOST_CHECK_EQUAL(std::memcmp(&cell.state(), &state, sizeof(SurfaceKinematicState)), 0);
-
-  // state() is a real, mutable reference to the composed member, not a copy.
-  cell.state().parameters[4] = 99.f;
-  BOOST_CHECK_EQUAL(cell.state().parameters[4], 99.f);
-
   BOOST_CHECK(!cell.tripletFactor().isValid());
   cell.tripletFactor().rho.phi = -0.5f;
   BOOST_CHECK(cell.tripletFactor().isValid());
@@ -90,9 +82,8 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
 
 BOOST_AUTO_TEST_CASE(CellTripletFactorReferencesReusePositionalClusterBinding)
 {
-  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{};
-  CellSeed cell{LayerMask{2, 4, 7}, 101, 202, 303, 1, 2, state, 0.f, time};
+  CellSeed cell{LayerMask{2, 4, 7}, 101, 202, 303, 1, 2, time};
 
   const std::array<CellClusterReference, 3> expected{{{2, 101}, {4, 202}, {7, 303}}};
   for (int slot = 0; slot < 3; ++slot) {
@@ -108,10 +99,9 @@ BOOST_AUTO_TEST_CASE(CellTripletFactorReferencesReusePositionalClusterBinding)
 
 BOOST_AUTO_TEST_CASE(CellSeedUsesOneCommonRepresentationAcrossLayerRanges)
 {
-  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{};
-  CellSeed itsSeed{LayerMask{0x007f}, 10, 11, 12, 1, 2, state, 0.f, time};
-  CellSeed mftSeed{LayerMask{0x03ff}, 20, 21, 22, 3, 4, state, 0.f, time};
+  CellSeed itsSeed{LayerMask{0x007f}, 10, 11, 12, 1, 2, time};
+  CellSeed mftSeed{LayerMask{0x03ff}, 20, 21, 22, 3, 4, time};
 
   BOOST_CHECK_EQUAL(itsSeed.getHitLayerMask().value(), 0x007f);
   BOOST_CHECK_EQUAL(mftSeed.getHitLayerMask().value(), 0x03ff);
@@ -147,12 +137,12 @@ BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataComplete
   constexpr int innerLayer = 2;
   const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{static_cast<uint32_t>(123), static_cast<uint16_t>(4)};
-  CellSeed cell{innerLayer, 10, 20, 30, 5, 6, state, 7.5f, time};
+  CellSeed cell{innerLayer, 10, 20, 30, 5, 6, time};
 
-  TrackSeed seed{cell};
+  TrackSeed seed{cell, state, 7.5f};
 
-  BOOST_CHECK_EQUAL(std::memcmp(&seed.state(), &cell.state(), sizeof(SurfaceKinematicState)), 0);
-  BOOST_CHECK_EQUAL(seed.getChi2(), cell.getChi2());
+  BOOST_CHECK_EQUAL(std::memcmp(&seed.state(), &state, sizeof(SurfaceKinematicState)), 0);
+  BOOST_CHECK_EQUAL(seed.getChi2(), 7.5f);
   BOOST_CHECK_EQUAL(seed.getLevel(), cell.getLevel());
   BOOST_CHECK_EQUAL(seed.getTimeStamp().getTimeStamp(), cell.getTimeStamp().getTimeStamp());
   BOOST_CHECK_EQUAL(seed.getTimeStamp().getTimeStampError(), cell.getTimeStamp().getTimeStampError());
@@ -179,8 +169,9 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawPositiveValue)
   auto state = makeDistinctState(SurfaceKind::Cylinder);
   state.parameters[4] = 12.5f;
   const o2::its::TimeEstBC time{};
-  CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
-  BOOST_CHECK_EQUAL(cell.getQOverPt(), 12.5f);
+  CellSeed cell{0, 0, 1, 2, 0, 1, time};
+  TrackSeed seed{cell, state, 0.f};
+  BOOST_CHECK_EQUAL(seed.getQOverPt(), 12.5f);
 }
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawNegativeValueWithoutSquaringOrAbs)
@@ -188,10 +179,11 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawNegativeValueWithoutSquaringOrA
   auto state = makeDistinctState(SurfaceKind::Disk);
   state.parameters[4] = -12.5f;
   const o2::its::TimeEstBC time{};
-  CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
+  CellSeed cell{0, 0, 1, 2, 0, 1, time};
+  TrackSeed seed{cell, state, 0.f};
   // Neither squared (which would be positive 156.25) nor made positive by abs().
-  BOOST_CHECK_EQUAL(cell.getQOverPt(), -12.5f);
-  BOOST_CHECK_LT(cell.getQOverPt(), 0.f);
+  BOOST_CHECK_EQUAL(seed.getQOverPt(), -12.5f);
+  BOOST_CHECK_LT(seed.getQOverPt(), 0.f);
 }
 
 BOOST_AUTO_TEST_CASE(GetQOverPtIsIdenticalForBarrelAndForwardGivenTheSameSlotValue)
@@ -200,13 +192,15 @@ BOOST_AUTO_TEST_CASE(GetQOverPtIsIdenticalForBarrelAndForwardGivenTheSameSlotVal
   const auto forwardState = makeDistinctState(SurfaceKind::Disk);
   const o2::its::TimeEstBC time{};
 
-  CellSeed barrelCell{0, 0, 1, 2, 0, 1, barrelState, 0.f, time};
-  CellSeed forwardCell{0, 0, 1, 2, 0, 1, forwardState, 0.f, time};
+  CellSeed barrelCell{0, 0, 1, 2, 0, 1, time};
+  CellSeed forwardCell{0, 0, 1, 2, 0, 1, time};
+  TrackSeed barrelSeed{barrelCell, barrelState, 0.f};
+  TrackSeed forwardSeed{forwardCell, forwardState, 0.f};
 
   BOOST_REQUIRE_EQUAL(barrelState.parameters[4], forwardState.parameters[4]);
-  BOOST_CHECK_EQUAL(barrelCell.getQOverPt(), barrelState.parameters[4]);
-  BOOST_CHECK_EQUAL(forwardCell.getQOverPt(), forwardState.parameters[4]);
-  BOOST_CHECK_EQUAL(barrelCell.getQOverPt(), forwardCell.getQOverPt());
+  BOOST_CHECK_EQUAL(barrelSeed.getQOverPt(), barrelState.parameters[4]);
+  BOOST_CHECK_EQUAL(forwardSeed.getQOverPt(), forwardState.parameters[4]);
+  BOOST_CHECK_EQUAL(barrelSeed.getQOverPt(), forwardSeed.getQOverPt());
 }
 
 // --- Road-length filter bound: std::abs(getQOverPt()) <= maxAbsQOverPt -----
@@ -285,9 +279,11 @@ BOOST_AUTO_TEST_CASE(RoadFilterTreatsEqualMagnitudeOppositeSignSeedsIdentically)
   for (const float signedValue : {10.f, -10.f}) {
     barrelState.parameters[4] = signedValue;
     forwardState.parameters[4] = signedValue;
-    CellSeed barrelCell{0, 0, 1, 2, 0, 1, barrelState, 0.f, time};
-    CellSeed forwardCell{0, 0, 1, 2, 0, 1, forwardState, 0.f, time};
-    BOOST_CHECK_EQUAL(passesRoadOverPtFilter(barrelCell.getQOverPt()), passesRoadOverPtFilter(forwardCell.getQOverPt()));
+    CellSeed barrelCell{0, 0, 1, 2, 0, 1, time};
+    CellSeed forwardCell{0, 0, 1, 2, 0, 1, time};
+    TrackSeed barrelSeed{barrelCell, barrelState, 0.f};
+    TrackSeed forwardSeed{forwardCell, forwardState, 0.f};
+    BOOST_CHECK_EQUAL(passesRoadOverPtFilter(barrelSeed.getQOverPt()), passesRoadOverPtFilter(forwardSeed.getQOverPt()));
   }
 }
 
@@ -296,18 +292,16 @@ BOOST_AUTO_TEST_CASE(RoadFilterTreatsEqualMagnitudeOppositeSignSeedsIdentically)
 BOOST_AUTO_TEST_CASE(CellSeedAndTrackSeedSizeAlignmentCharacterization)
 {
   // Reported, not locked: these values may legitimately change with future
-  // metadata/state evolution. Only cross-checked against SurfaceKinematicState
-  // (the one durably ABI-locked type, SurfaceKinematicState.h) so a
-  // regression that shrinks CellSeed below its composed member would fail
-  // loudly, without pinning an exact byte count here.
+  // metadata/state evolution. TrackSeed remains the state-bearing type;
+  // CellSeed is characterized independently because it owns only CA/triplet
+  // data.
   BOOST_TEST_MESSAGE("sizeof(SurfaceKinematicState) = " << sizeof(SurfaceKinematicState));
   BOOST_TEST_MESSAGE("sizeof(CellSeed) = " << sizeof(CellSeed) << ", alignof(CellSeed) = " << alignof(CellSeed));
   BOOST_TEST_MESSAGE("sizeof(TrackSeed) = " << sizeof(TrackSeed)
                                             << ", alignof = " << alignof(TrackSeed));
 
-  BOOST_CHECK_GE(sizeof(CellSeed), sizeof(SurfaceKinematicState));
   BOOST_CHECK_GE(sizeof(TrackSeed), sizeof(SurfaceKinematicState));
-  BOOST_CHECK_EQUAL(alignof(CellSeed), alignof(SurfaceKinematicState));
+  BOOST_CHECK_EQUAL(alignof(TrackSeed), alignof(SurfaceKinematicState));
 }
 
 BOOST_AUTO_TEST_CASE(CellSeedIsAGpuPortableValueWithoutMetadataBase)

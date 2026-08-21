@@ -25,10 +25,8 @@
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
-#include "ITStracking/TrackHelpers.h"
 
 namespace o2::itsmft::tracking
 {
@@ -577,112 +575,6 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
   compatibility = CellDirectionCompatibility{residual, variance, chi2};
   const double threshold = static_cast<double>(nSigmaCut) * nSigmaCut;
   return chi2 < threshold;
-}
-
-namespace
-{
-
-bool buildCylinderCellSeed(
-  const GlobalMeasurement& globalInner,
-  const GlobalMeasurement& globalMiddle,
-  const SurfaceMeasurement& measurementInner,
-  const SurfaceMeasurement& measurementMiddle,
-  const SurfaceMeasurement& measurementOuter,
-  const std::array<NominalSurfaceMaterial, 3>& material,
-  float bz,
-  uint8_t absCharge,
-  o2::track::PID pid,
-  SurfaceKinematicState& outState,
-  float& chi2,
-  const TrackingKernelParameters& params,
-  OperationFailureReason& reason) noexcept
-{
-  SurfaceKinematicState scratch{};
-  if (!detail::barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
-    return false;
-  }
-
-  float localChi2{0.f};
-  const std::array<const SurfaceMeasurement*, 2> steps{&measurementMiddle, &measurementInner};
-  const std::array<NominalSurfaceMaterial, 2> stepsMaterial{material[1], material[0]};
-  for (int step = 0; step < 2; ++step) {
-    if (!Propagator::attachMeasurement(scratch, *steps[step], stepsMaterial[step], bz,
-                                       material::MaterialTraversalDirection::OppositeMomentum,
-                                       step == 1, params.maxChi2ClusterAttachment, localChi2, reason)) {
-      return false;
-    }
-  }
-
-  outState = scratch;
-  chi2 = localChi2;
-  return true;
-}
-
-bool buildDiskCellSeed(
-  const SurfaceMeasurement& measurementInner,
-  const SurfaceMeasurement& measurementMiddle,
-  const SurfaceMeasurement& measurementOuter,
-  const std::array<NominalSurfaceMaterial, 3>& material,
-  float bz,
-  uint8_t absCharge,
-  o2::track::PID pid,
-  SurfaceKinematicState& outState,
-  float& chi2,
-  const TrackingKernelParameters& params,
-  OperationFailureReason& reason) noexcept
-{
-  SurfaceKinematicState scratch{};
-  if (!detail::forward::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, params.trackletMinPt,
-                                  absCharge, pid, scratch, reason)) {
-    return false;
-  }
-
-  float localChi2{0.f};
-  const std::array<const SurfaceMeasurement*, 3> steps{&measurementOuter, &measurementMiddle, &measurementInner};
-  const std::array<NominalSurfaceMaterial, 3> stepsMaterial{material[2], material[1], material[0]};
-  for (int step = 0; step < 3; ++step) {
-    if (!Propagator::attachMeasurement(scratch, *steps[step], stepsMaterial[step], bz,
-                                       material::MaterialTraversalDirection::OppositeMomentum,
-                                       step == 2, params.maxChi2ClusterAttachment, localChi2, reason)) {
-      return false;
-    }
-  }
-
-  outState = scratch;
-  chi2 = localChi2;
-  return true;
-}
-
-} // namespace
-
-bool buildCellSeed(
-  SurfaceKind kind,
-  const GlobalMeasurement& globalInner,
-  const GlobalMeasurement& globalMiddle,
-  const SurfaceMeasurement& measurementInner,
-  const SurfaceMeasurement& measurementMiddle,
-  const SurfaceMeasurement& measurementOuter,
-  const std::array<NominalSurfaceMaterial, 3>& material,
-  float bz,
-  uint8_t absCharge,
-  o2::track::PID pid,
-  SurfaceKinematicState& outState,
-  float& chi2,
-  const TrackingKernelParameters& params,
-  OperationFailureReason& reason) noexcept
-{
-  switch (kind) {
-    case SurfaceKind::Undefined:
-      reason = OperationFailureReason::SourceSurfaceKindMismatch;
-      return false;
-    case SurfaceKind::Cylinder:
-      return buildCylinderCellSeed(globalInner, globalMiddle, measurementInner, measurementMiddle, measurementOuter,
-                                   material, bz, absCharge, pid, outState, chi2, params, reason);
-    case SurfaceKind::Disk:
-      return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
-                               material, bz, absCharge, pid, outState, chi2, params, reason);
-  }
-  return false;
 }
 
 } // namespace o2::itsmft::tracking
