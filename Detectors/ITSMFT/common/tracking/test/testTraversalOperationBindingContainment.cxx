@@ -305,8 +305,9 @@ BOOST_AUTO_TEST_CASE(BuildTrackSeedOwnsTheCellToTrackStateBoundary)
 
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeTripletFitObservation("), 0u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 0u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::attachMeasurement("), 0u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::propagateToMeasurement("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::attachMeasurement("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::propagateToMeasurement("), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "Propagator::convertKind("), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "context.topology.getSurface(surface)"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "getEdgeMSAngle("), 0u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "TrackSeed{cell, state, chi2}"), 1u);
