@@ -937,12 +937,24 @@ bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
   const std::array<const SurfaceMeasurement*, 2> attachmentMeasurements{measurements[1], measurements[0]};
   const std::array<const SurfaceDescriptor*, 2> attachmentSurfaces{surfaces[1], surfaces[0]};
   for (int step = 0; step < 2; ++step) {
-    if (!Propagator::propagateToMeasurement(
-          state, linRef, *attachmentSurfaces[step], *attachmentMeasurements[step], context.bz,
+    const auto& targetSurface = *attachmentSurfaces[step];
+    // Conversion is descriptor-driven, while the seed keeps the established
+    // nonlinear attachment arithmetic. The linearized refit propagation is a
+    // different numerical algorithm and is not field-identical here.
+    if (state.kind != targetSurface.kind &&
+        !Propagator::convertKind(state, &linRef, targetSurface.kind, reason)) {
+      return false;
+    }
+    if (!Propagator::attachMeasurement(
+          state, *attachmentMeasurements[step], targetSurface.material, context.bz,
           material::MaterialTraversalDirection::OppositeMomentum,
           step == 1,
           context.configuration.kernelParameters.maxChi2ClusterAttachment,
-          chi2, false, reason)) {
+          chi2, reason)) {
+      return false;
+    }
+    if (step == 0 && !makeLinearizationReference(state, linRef)) {
+      reason = OperationFailureReason::NonFiniteOutput;
       return false;
     }
   }
