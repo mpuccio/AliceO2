@@ -9,26 +9,19 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// @file   TrackWriterSpec.h
+/// @file MFTCATrackWriterSpec.h
 
-#ifndef O2_MFT_TRACKWRITER_H_
-#define O2_MFT_TRACKWRITER_H_
-
-#include "TFile.h"
+#ifndef O2_ITSMFT_CAWRITER_MFTCATRACKWRITERSPEC_H_
+#define O2_ITSMFT_CAWRITER_MFTCATRACKWRITERSPEC_H_
 
 #include "Framework/DataProcessorSpec.h"
-#include "Framework/Task.h"
 
-namespace o2
-{
-namespace mft
+namespace o2::mft
 {
 
-/// create a processor spec
-/// write MFT tracks a root file
-o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC);
+/// Write MFT tracks to a ROOT file.
+o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC, bool useCA = false);
 
-} // namespace mft
-} // namespace o2
+} // namespace o2::mft
 
-#endif /* O2_MFT_TRACKWRITER_H_ */
+#endif // O2_ITSMFT_CAWRITER_MFTCATRACKWRITERSPEC_H_

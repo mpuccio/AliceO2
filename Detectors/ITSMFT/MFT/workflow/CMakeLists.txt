@@ -12,21 +12,24 @@
 o2_add_library(MFTWorkflow
                TARGETVARNAME targetName
                SOURCES src/RecoWorkflow.cxx
+                       src/CATrackerSpec.cxx
                        src/TrackerSpec.cxx
                        src/TrackReaderSpec.cxx
-                       src/TrackWriterSpec.cxx
                        src/MFTAssessmentSpec.cxx
                        src/TracksToRecordsSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::SimConfig
                                      O2::SimulationDataFormat
                                      O2::ITSMFTReconstruction
+                                     O2::ITSMFTTracking
                                      O2::MFTTracking
                                      O2::MFTAssessment
                                      O2::DataFormatsMFT
                                      O2::ITSMFTWorkflow
+                                     TBB::tbb
                                      O2::MFTAlignment
-                                     O2::GlobalTrackingWorkflowReaders)
+                                     O2::GlobalTrackingWorkflowReaders
+                                     O2::ITSMFTCAWriter)
 o2_add_executable(reco-workflow
                   SOURCES src/mft-reco-workflow.cxx
                   COMPONENT_NAME mft
@@ -51,3 +54,20 @@ o2_add_executable(tracks2records-workflow
                   SOURCES src/mft-tracks2records-workflow.cxx
                   COMPONENT_NAME mft
                   PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_executable(ca-tracker-workflow
+                  SOURCES src/mft-ca-tracker-workflow.cxx
+                  COMPONENT_NAME mft
+                  PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_test(ca-tracker-publication-decision
+            COMPONENT_NAME mft
+            LABELS "mft;workflow;itsmft"
+            SOURCES test/testCATrackerPublicationDecision.cxx
+            PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_test(ca-tracker-dpl-contract
+            COMPONENT_NAME mft
+            LABELS "mft;workflow;itsmft"
+            SOURCES test/testMFTCATrackerDPLContract.cxx
+            PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)

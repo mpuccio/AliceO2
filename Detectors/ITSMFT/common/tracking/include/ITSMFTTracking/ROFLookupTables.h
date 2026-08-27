@@ -30,126 +30,12 @@
 #include "DataFormatsITS/Vertex.h"
 #include "GPUCommonMath.h"
 #include "GPUCommonDef.h"
+#include "ITSMFTTracking/ROFViews.h"
 
 namespace o2::its
 {
 
-// Layer timing definition
-struct LayerTiming {
-  using BCType = TimeStampType;
-  using BCRange = dataformats::RangeReference<BCType, BCType>;
-  BCType mNROFsTF{0};       // number of ROFs per timeframe
-  BCType mROFLength{0};     // ROF length in BC
-  BCType mROFDelay{0};      // delay of ROFs wrt start of first orbit in TF in BC
-  BCType mROFBias{0};       // bias wrt to the LHC clock in BC
-  BCType mROFAddTimeErr{0}; // additionally imposed uncertainty on ROF time in BC
-
-  // return start of ROF in BC
-  // this does not account for the opt. error!
-  GPUhdi() BCType getROFStartInBC(BCType rofId) const noexcept
-  {
-    assert(rofId < mNROFsTF && rofId >= 0);
-    return (mROFLength * rofId) + mROFDelay + mROFBias;
-  }
-
-  // return end of ROF in BCs
-  // this does not account for the opt. error!
-  GPUhdi() BCType getROFEndInBC(BCType rofId) const noexcept
-  {
-    assert(rofId < mNROFsTF);
-    return getROFStartInBC(rofId) + mROFLength;
-  }
-
-  // return (clamped) time-interval of rof
-  GPUhdi() TimeEstBC getROFTimeBounds(BCType rofId, bool withError = false) const noexcept
-  {
-    if (withError) {
-      int64_t start = getROFStartInBC(rofId);
-      int64_t end = getROFEndInBC(rofId);
-      start = o2::gpu::CAMath::Max(start - mROFAddTimeErr, int64_t(0));
-      end += mROFAddTimeErr;
-      return {static_cast<BCType>(start), static_cast<TimeStampErrorType>(end - start)};
-    }
-    return {getROFStartInBC(rofId), static_cast<TimeStampErrorType>(mROFLength)};
-  }
-
-  // return which ROF this BC belongs to
-  GPUhdi() BCType getROF(BCType bc) const noexcept
-  {
-    const BCType offset = mROFDelay + mROFBias;
-    if (bc <= offset) {
-      return 0;
-    }
-    return (bc - offset) / mROFLength;
-  }
-
-  // return which ROF this timestamp belongs by its lower edge
-  GPUhdi() BCType getROF(TimeStamp ts) const noexcept
-  {
-    const BCType offset = mROFDelay + mROFBias;
-    const BCType bc = (ts.getTimeStamp() < ts.getTimeStampError()) ? BCType(0) : static_cast<BCType>(o2::gpu::CAMath::Floor(ts.getTimeStamp() - ts.getTimeStampError()));
-    if (bc <= offset) {
-      return 0;
-    }
-    return (bc - offset) / mROFLength;
-  }
-
-  // return which ROF this floating point (number of BCs) time belongs
-  GPUhdi() BCType getROF(float time) const noexcept
-  {
-    const float offset = static_cast<float>(mROFDelay + mROFBias);
-    if (time <= offset) {
-      return 0;
-    }
-    return static_cast<BCType>((time - offset) / mROFLength);
-  }
-
-  GPUhdi() bool intersectROF(BCType rof, float lower, float upper) const noexcept
-  {
-    const auto rofTS = getROFTimeBounds(rof, true);
-    return static_cast<float>(rofTS.upper()) > lower && upper > static_cast<float>(rofTS.lower());
-  }
-
-  // return clamped ROF range with strictly positive overlap with timestamp interval
-  GPUhdi() BCRange getROFRange(TimeStamp ts) const noexcept
-  {
-    const float lower = ts.getTimeStamp() - ts.getTimeStampError();
-    const float upper = ts.getTimeStamp() + ts.getTimeStampError();
-    return getROFRange(lower, upper);
-  }
-
-  GPUhdi() BCRange getROFRange(TimeEstBC ts) const noexcept
-  {
-    return getROFRange(static_cast<float>(ts.lower()), static_cast<float>(ts.upper()));
-  }
-
-  GPUhdi() BCRange getROFRange(float lower, float upper) const noexcept
-  {
-    const BCType maxROF = mNROFsTF - 1;
-    BCType first = o2::gpu::CAMath::Clamp(getROF(lower - mROFAddTimeErr), BCType{0}, maxROF);
-    BCType last = o2::gpu::CAMath::Clamp(getROF(upper + mROFAddTimeErr), BCType{0}, maxROF);
-
-    if (first <= last && !intersectROF(first, lower, upper)) {
-      ++first;
-    }
-    if (last >= first && !intersectROF(last, lower, upper)) {
-      --last;
-    }
-    return {first, first <= last ? static_cast<BCType>(last - first + 1) : BCType{0}};
-  }
-
-#ifndef GPUCA_GPUCODE
-  GPUh() std::string asString() const
-  {
-    return std::format("NROFsPerTF {:4} ROFLength {:4} ({:4} per Orbit) ROFDelay {:4} ROFBias {:4} ROFAddTimeErr {:4}", mNROFsTF, mROFLength, (o2::constants::lhc::LHCMaxBunches / mROFLength), mROFDelay, mROFBias, mROFAddTimeErr);
-  }
-
-  GPUh() void print() const
-  {
-    LOG(info) << asString();
-  }
-#endif
-};
+using LayerTiming = o2::itsmft::tracking::ROFTimingLayer;
 
 // Base class for lookup to define layers
 template <int32_t NLayers>
@@ -195,157 +81,7 @@ class LayerTimingBase
 
 // GPU friendly view of the table below
 template <int32_t NLayers, typename TableEntry, typename TableIndex>
-struct ROFOverlapTableView {
-  const TableEntry* mFlatTable{nullptr};
-  const TableIndex* mIndices{nullptr};
-  const LayerTiming* mLayers{nullptr};
-
-  GPUhdi() const LayerTiming& getLayer(int32_t layer) const noexcept
-  {
-    assert(layer >= 0 && layer < NLayers);
-    return mLayers[layer];
-  }
-
-  GPUh() int32_t getClock() const noexcept
-  {
-    // we take the fastest layer as clock
-    int32_t fastest = 0;
-    uint32_t maxNROFs{0};
-    for (int32_t iL{0}; iL < NLayers; ++iL) {
-      const auto& layer = getLayer(iL);
-      // by definition the fastest layer has the most ROFs
-      // this also solves the problem of a delay large than ROFLength
-      // if mNROFsTF is correct
-      if (layer.mNROFsTF > maxNROFs) {
-        fastest = iL;
-        maxNROFs = layer.mNROFsTF;
-      }
-    }
-    return fastest;
-  }
-
-  GPUh() const LayerTiming& getClockLayer() const noexcept
-  {
-    return mLayers[getClock()];
-  }
-
-  GPUhdi() const TableEntry& getOverlap(int32_t from, int32_t to, size_t rofIdx) const noexcept
-  {
-    assert(from < NLayers && to < NLayers);
-    const size_t linearIdx = (from * NLayers) + to;
-    const auto& idx = mIndices[linearIdx];
-    assert(rofIdx < idx.getEntries());
-    return mFlatTable[idx.getFirstEntry() + rofIdx];
-  }
-
-  GPUhdi() bool doROFsOverlap(int32_t layer0, size_t rof0, int32_t layer1, size_t rof1) const noexcept
-  {
-    if (layer0 == layer1) { // layer is compatible with itself
-      return rof0 == rof1;
-    }
-
-    assert(layer0 < NLayers && layer1 < NLayers);
-    const size_t linearIdx = (layer0 * NLayers) + layer1;
-    const auto& idx = mIndices[linearIdx];
-
-    if (rof0 >= idx.getEntries()) {
-      return false;
-    }
-
-    const auto& overlap = mFlatTable[idx.getFirstEntry() + rof0];
-
-    if (overlap.getEntries() == 0) {
-      return false;
-    }
-
-    const size_t firstCompatible = overlap.getFirstEntry();
-    const size_t lastCompatible = firstCompatible + overlap.getEntries() - 1;
-    return rof1 >= firstCompatible && rof1 <= lastCompatible;
-  }
-
-  GPUhdi() TimeEstBC getTimeStamp(int32_t layer0, size_t rof0, int32_t layer1, size_t rof1) const noexcept
-  {
-    assert(layer0 < NLayers && layer1 < NLayers);
-    assert(doROFsOverlap(layer0, rof0, layer1, rof1));
-    // retrieves the combined timestamp
-    // e.g., taking one cluster from rof0 and one from rof1
-    //       and constructing a tracklet (doublet) what is its time
-    // this assumes that the rofs overlap, e.g. doROFsOverlap -> true
-    // get timestamp including margins from rof0 and rof1
-    const auto t0 = mLayers[layer0].getROFTimeBounds(rof0, true);
-    const auto t1 = mLayers[layer1].getROFTimeBounds(rof1, true);
-    return t0 + t1;
-  }
-
-#ifndef GPUCA_GPUCODE
-  /// Print functions
-  GPUh() void printAll() const
-  {
-    for (int32_t i = 0; i < NLayers; ++i) {
-      for (int32_t j = 0; j < NLayers; ++j) {
-        if (i != j) {
-          printMapping(i, j);
-        }
-      }
-    }
-    printSummary();
-  }
-
-  GPUh() void printMapping(int32_t from, int32_t to) const
-  {
-    if (from == to) {
-      LOGP(error, "No self-lookup supported");
-      return;
-    }
-
-    constexpr int w_index = 10;
-    constexpr int w_first = 12;
-    constexpr int w_last = 12;
-    constexpr int w_count = 10;
-
-    LOGF(info, "Overlap mapping: Layer %d -> Layer %d", from, to);
-    LOGP(info, "From: {}", mLayers[from].asString());
-    LOGP(info, "To  : {}", mLayers[to].asString());
-    LOGF(info, "%*s | %*s | %*s | %*s", w_index, "ROF.index", w_first, "First.ROF", w_last, "Last.ROF", w_count, "Count");
-    LOGF(info, "%.*s-+-%.*s-+-%.*s-+-%.*s", w_index, "----------", w_first, "------------", w_last, "------------", w_count, "----------");
-
-    const size_t linearIdx = (from * NLayers) + to;
-    const auto& idx = mIndices[linearIdx];
-    for (int32_t i = 0; i < idx.getEntries(); ++i) {
-      const auto& overlap = getOverlap(from, to, i);
-      LOGF(info, "%*d | %*d | %*d | %*d", w_index, i, w_first, overlap.getFirstEntry(), w_last, overlap.getEntriesBound() - 1, w_count, overlap.getEntries());
-    }
-  }
-
-  GPUh() void printSummary() const
-  {
-    uint32_t totalEntries{0};
-    size_t flatTableSize{0};
-
-    for (int32_t i = 0; i < NLayers; ++i) {
-      for (int32_t j = 0; j < NLayers; ++j) {
-        if (i != j) {
-          const size_t linearIdx = (i * NLayers) + j;
-          const auto& idx = mIndices[linearIdx];
-          totalEntries += idx.getEntries();
-          flatTableSize += idx.getEntries();
-        }
-      }
-    }
-
-    for (int32_t i = 0; i < NLayers; ++i) {
-      mLayers[i].print();
-    }
-
-    const uint32_t totalBytes = (flatTableSize * sizeof(TableEntry)) + (static_cast<unsigned long>(NLayers * NLayers) * sizeof(TableIndex));
-    LOGF(info, "------------------------------------------------------------");
-    LOGF(info, "Total overlap table size: %u entries", totalEntries);
-    LOGF(info, "Flat table size: %zu entries", flatTableSize);
-    LOGF(info, "Total view size: %u bytes", totalBytes);
-    LOGF(info, "------------------------------------------------------------");
-  }
-#endif
-};
+using ROFOverlapTableView = o2::itsmft::tracking::ROFOverlapView<TableEntry, TableIndex>;
 
 // Precalculated lookup table to find overlapping ROFs in another layer given a ROF index in the current layer
 template <int32_t NLayers>
@@ -378,6 +114,7 @@ class ROFOverlapTable : public LayerTimingBase<NLayers>
     view.mFlatTable = mFlatTable.data();
     view.mIndices = mIndices;
     view.mLayers = this->mLayers;
+    view.mLayerCount = NLayers;
     return view;
   }
 
@@ -387,6 +124,7 @@ class ROFOverlapTable : public LayerTimingBase<NLayers>
     view.mFlatTable = deviceFlatTablePtr;
     view.mIndices = deviceIndicesPtr;
     view.mLayers = deviceLayerTimingPtr;
+    view.mLayerCount = NLayers;
     return view;
   }
 
@@ -463,104 +201,7 @@ class ROFOverlapTable : public LayerTimingBase<NLayers>
 
 // GPU friendly view of the table below
 template <int32_t NLayers, typename TableEntry, typename TableIndex>
-struct ROFVertexLookupTableView {
-  const TableEntry* mFlatTable{nullptr};
-  const TableIndex* mIndices{nullptr};
-  const LayerTiming* mLayers{nullptr};
-
-  GPUhdi() const LayerTiming& getLayer(int32_t layer) const noexcept
-  {
-    assert(layer >= 0 && layer < NLayers);
-    return mLayers[layer];
-  }
-
-  GPUhdi() const TableEntry& getVertices(int32_t layer, size_t rofIdx) const noexcept
-  {
-    assert(layer < NLayers);
-    const auto& idx = mIndices[layer];
-    assert(rofIdx < idx.getEntries());
-    return mFlatTable[idx.getFirstEntry() + rofIdx];
-  }
-
-  GPUh() int32_t getMaxVerticesPerROF() const noexcept
-  {
-    int32_t maxCount = 0;
-    for (int32_t layer = 0; layer < NLayers; ++layer) {
-      const auto& idx = mIndices[layer];
-      for (int32_t i = 0; i < idx.getEntries(); ++i) {
-        const auto& entry = mFlatTable[idx.getFirstEntry() + i];
-        maxCount = o2::gpu::CAMath::Max(maxCount, static_cast<int32_t>(entry.getEntries()));
-      }
-    }
-    return maxCount;
-  }
-
-  // Check if a specific vertex is compatible with a given ROF
-  GPUhdi() bool isVertexCompatible(int32_t layer, size_t rofIdx, const Vertex& vertex) const noexcept
-  {
-    assert(layer < NLayers);
-    const auto& layerDef = mLayers[layer];
-    int64_t rofLower = o2::gpu::CAMath::Max((int64_t)layerDef.getROFStartInBC(rofIdx) - (int64_t)layerDef.mROFAddTimeErr, int64_t(0));
-    int64_t rofUpper = (int64_t)layerDef.getROFEndInBC(rofIdx) + layerDef.mROFAddTimeErr;
-    auto vLower = (int64_t)vertex.getTimeStamp().lower();
-    auto vUpper = (int64_t)vertex.getTimeStamp().upper();
-    return vUpper >= rofLower && vLower < rofUpper;
-  }
-
-#ifndef GPUCA_GPUCODE
-  GPUh() void printAll() const
-  {
-    for (int32_t i = 0; i < NLayers; ++i) {
-      printLayer(i);
-    }
-    printSummary();
-  }
-
-  GPUh() void printLayer(int32_t layer) const
-  {
-    constexpr int w_rof = 10;
-    constexpr int w_first = 12;
-    constexpr int w_last = 12;
-    constexpr int w_count = 10;
-
-    LOGF(info, "Vertex lookup: Layer %d", layer);
-    LOGF(info, "%*s | %*s | %*s | %*s", w_rof, "ROF.index", w_first, "First.Vtx", w_last, "Last.Vtx", w_count, "Count");
-    LOGF(info, "%.*s-+-%.*s-+-%.*s-+-%.*s", w_rof, "----------", w_first, "------------", w_last, "------------", w_count, "----------");
-
-    const auto& idx = mIndices[layer];
-    for (int32_t i = 0; i < idx.getEntries(); ++i) {
-      const auto& entry = mFlatTable[idx.getFirstEntry() + i];
-      int first = entry.getFirstEntry();
-      int count = entry.getEntries();
-      int last = first + count - 1;
-      LOGF(info, "%*d | %*d | %*d | %*d", w_rof, i, w_first, first, w_last, last, w_count, count);
-    }
-  }
-
-  GPUh() void printSummary() const
-  {
-    uint32_t totalROFs{0};
-    uint32_t totalVertexRefs{0};
-
-    for (int32_t i = 0; i < NLayers; ++i) {
-      const auto& idx = mIndices[i];
-      totalROFs += idx.getEntries();
-
-      for (int32_t j = 0; j < idx.getEntries(); ++j) {
-        const auto& entry = mFlatTable[idx.getFirstEntry() + j];
-        totalVertexRefs += entry.getEntries();
-      }
-    }
-
-    const uint32_t totalBytes = (totalROFs * sizeof(TableEntry)) + (NLayers * sizeof(TableIndex));
-    LOGF(info, "------------------------------------------------------------");
-    LOGF(info, "Total ROFs in table: %u", totalROFs);
-    LOGF(info, "Total vertex references: %u", totalVertexRefs);
-    LOGF(info, "Total view size: %u bytes", totalBytes);
-    LOGF(info, "------------------------------------------------------------");
-  }
-#endif
-};
+using ROFVertexLookupTableView = o2::itsmft::tracking::ROFVertexLookupView<TableEntry, TableIndex>;
 
 // Precalculated lookup table to find vertices compatible with ROFs
 // Given a layer and ROF index, returns the range of vertices that overlap in time.
@@ -634,6 +275,7 @@ class ROFVertexLookupTable : public LayerTimingBase<NLayers>
     view.mFlatTable = mFlatTable.data();
     view.mIndices = mIndices;
     view.mLayers = this->mLayers;
+    view.mLayerCount = NLayers;
     return view;
   }
 
@@ -643,6 +285,7 @@ class ROFVertexLookupTable : public LayerTimingBase<NLayers>
     view.mFlatTable = deviceFlatTablePtr;
     view.mIndices = deviceIndicesPtr;
     view.mLayers = deviceLayerTimingPtr;
+    view.mLayerCount = NLayers;
     return view;
   }
 
@@ -734,55 +377,7 @@ class ROFVertexLookupTable : public LayerTimingBase<NLayers>
 
 // GPU-friendly view of the ROF mask table
 template <int32_t NLayers, typename TableEntry, typename TableIndex>
-struct ROFMaskTableView {
-  const TableEntry* mFlatMask{nullptr};
-  const TableIndex* mLayerROFOffsets{nullptr}; // size NLayers+1
-
-  GPUhdi() bool isROFEnabled(int32_t layer, int32_t rofId) const noexcept
-  {
-    assert(layer >= 0 && layer < NLayers);
-    return mFlatMask[mLayerROFOffsets[layer] + rofId] != 0u;
-  }
-
-#ifndef GPUCA_GPUCODE
-  GPUh() void printAll() const
-  {
-    for (int32_t i = 0; i < NLayers; ++i) {
-      printLayer(i);
-    }
-  }
-
-  GPUh() void printLayer(int32_t layer) const
-  {
-    constexpr int w_rof = 10;
-    constexpr int w_active = 10;
-    int32_t nROFs = mLayerROFOffsets[layer + 1] - mLayerROFOffsets[layer];
-    LOGF(info, "Mask table: Layer %d", layer);
-    LOGF(info, "%*s | %*s", w_rof, "ROF", w_active, "Enabled");
-    LOGF(info, "%.*s-+-%.*s", w_rof, "----------", w_active, "----------");
-    for (int32_t i = 0; i < nROFs; ++i) {
-      LOGF(info, "%*d | %*d", w_rof, i, w_active, (int)isROFEnabled(layer, i));
-    }
-  }
-
-  GPUh() std::string asString(int32_t layer) const
-  {
-    int32_t nROFs = mLayerROFOffsets[layer + 1] - mLayerROFOffsets[layer];
-    int32_t enabledROFs = 0;
-    for (int32_t j = 0; j < nROFs; ++j) {
-      if (isROFEnabled(layer, j)) {
-        ++enabledROFs;
-      }
-    }
-    return std::format("ROFMask on Layer {} ROFs enabled: {}/{}", layer, enabledROFs, nROFs);
-  }
-
-  GPUh() void print(int32_t layer) const
-  {
-    LOG(info) << asString(layer);
-  }
-#endif
-};
+using ROFMaskTableView = o2::itsmft::tracking::ROFMaskView<TableEntry, TableIndex>;
 
 // Per-ROF per-layer boolean mask (uint8_t for GPU compatibility).
 template <int32_t NLayers>
@@ -873,6 +468,7 @@ class ROFMaskTable : public LayerTimingBase<NLayers>
     View view;
     view.mFlatMask = mFlatMask.data();
     view.mLayerROFOffsets = mLayerROFOffsets;
+    view.mLayerCount = NLayers;
     return view;
   }
 
@@ -881,6 +477,7 @@ class ROFMaskTable : public LayerTimingBase<NLayers>
     View view;
     view.mFlatMask = deviceFlatMaskPtr;
     view.mLayerROFOffsets = deviceOffsetPtr;
+    view.mLayerCount = NLayers;
     return view;
   }
 
