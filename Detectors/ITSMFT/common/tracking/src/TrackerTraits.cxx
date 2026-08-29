@@ -65,6 +65,18 @@ struct RoadSeedEmission {
   int cellPathId{-1};
 };
 
+void reserveGenericTrackPublication(TimeFrame& frame, std::size_t candidateCount, std::size_t maxReferencesPerTrack)
+{
+  auto& tracks = frame.getGenericTracks();
+  auto& references = frame.getTrackClusterIndices();
+  if (candidateCount > tracks.max_size() - tracks.size() ||
+      (maxReferencesPerTrack != 0 && candidateCount > (references.max_size() - references.size()) / maxReferencesPerTrack)) {
+    throw std::length_error{"GenericTrack publication exceeds the output container capacity"};
+  }
+  tracks.reserve(tracks.size() + candidateCount);
+  references.reserve(references.size() + candidateCount * maxReferencesPerTrack);
+}
+
 bool appendGenericTrack(TimeFrame& frame,
                         const TrackingCandidate& candidate,
                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
@@ -104,8 +116,6 @@ bool appendGenericTrack(TimeFrame& frame,
   }
 
   try {
-    references.reserve(oldReferenceSize + resolvedReferences.size());
-    tracks.reserve(oldTrackSize + 1);
     for (const auto& reference : resolvedReferences) {
       references.push_back(reference);
     }
@@ -1088,6 +1098,7 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
   const auto& trkParam = context.configuration.parameters;
   const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
   const int activeSurfaceCount = context.configuration.topology.nLayers;
+  reserveGenericTrackPublication(*mFrame, tracks.size(), static_cast<std::size_t>(activeSurfaceCount));
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
