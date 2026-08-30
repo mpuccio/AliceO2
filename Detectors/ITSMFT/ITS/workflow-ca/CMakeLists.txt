@@ -21,6 +21,7 @@ o2_add_library(ITSCAWorkflow
                                      O2::ITSMFTTracking
                                      O2::ITSMFTCAWriter
                                      O2::MFTTracking
+                                     O2::Steer
                                      O2::CCDB)
 
 o2_add_executable(ca-tracker-workflow

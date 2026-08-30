@@ -108,6 +108,7 @@ class CATrackerDPL : public o2::framework::Task
 
  private:
   void updateTimeDependentParams(framework::ProcessingContext& pc);
+  void addTruthSeedingVertices();
   void configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs);
   void invalidatePublication() noexcept;
   void initialiseTracking();

@@ -58,7 +58,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& config)
 
   const auto trMode = o2::itsmft::TrackingMode::fromString(config.options().get<std::string>("tracking-mode"));
   o2::its::ca::requireSyncTrackingModeOrFatal(trMode);
-  o2::its::ca::requireDiamondVertexConstraintOrFatal();
+  o2::its::ca::requireVertexConstraintOrFatal();
 
   const bool useMC = !config.options().get<bool>("disable-mc");
   const bool disableRootOutput = config.options().get<bool>("disable-root-output");

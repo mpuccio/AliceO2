@@ -62,18 +62,15 @@ void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode)
   }
 }
 
-void requireDiamondVertexConstraintOrFatal()
+void requireVertexConstraintOrFatal()
 {
   const auto& tc = o2::itsmft::ITSCommonCATrackerParam::Instance();
-  if (!tc.useDiamond) {
+  const bool useTruth = o2::its::VertexerParamConfig::Instance().useTruthSeeding;
+  if (tc.useDiamond == useTruth) {
     LOGP(fatal,
-         "ITS common-CA tracker workflow requires ITSCommonCATrackerParam.useDiamond=true: the common "
-         "tracker has no real per-event vertexing capability for ITS yet, so any other vertex/beam "
-         "constraint mode (the legacy real-vertexer default, or a bare CCDB MeanVertex beam-position "
-         "override) would silently run tracklet/cell finding against an always-empty per-ROF primary "
-         "vertex table instead of failing loudly. Set ITSCommonCATrackerParam.useDiamond=true (and "
-         "optionally .diamondPos[0..2]/.pvRes) to select the one Sync vertex/beam-constraint mode this "
-         "workflow can reproduce faithfully");
+         "ITS common-CA tracker workflow requires exactly one supported vertex source: set either "
+         "ITSCommonCATrackerParam.useDiamond=true for a static constraint or "
+         "ITSVertexerParam.useTruthSeeding=true for per-collision MC vertices");
   }
 }
 

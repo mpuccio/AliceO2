@@ -20,11 +20,12 @@
 ///
 ///   1. applyConfigKeyValuesOrFatal(rawConfigKeyValues)
 ///   2. requireSyncTrackingModeOrFatal(trackingMode)
-///   3. requireDiamondVertexConstraintOrFatal()  (call AFTER step 1, since it
-///      reads ITSCommonCATrackerParam::Instance() post-update)
+///   3. requireVertexConstraintOrFatal()  (call AFTER step 1, since it reads
+///      the configurable-parameter singletons post-update)
 ///
-/// These checks encode this workflow's policy: it has no per-event vertexing
-/// capability, while the shared tracking configuration remains generic.
+/// These checks encode this workflow's policy: it accepts either an explicit
+/// static diamond or MC-truth vertices, while the shared tracking
+/// configuration remains generic.
 
 #ifndef ALICEO2_ITS_CA_WORKFLOW_CONFIGPREFLIGHT_H_
 #define ALICEO2_ITS_CA_WORKFLOW_CONFIGPREFLIGHT_H_
@@ -44,9 +45,10 @@ void applyConfigKeyValuesOrFatal(const std::string& configKeyValues);
 /// device construction.
 void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 
-/// Fatals unless ITSCommonCATrackerParam::useDiamond is set. Call after
-/// applyConfigKeyValuesOrFatal() so command-line overrides are observed.
-void requireDiamondVertexConstraintOrFatal();
+/// Fatals unless exactly one supported vertex source is selected: a static
+/// diamond or MC-truth vertices. Call after applyConfigKeyValuesOrFatal() so
+/// command-line overrides are observed.
+void requireVertexConstraintOrFatal();
 
 } // namespace o2::its::ca
 

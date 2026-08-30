@@ -14,10 +14,12 @@
 #include "ITSCAWorkflow/CATrackerSpec.h"
 
 #include <stdexcept>
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,10 @@
 #include <oneapi/tbb/task_arena.h>
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
+#include "SimulationDataFormat/DigitizationContext.h"
+#include "SimulationDataFormat/O2DatabasePDG.h"
+#include "Steer/MCKinematicsReader.h"
+#include "DetectorsRaw/HBFUtils.h"
 
 using namespace o2::framework;
 
@@ -98,6 +104,49 @@ CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool us
 {
   mClusterDecoder = std::make_unique<o2::itsmft::tracking::ITSGeometryClusterDecoder>();
   mPublicationAdapter.adoptITSSharedClusterCompatibility(&mCompatibility);
+}
+
+void CATrackerDPL::addTruthSeedingVertices()
+{
+  LOGP(info, "ITS CA using truth seeds as vertices");
+  const auto dc = o2::steer::DigitizationContext::loadFromFile("collisioncontext.root");
+  const auto irs = dc->getEventRecords();
+  const auto& alpParams = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::Instance();
+  const int64_t roFrameBiasInBC = alpParams.getROFBiasInBC(1);
+  const int64_t roFrameLengthInBC = alpParams.getROFLengthInBC(1);
+  o2::steer::MCKinematicsReader mcReader(dc);
+  constexpr int iSrc = 0;
+  auto eveId2colId = dc->getCollisionIndicesForSource(iSrc);
+  for (int iEve = 0; iEve < mcReader.getNEvents(iSrc); ++iEve) {
+    const auto& ir = irs[eveId2colId[iEve]];
+    if (!ir.isDummy()) {
+      const auto& event = mcReader.getMCEventHeader(iSrc, iEve);
+      const auto bc = (ir - raw::HBFUtils::Instance().getFirstSampledTFIR()).toLong() - roFrameBiasInBC;
+      if (bc >= 0) {
+        o2::itsmft::tracking::Vertex vertex;
+        vertex.getTimeStamp().setTimeStamp(bc);
+        vertex.getTimeStamp().setTimeStampError(roFrameLengthInBC / 2);
+        vertex.setNContributors(std::max(1L, std::ranges::count_if(mcReader.getTracks(iSrc, iEve), [](const auto& track) {
+                                           if (!track.isPrimary() || track.GetPt() < 0.05 || std::abs(track.GetEta()) > 1.1) {
+                                             return false;
+                                           }
+                                           const auto* particle = o2::O2DatabasePDG::Instance()->GetParticle(track.GetPdgCode());
+                                           return particle && particle->Charge() != 0;
+                                         })));
+        vertex.setXYZ(static_cast<float>(event.GetX()), static_cast<float>(event.GetY()), static_cast<float>(event.GetZ()));
+        vertex.setChi2(1.f);
+        constexpr float covariance = 25.e-4f;
+        vertex.setSigmaX(covariance);
+        vertex.setSigmaY(covariance);
+        vertex.setSigmaZ(covariance);
+        mFrame.addPrimaryVertex(vertex);
+        const o2::MCCompLabel label{o2::MCCompLabel::maxTrackID(), iEve, iSrc, false};
+        mFrame.addPrimaryVertexLabel(o2::itsmft::tracking::VertexLabel{label, 1.f});
+      }
+    }
+    mcReader.releaseTracksForSourceAndEvent(iSrc, iEve);
+  }
+  LOGP(info, "ITS CA imposed {} pv collisions from MC truth", mFrame.getPrimaryVertices().size());
 }
 
 void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs)
@@ -254,6 +303,10 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
       }
       throw o2::itsmft::tracking::TimeFrameLoadException{loaded};
     }
+    if (o2::its::VertexerParamConfig::Instance().useTruthSeeding) {
+      addTruthSeedingVertices();
+      mROFVertexLookupTable.update(mFrame.getPrimaryVertices().data(), mFrame.getPrimaryVertices().size());
+    }
   } catch (const o2::itsmft::tracking::RecoverableLoadFailure& error) {
     LOGP(error, "ITS CA loading recoverably failed: {}", error.what());
     resetTimeFrame();
@@ -406,6 +459,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
 void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
 {
   o2::base::GRPGeomHelper::instance().checkUpdates(pc);
+  pc.inputs().get<o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>*>("itsalppar");
   if (!mTrackingInitialised) {
     mTrackingInitialised = true;
     initialiseTracking();
@@ -433,6 +487,11 @@ void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
     mDictionary = static_cast<const o2::itsmft::TopologyDictionary*>(obj);
     return;
   }
+  if (matcher == ConcreteDataMatcher("ITS", "ALPIDEPARAM", 0)) {
+    LOG(info) << "ITS CA input Alpide param updated";
+    o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::Instance().printKeyValues();
+    return;
+  }
   if (matcher == ConcreteDataMatcher("ITS", "GEOMTGEO", 0)) {
     LOG(info) << "ITS CA input GeometryTGeo loaded from CCDB";
     o2::its::GeometryTGeo::adopt(static_cast<o2::its::GeometryTGeo*>(obj));
@@ -452,6 +511,7 @@ DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, o2::itsmft::Trackin
   inputs.emplace_back("patterns", "ITS", "PATTERNS", 0, Lifetime::Timeframe);
   inputs.emplace_back("ROframes", "ITS", "CLUSTERSROF", 0, Lifetime::Timeframe);
   inputs.emplace_back("itscldict", "ITS", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("ITS/Calib/ClusterDictionary"));
+  inputs.emplace_back("itsalppar", "ITS", "ALPIDEPARAM", 0, Lifetime::Condition, ccdbParamSpec("ITS/Config/AlpideParam"));
 
   if (useMC) {
     inputs.emplace_back("labels", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe);

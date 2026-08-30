@@ -152,17 +152,36 @@ BOOST_FIXTURE_TEST_CASE(EveryNonSyncModeFailsClosed, FatalToExceptionFixture)
   }
 }
 
-// --- requireDiamondVertexConstraintOrFatal(): useDiamond is mandatory -----
+// --- requireVertexConstraintOrFatal(): exactly one supported source -----
 
-BOOST_FIXTURE_TEST_CASE(MissingDiamondConstraintFailsClosed, FatalToExceptionFixture)
+BOOST_FIXTURE_TEST_CASE(MissingVertexConstraintFailsClosed, FatalToExceptionFixture)
 {
   o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
-  BOOST_CHECK_THROW(requireDiamondVertexConstraintOrFatal(), std::runtime_error);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", false);
+  BOOST_CHECK_THROW(requireVertexConstraintOrFatal(), std::runtime_error);
 }
 
 BOOST_FIXTURE_TEST_CASE(ConfiguredDiamondConstraintIsAccepted, FatalToExceptionFixture)
 {
   o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", true);
-  BOOST_CHECK_NO_THROW(requireDiamondVertexConstraintOrFatal());
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", false);
+  BOOST_CHECK_NO_THROW(requireVertexConstraintOrFatal());
   o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+}
+
+BOOST_FIXTURE_TEST_CASE(ConfiguredTruthConstraintIsAccepted, FatalToExceptionFixture)
+{
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", true);
+  BOOST_CHECK_NO_THROW(requireVertexConstraintOrFatal());
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", false);
+}
+
+BOOST_FIXTURE_TEST_CASE(AmbiguousVertexConstraintFailsClosed, FatalToExceptionFixture)
+{
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", true);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", true);
+  BOOST_CHECK_THROW(requireVertexConstraintOrFatal(), std::runtime_error);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSVertexerParam", "useTruthSeeding", false);
 }
