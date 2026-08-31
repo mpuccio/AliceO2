@@ -343,7 +343,7 @@ bool Propagator::propagateToMeasurement(SurfaceTrackState& state, SurfaceTrackPa
       return false;
     }
     clampNegligibleCovarianceNoise(scratchState);
-    const auto materialResult = detail::barrel::correctForMaterial(scratchState, materialBudget, direction);
+    const auto materialResult = detail::barrel::correctForMaterial(scratchState, scratchRef, materialBudget, direction);
     if (!materialResult.ok()) {
       reason = OperationFailureReason::MaterialFailure;
       return false;
@@ -356,7 +356,7 @@ bool Propagator::propagateToMeasurement(SurfaceTrackState& state, SurfaceTrackPa
       return false;
     }
     clampNegligibleCovarianceNoise(scratchState);
-    const auto materialResult = detail::forward::correctForMaterial(scratchState, materialBudget, direction);
+    const auto materialResult = detail::forward::correctForMaterial(scratchState, scratchRef, materialBudget, direction);
     if (!materialResult.ok()) {
       reason = OperationFailureReason::MaterialFailure;
       return false;

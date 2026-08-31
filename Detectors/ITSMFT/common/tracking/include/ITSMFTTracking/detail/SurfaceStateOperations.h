@@ -32,6 +32,9 @@ bool update(SurfaceTrackState& state, const SurfaceMeasurement& measurement, flo
             OperationFailureReason& reason) noexcept;
 material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept;
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
+                                                     material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept;
 bool stateChi2(const SurfaceTrackState& reference, const SurfaceTrackState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept;
 
@@ -61,6 +64,9 @@ constexpr float highlandTheta2(float inverseMomentum, float xOverX0) noexcept
 }
 bool correctForMaterial(SurfaceTrackState& state, float xOverX0, OperationFailureReason& reason) noexcept;
 material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept;
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
+                                                     material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept;
 bool stateChi2(const SurfaceTrackState& reference, const SurfaceTrackState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept;

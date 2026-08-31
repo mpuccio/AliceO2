@@ -150,10 +150,11 @@ bool preflightValidate(const SurfaceTrackState& state, SurfaceKind expectedFamil
   return true;
 }
 
-// Complete transactional operation shared by cylinder and disk states (Slice 2
-// "Transactional result contract"): validate, derive physical momentum,
-// scratch-copy, invoke the scalar kernel, project covariance on scratch
-// only, validate the projected scratch, and commit exactly once.
+// Complete incidence-aware transactional operation shared by cylinder and disk
+// states (Slice 2 "Transactional result contract"): validate the state and its
+// incidence reference, derive physical momentum, scale the nominal material by
+// the incidence path length, invoke the scalar kernel, project covariance on
+// scratch only, validate the projected scratch, and commit exactly once.
 // projectCovariance may additionally apply cylinder-specific covariance range
 // handling (barrel only); it must not touch state.parameters[4], which this
 // function updates uniformly for both kinds after projection.
@@ -165,14 +166,22 @@ bool preflightValidate(const SurfaceTrackState& state, SurfaceKind expectedFamil
 // the source state's barrel covariance diagonals already exceed the
 // retained checkCovariance limits: those diagonals must not be silently
 // clamped by an operation that has no material to apply.
-template <typename FamilyKinematicsCheck, typename ProjectCovariance>
-material::MaterialOperationResult correctForMaterialImpl(SurfaceTrackState& state, SurfaceKind expectedFamily,
+template <typename FamilyKinematicsCheck, typename ScaleMaterial, typename ProjectCovariance>
+material::MaterialOperationResult correctForMaterialImpl(SurfaceTrackState& state, SurfaceTrackParameters& incidenceReference,
+                                                         SurfaceKind expectedFamily,
                                                          material::IntegratedMaterialBudget materialBudget,
                                                          material::MaterialTraversalDirection direction,
                                                          FamilyKinematicsCheck&& familyCheck,
+                                                         ScaleMaterial&& scaleMaterial,
                                                          ProjectCovariance&& projectCovariance) noexcept
 {
   material::MaterialFailureReason failure{};
+  if (incidenceReference.kind != expectedFamily) {
+    return makePreflightFailure(material::MaterialFailureReason::SourceSurfaceKindMismatch);
+  }
+  if (!familyCheck(incidenceReference) || incidenceReference.parameters[4] == 0.f) {
+    return makePreflightFailure(material::MaterialFailureReason::InvalidStateKinematics);
+  }
   if (!preflightValidate(state, expectedFamily, familyCheck, failure)) {
     return makePreflightFailure(failure);
   }
@@ -182,20 +191,22 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceTrackState& stat
     return makePreflightFailure(material::MaterialFailureReason::InvalidStateKinematics);
   }
 
-  SurfaceTrackState scratch = state;
-  const auto scalarResult = material::calculateMaterialPhysics(momentumBeforeGeV, scratch.pid, scratch.absCharge, direction, materialBudget);
+  SurfaceTrackState scratchState = state;
+  SurfaceTrackParameters scratchReference = incidenceReference;
+  scaleMaterial(materialBudget, scratchReference);
+  const auto scalarResult = material::calculateMaterialPhysics(momentumBeforeGeV, scratchState.pid, scratchState.absCharge, direction, materialBudget);
   if (!scalarResult.ok()) {
     return scalarResult;
   }
 
   const bool isNoopMaterial = (materialBudget.xOverX0 == 0.f && materialBudget.arealDensityGPerCm2 == 0.f);
-  if (scratch.absCharge == 0 || isNoopMaterial) {
+  if (scratchState.absCharge == 0 || isNoopMaterial) {
     return scalarResult;
   }
 
-  const float tBefore = scratch.parameters[3];
-  const float kBefore = scratch.parameters[4];
-  projectCovariance(scratch, scalarResult, tBefore, kBefore);
+  const float tBefore = scratchState.parameters[3];
+  const float kBefore = scratchState.parameters[4];
+  projectCovariance(scratchState, scalarResult, tBefore, kBefore);
 
   // The equality branch preserves the exact no-op invariant for the
   // MCS-only-with-unchanged-momentum case (xOverX0 > 0, arealDensity == 0):
@@ -207,23 +218,35 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceTrackState& stat
   const float kAfter = (scalarResult.momentumBeforeGeV == scalarResult.momentumAfterGeV)
                          ? kBefore
                          : (kBefore * scalarResult.momentumBeforeGeV) / scalarResult.momentumAfterGeV;
-  scratch.parameters[4] = kAfter;
+  scratchState.parameters[4] = kAfter;
 
   // Complete post-projection domain validation: the projected state must
   // still satisfy every kind/kinematics precondition the source state was
   // required to satisfy, and physical momentum must still be re-derivable.
-  if (scratch.parameters[4] == 0.f || !familyCheck(scratch)) {
+  if (scratchState.parameters[4] == 0.f || !familyCheck(scratchState)) {
     return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidStateKinematics);
   }
   float momentumAfterDerived = 0.f;
-  if (!derivePhysicalMomentum(scratch, momentumAfterDerived)) {
+  if (!derivePhysicalMomentum(scratchState, momentumAfterDerived)) {
     return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidStateKinematics);
   }
-  if (!covarianceDiagonalsNonNegative(scratch)) {
+  if (!covarianceDiagonalsNonNegative(scratchState)) {
     return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidCovariance);
   }
 
-  state = scratch;
+  // Energy loss changes q/pT in the covariance-bearing state and its
+  // incidence reference by the same pBefore/pAfter factor. The equality
+  // branch keeps MCS-only corrections bit-exact.
+  const float referenceKBefore = scratchReference.parameters[4];
+  scratchReference.parameters[4] = (scalarResult.momentumBeforeGeV == scalarResult.momentumAfterGeV)
+                                     ? referenceKBefore
+                                     : (referenceKBefore * scalarResult.momentumBeforeGeV) / scalarResult.momentumAfterGeV;
+  if (scratchReference.parameters[4] == 0.f || !std::isfinite(scratchReference.parameters[4])) {
+    return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidStateKinematics);
+  }
+
+  state = scratchState;
+  incidenceReference = scratchReference;
   return scalarResult;
 }
 
@@ -232,12 +255,26 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceTrackState& stat
 
 namespace o2::itsmft::tracking::detail::barrel
 {
-
-material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
+                                                     material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept
 {
-  auto familyCheck = [](const SurfaceTrackState& s) noexcept {
+  auto familyCheck = [](const auto& s) noexcept {
     return std::abs(s.parameters[2]) < 1.f;
+  };
+  // ITS layer budgets describe a normal crossing of the cylindrical layer.
+  // Match TrackParametrizationWithError::correctForMaterial(..., true), which
+  // the legacy ITS tracker uses at every layer: lengthen both material
+  // quantities by the path of the incident track before evaluating energy
+  // loss and multiple scattering.
+  auto scaleMaterial = [](material::IntegratedMaterialBudget& material, const SurfaceTrackParameters& incidence) noexcept {
+    const float snp = incidence.parameters[2];
+    const float tgl = incidence.parameters[3];
+    const float cosPhi2 = (1.f - snp) * (1.f + snp);
+    const float inverseCosLambda2 = 1.f + tgl * tgl;
+    const float incidenceScale = std::sqrt(inverseCosLambda2 / cosPhi2);
+    material.xOverX0 *= incidenceScale;
+    material.arealDensityGPerCm2 *= incidenceScale;
   };
   // Barrel parameters are (Y, Z, Snp, Tgl, Q2Pt). The accepted Jacobian
   // requires q/pT unconditionally in slots 13/14, fixing the retained
@@ -256,19 +293,38 @@ material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, m
     scratch.covariance[packedCovarianceIndex(4, 4)] += h * (t * k) * (t * k) + k * k * R;
     limitBarrelCovariance(scratch);
   };
-  return correctForMaterialImpl(state, SurfaceKind::Cylinder, materialBudget, direction, familyCheck, projectCovariance);
+  return correctForMaterialImpl(state, linRef, SurfaceKind::Cylinder, materialBudget, direction,
+                                familyCheck, scaleMaterial, projectCovariance);
+}
+
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept
+{
+  SurfaceTrackParameters incidenceReference{state};
+  return correctForMaterial(state, incidenceReference, materialBudget, direction);
 }
 
 } // namespace o2::itsmft::tracking::detail::barrel
 
 namespace o2::itsmft::tracking::detail::forward
 {
-
-material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
+                                                     material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept
 {
-  auto familyCheck = [](const SurfaceTrackState& s) noexcept {
-    return s.alpha == 0.f;
+  auto familyCheck = [](const auto& s) noexcept {
+    return s.alpha == 0.f && s.parameters[3] != 0.f;
+  };
+  // MFT layer budgets describe a normal crossing of a disk. Match
+  // TrackParCovFwd::addMCSEffect(), which lengthens x/X0 by csc(lambda), and
+  // apply the same path-length scaling to the areal density used for energy
+  // loss. For a linearized propagation the incidence comes from the
+  // reference trajectory, exactly as for the barrel operation above.
+  auto scaleMaterial = [](material::IntegratedMaterialBudget& material, const SurfaceTrackParameters& incidence) noexcept {
+    const float tgl = incidence.parameters[3];
+    const float incidenceScale = std::sqrt(1.f + tgl * tgl) / std::abs(tgl);
+    material.xOverX0 *= incidenceScale;
+    material.arealDensityGPerCm2 *= incidenceScale;
   };
   // Forward parameters are (X, Y, Phi, Tanl, Q2Pt); unlike barrel there is no
   // cos(phi)-like factor on the angular diagonal term, and forward does not
@@ -286,7 +342,15 @@ material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, m
     scratch.covariance[packedCovarianceIndex(4, 3)] += h * A * t * k;
     scratch.covariance[packedCovarianceIndex(4, 4)] += h * (t * k) * (t * k) + k * k * R;
   };
-  return correctForMaterialImpl(state, SurfaceKind::Disk, materialBudget, direction, familyCheck, projectCovariance);
+  return correctForMaterialImpl(state, linRef, SurfaceKind::Disk, materialBudget, direction,
+                                familyCheck, scaleMaterial, projectCovariance);
+}
+
+material::MaterialOperationResult correctForMaterial(SurfaceTrackState& state, material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept
+{
+  SurfaceTrackParameters incidenceReference{state};
+  return correctForMaterial(state, incidenceReference, materialBudget, direction);
 }
 
 } // namespace o2::itsmft::tracking::detail::forward

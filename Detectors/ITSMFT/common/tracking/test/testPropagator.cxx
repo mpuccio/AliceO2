@@ -233,7 +233,7 @@ BOOST_AUTO_TEST_CASE(CompatibleFamilyMatchesDirectBarrelPrimitiveReplay)
   BOOST_REQUIRE(detail::barrel::rotate(viaDirect, viaDirectRef, measurement.frame.frameAngle, BarrelBz, reason));
   BOOST_REQUIRE(detail::barrel::propagate(viaDirect, viaDirectRef, measurement.frame.q, BarrelBz, reason));
   const auto materialResult = detail::barrel::correctForMaterial(
-    viaDirect, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
+    viaDirect, viaDirectRef, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
     material::MaterialTraversalDirection::OppositeMomentum);
   BOOST_REQUIRE(materialResult.ok());
   float predChi2 = 0.f;
@@ -246,6 +246,252 @@ BOOST_AUTO_TEST_CASE(CompatibleFamilyMatchesDirectBarrelPrimitiveReplay)
   BOOST_CHECK(bitEqual(viaPropagator, viaDirect));
   BOOST_CHECK(bitEqual(viaPropagatorRef, viaDirectRef));
   BOOST_CHECK_EQUAL(chi2Propagator, chi2Direct);
+}
+
+BOOST_AUTO_TEST_CASE(BarrelMaterialUsesLegacyIncidencePathLength)
+{
+  auto state = barrelState();
+  state.parameters[2] = 0.6f;
+  state.parameters[3] = 1.2f;
+  const auto original = state;
+  const material::IntegratedMaterialBudget nominalMaterial{0.01f, 0.001f};
+
+  const float snp = original.parameters[2];
+  const float tgl = original.parameters[3];
+  const float incidenceScale = std::sqrt((1.f + tgl * tgl) / ((1.f - snp) * (1.f + snp)));
+  const material::IntegratedMaterialBudget legacyMaterial{
+    nominalMaterial.xOverX0 * incidenceScale,
+    nominalMaterial.arealDensityGPerCm2 * incidenceScale};
+  const float transverseMomentum = static_cast<float>(original.absCharge) / std::abs(original.parameters[4]);
+  const float momentum = transverseMomentum * std::sqrt(1.f + tgl * tgl);
+
+  const auto expected = material::calculateMaterialPhysics(momentum, original.pid, original.absCharge,
+                                                           material::MaterialTraversalDirection::AlongMomentum,
+                                                           legacyMaterial);
+  const auto uncorrected = material::calculateMaterialPhysics(momentum, original.pid, original.absCharge,
+                                                              material::MaterialTraversalDirection::AlongMomentum,
+                                                              nominalMaterial);
+  const auto result = detail::barrel::correctForMaterial(state, nominalMaterial,
+                                                         material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(expected.ok());
+  BOOST_REQUIRE(uncorrected.ok());
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumBeforeGeV, expected.momentumBeforeGeV);
+  BOOST_CHECK_EQUAL(result.momentumAfterGeV, expected.momentumAfterGeV);
+  BOOST_CHECK_EQUAL(result.signedEnergyChangeGeV, expected.signedEnergyChangeGeV);
+  BOOST_CHECK_EQUAL(result.highlandTheta2Rad2, expected.highlandTheta2Rad2);
+  BOOST_CHECK_EQUAL(result.relativeInverseMomentumVariance, expected.relativeInverseMomentumVariance);
+  BOOST_CHECK_EQUAL(result.energyLossSubsteps, expected.energyLossSubsteps);
+  BOOST_CHECK_GT(result.highlandTheta2Rad2, uncorrected.highlandTheta2Rad2);
+  BOOST_CHECK_LT(result.momentumAfterGeV, uncorrected.momentumAfterGeV);
+}
+
+BOOST_AUTO_TEST_CASE(LinearizedBarrelMaterialUsesLegacyReferenceIncidence)
+{
+  auto state = barrelState();
+  state.parameters[2] = 0.1f;
+  state.parameters[3] = 0.2f;
+  auto linRef = barrelLinRef(state);
+  linRef.parameters[2] = 0.6f;
+  linRef.parameters[3] = 1.2f;
+  const float stateQ2PtBefore = state.parameters[4];
+  const float referenceQ2PtBefore = linRef.parameters[4];
+  const material::IntegratedMaterialBudget nominalMaterial{0.01f, 0.001f};
+
+  const float snp = linRef.parameters[2];
+  const float tgl = linRef.parameters[3];
+  const float incidenceScale = std::sqrt((1.f + tgl * tgl) / ((1.f - snp) * (1.f + snp)));
+  const material::IntegratedMaterialBudget legacyMaterial{
+    nominalMaterial.xOverX0 * incidenceScale,
+    nominalMaterial.arealDensityGPerCm2 * incidenceScale};
+  const float stateTgl = state.parameters[3];
+  const float transverseMomentum = static_cast<float>(state.absCharge) / std::abs(state.parameters[4]);
+  const float momentum = transverseMomentum * std::sqrt(1.f + stateTgl * stateTgl);
+
+  const auto expected = material::calculateMaterialPhysics(momentum, state.pid, state.absCharge,
+                                                           material::MaterialTraversalDirection::AlongMomentum,
+                                                           legacyMaterial);
+  const auto result = detail::barrel::correctForMaterial(state, linRef, nominalMaterial,
+                                                         material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(expected.ok());
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumAfterGeV, expected.momentumAfterGeV);
+  BOOST_CHECK_EQUAL(result.highlandTheta2Rad2, expected.highlandTheta2Rad2);
+  const float expectedStateQ2Pt = (stateQ2PtBefore * result.momentumBeforeGeV) / result.momentumAfterGeV;
+  const float expectedReferenceQ2Pt = (referenceQ2PtBefore * result.momentumBeforeGeV) / result.momentumAfterGeV;
+  BOOST_CHECK_EQUAL(state.parameters[4], expectedStateQ2Pt);
+  BOOST_CHECK_EQUAL(linRef.parameters[4], expectedReferenceQ2Pt);
+}
+
+BOOST_AUTO_TEST_CASE(LinearizedBarrelMaterialKeepsReferenceQ2PtForMCSOnly)
+{
+  auto state = barrelState();
+  auto linRef = barrelLinRef(state);
+  const auto referenceBefore = linRef;
+
+  const auto result = detail::barrel::correctForMaterial(
+    state, linRef, material::IntegratedMaterialBudget{0.01f, 0.f},
+    material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumBeforeGeV, result.momentumAfterGeV);
+  BOOST_CHECK(bitEqual(linRef, referenceBefore));
+}
+
+BOOST_AUTO_TEST_CASE(FailingLinearizedBarrelMaterialLeavesStateAndReferenceUnchanged)
+{
+  auto state = barrelState();
+  auto linRef = barrelLinRef(state);
+  const auto stateBefore = state;
+  const auto referenceBefore = linRef;
+
+  const auto result = detail::barrel::correctForMaterial(
+    state, linRef, material::IntegratedMaterialBudget{1.e8f, 0.f},
+    material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.failure == material::MaterialFailureReason::ExcessiveScattering);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, referenceBefore));
+}
+
+BOOST_AUTO_TEST_CASE(CompatibleFamilyMatchesDirectForwardPrimitiveReplay)
+{
+  auto viaPropagator = diskState();
+  auto viaPropagatorRef = diskLinRef(viaPropagator);
+  auto viaDirect = viaPropagator;
+  auto viaDirectRef = viaPropagatorRef;
+  const auto measurement = diskMeasurement();
+  const auto material = NominalSurfaceMaterial{0.01f, 0.001f};
+  const auto descriptor = diskDescriptor(material);
+  float chi2Propagator = 0.f;
+  float chi2Direct = 0.f;
+  OperationFailureReason reason{};
+
+  BOOST_REQUIRE(Propagator::propagateToMeasurement(viaPropagator, viaPropagatorRef, descriptor, measurement, DiskBz,
+                                                   material::MaterialTraversalDirection::OppositeMomentum,
+                                                   false, 0.f, chi2Propagator, true, reason));
+
+  BOOST_REQUIRE(detail::forward::propagate(viaDirect, viaDirectRef, measurement.frame.q, DiskBz, reason));
+  const auto materialResult = detail::forward::correctForMaterial(
+    viaDirect, viaDirectRef, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
+    material::MaterialTraversalDirection::OppositeMomentum);
+  BOOST_REQUIRE(materialResult.ok());
+  float predChi2 = 0.f;
+  BOOST_REQUIRE(detail::forward::predictedChi2(viaDirect, measurement, predChi2, reason));
+  float updateChi2 = 0.f;
+  BOOST_REQUIRE(detail::forward::update(viaDirect, measurement, updateChi2, reason));
+  chi2Direct = updateChi2;
+  BOOST_REQUIRE(detail::forward::shiftReferenceToMeasurement(viaDirectRef, measurement, reason));
+
+  BOOST_CHECK(bitEqual(viaPropagator, viaDirect));
+  BOOST_CHECK(bitEqual(viaPropagatorRef, viaDirectRef));
+  BOOST_CHECK_EQUAL(chi2Propagator, chi2Direct);
+}
+
+BOOST_AUTO_TEST_CASE(ForwardMaterialUsesLegacyIncidencePathLength)
+{
+  auto state = diskState();
+  state.parameters[3] = -0.5f;
+  const auto original = state;
+  const material::IntegratedMaterialBudget nominalMaterial{0.01f, 0.001f};
+
+  const float tgl = original.parameters[3];
+  const float incidenceScale = std::sqrt(1.f + tgl * tgl) / std::abs(tgl);
+  const material::IntegratedMaterialBudget legacyMaterial{
+    nominalMaterial.xOverX0 * incidenceScale,
+    nominalMaterial.arealDensityGPerCm2 * incidenceScale};
+  const float transverseMomentum = static_cast<float>(original.absCharge) / std::abs(original.parameters[4]);
+  const float momentum = transverseMomentum * std::sqrt(1.f + tgl * tgl);
+
+  const auto expected = material::calculateMaterialPhysics(momentum, original.pid, original.absCharge,
+                                                           material::MaterialTraversalDirection::AlongMomentum,
+                                                           legacyMaterial);
+  const auto uncorrected = material::calculateMaterialPhysics(momentum, original.pid, original.absCharge,
+                                                              material::MaterialTraversalDirection::AlongMomentum,
+                                                              nominalMaterial);
+  const auto result = detail::forward::correctForMaterial(state, nominalMaterial,
+                                                          material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(expected.ok());
+  BOOST_REQUIRE(uncorrected.ok());
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumBeforeGeV, expected.momentumBeforeGeV);
+  BOOST_CHECK_EQUAL(result.momentumAfterGeV, expected.momentumAfterGeV);
+  BOOST_CHECK_EQUAL(result.signedEnergyChangeGeV, expected.signedEnergyChangeGeV);
+  BOOST_CHECK_EQUAL(result.highlandTheta2Rad2, expected.highlandTheta2Rad2);
+  BOOST_CHECK_EQUAL(result.relativeInverseMomentumVariance, expected.relativeInverseMomentumVariance);
+  BOOST_CHECK_EQUAL(result.energyLossSubsteps, expected.energyLossSubsteps);
+  BOOST_CHECK_GT(result.highlandTheta2Rad2, uncorrected.highlandTheta2Rad2);
+  BOOST_CHECK_LT(result.momentumAfterGeV, uncorrected.momentumAfterGeV);
+}
+
+BOOST_AUTO_TEST_CASE(LinearizedForwardMaterialUsesReferenceIncidence)
+{
+  auto state = diskState();
+  auto linRef = diskLinRef(state);
+  linRef.parameters[3] = -0.5f;
+  const float stateQ2PtBefore = state.parameters[4];
+  const float referenceQ2PtBefore = linRef.parameters[4];
+  const material::IntegratedMaterialBudget nominalMaterial{0.01f, 0.001f};
+
+  const float referenceTgl = linRef.parameters[3];
+  const float incidenceScale = std::sqrt(1.f + referenceTgl * referenceTgl) / std::abs(referenceTgl);
+  const material::IntegratedMaterialBudget scaledMaterial{
+    nominalMaterial.xOverX0 * incidenceScale,
+    nominalMaterial.arealDensityGPerCm2 * incidenceScale};
+  const float stateTgl = state.parameters[3];
+  const float transverseMomentum = static_cast<float>(state.absCharge) / std::abs(state.parameters[4]);
+  const float momentum = transverseMomentum * std::sqrt(1.f + stateTgl * stateTgl);
+
+  const auto expected = material::calculateMaterialPhysics(momentum, state.pid, state.absCharge,
+                                                           material::MaterialTraversalDirection::AlongMomentum,
+                                                           scaledMaterial);
+  const auto result = detail::forward::correctForMaterial(state, linRef, nominalMaterial,
+                                                          material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(expected.ok());
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumAfterGeV, expected.momentumAfterGeV);
+  BOOST_CHECK_EQUAL(result.highlandTheta2Rad2, expected.highlandTheta2Rad2);
+  const float expectedStateQ2Pt = (stateQ2PtBefore * result.momentumBeforeGeV) / result.momentumAfterGeV;
+  const float expectedReferenceQ2Pt = (referenceQ2PtBefore * result.momentumBeforeGeV) / result.momentumAfterGeV;
+  BOOST_CHECK_EQUAL(state.parameters[4], expectedStateQ2Pt);
+  BOOST_CHECK_EQUAL(linRef.parameters[4], expectedReferenceQ2Pt);
+}
+
+BOOST_AUTO_TEST_CASE(LinearizedForwardMaterialKeepsReferenceQ2PtForMCSOnly)
+{
+  auto state = diskState();
+  auto linRef = diskLinRef(state);
+  const auto referenceBefore = linRef;
+
+  const auto result = detail::forward::correctForMaterial(
+    state, linRef, material::IntegratedMaterialBudget{0.01f, 0.f},
+    material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.momentumBeforeGeV, result.momentumAfterGeV);
+  BOOST_CHECK(bitEqual(linRef, referenceBefore));
+}
+
+BOOST_AUTO_TEST_CASE(FailingLinearizedForwardMaterialLeavesStateAndReferenceUnchanged)
+{
+  auto state = diskState();
+  auto linRef = diskLinRef(state);
+  const auto stateBefore = state;
+  const auto referenceBefore = linRef;
+
+  const auto result = detail::forward::correctForMaterial(
+    state, linRef, material::IntegratedMaterialBudget{1.e8f, 0.f},
+    material::MaterialTraversalDirection::AlongMomentum);
+
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.failure == material::MaterialFailureReason::ExcessiveScattering);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, referenceBefore));
 }
 
 // --- 4: incompatible family converts, then propagates -----------------------
