@@ -13,6 +13,7 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -162,12 +163,21 @@ void checkSearchWindowEqual(const TrackletSearchWindow& lhs, const TrackletSearc
   BOOST_CHECK_EQUAL(lhs.bins.y, rhs.bins.y);
   BOOST_CHECK_EQUAL(lhs.bins.z, rhs.bins.z);
   BOOST_CHECK_EQUAL(lhs.bins.w, rhs.bins.w);
-  for (int i = 0; i < 2; ++i) {
-    BOOST_CHECK_EQUAL(lhs.prediction[i], rhs.prediction[i]);
-  }
-  for (int i = 0; i < 3; ++i) {
-    BOOST_CHECK_EQUAL(lhs.variance[i], rhs.variance[i]);
-  }
+  BOOST_CHECK_EQUAL(lhs.sourceReferenceCoordinate, rhs.sourceReferenceCoordinate);
+  BOOST_CHECK_EQUAL(lhs.sourceProjectedCoordinate, rhs.sourceProjectedCoordinate);
+  BOOST_CHECK_EQUAL(lhs.slope, rhs.slope);
+  BOOST_CHECK_EQUAL(lhs.varianceConstant, rhs.varianceConstant);
+  BOOST_CHECK_EQUAL(lhs.varianceLinear, rhs.varianceLinear);
+  BOOST_CHECK_EQUAL(lhs.varianceQuadratic, rhs.varianceQuadratic);
+  BOOST_CHECK_EQUAL(lhs.phiPrediction, rhs.phiPrediction);
+  BOOST_CHECK_EQUAL(lhs.phiVariance, rhs.phiVariance);
+}
+
+std::pair<float, float> evaluateSearchWindowAt(const TrackletSearchWindow& window, float targetReferenceCoordinate)
+{
+  const float delta = targetReferenceCoordinate - window.sourceReferenceCoordinate;
+  return {window.sourceProjectedCoordinate + window.slope * delta,
+          window.varianceConstant + delta * (window.varianceLinear + delta * window.varianceQuadratic)};
 }
 
 NominalSurfaceMaterial toMaterial(float xOverX0)
@@ -257,7 +267,7 @@ BOOST_AUTO_TEST_CASE(BoundConfigurationRejectsInvalidCorrectionType)
                  .isValid(invalidCorrection.LayerxX0.size()));
 }
 
-BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesSymmetricPropagationAndDirectPhiZBins)
+BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowUsesCandidateRadiusAndBoundsTheFullTargetInterval)
 {
   TrackingParameters legacy;
   legacy.PVres = 0.f;
@@ -283,29 +293,52 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesSymmetricPropagationAndDi
   const float projectionScale = 1.f + deltaRadius / source.radius;
   const float originScale = projectionScale - 1.f;
   const float sourceCoordinateVariance = o2::its::math_utils::Sq(state.sourcePositionResolution);
-  const float targetRadialVariance = o2::its::math_utils::Sq(state.targetMaxR - state.targetMinR) / 12.f;
   const float varianceZ =
     o2::its::math_utils::Sq(projectionScale) * sourceCoordinateVariance +
     o2::its::math_utils::Sq(tanLambda * projectionScale) * sourceCoordinateVariance +
     o2::its::math_utils::Sq(originScale) * vertex.getSigmaZ2() +
-    o2::its::math_utils::Sq(deltaRadius * state.edgeMSAngle) +
-    o2::its::math_utils::Sq(tanLambda) * targetRadialVariance;
-  const float sigmaZ = o2::gpu::CAMath::Sqrt(varianceZ);
-  const auto directBins = getBinsPhiColumn(source.phi, state.toLayer, zAtTargetMeanR,
-                                           sigmaZ * params.nSigmaCut, state.edgePhiCut, indexUtils);
+    o2::its::math_utils::Sq(deltaRadius * state.edgeMSAngle);
+  const auto predictionAndVarianceAt = [&](float radius) {
+    const float deltaR = radius - source.radius;
+    const float scale = 1.f + deltaR / source.radius;
+    const float origin = scale - 1.f;
+    const float candidateVariance =
+      o2::its::math_utils::Sq(scale) * sourceCoordinateVariance +
+      o2::its::math_utils::Sq(tanLambda * scale) * sourceCoordinateVariance +
+      o2::its::math_utils::Sq(origin) * vertex.getSigmaZ2() +
+      o2::its::math_utils::Sq(deltaR * state.edgeMSAngle);
+    return std::pair{source.z + tanLambda * deltaR, candidateVariance};
+  };
+  const auto [minPrediction, minVariance] = predictionAndVarianceAt(state.targetMinR);
+  const auto [maxPrediction, maxVariance] = predictionAndVarianceAt(state.targetMaxR);
+  const float lowerBound = std::min(minPrediction - params.nSigmaCut * std::sqrt(minVariance),
+                                    maxPrediction - params.nSigmaCut * std::sqrt(maxVariance));
+  const float upperBound = std::max(minPrediction + params.nSigmaCut * std::sqrt(minVariance),
+                                    maxPrediction + params.nSigmaCut * std::sqrt(maxVariance));
+  const auto directBins = getBinsPhiColumn(source.phi, state.toLayer, 0.5f * (lowerBound + upperBound),
+                                           0.5f * (upperBound - lowerBound), state.edgePhiCut, indexUtils);
 
   BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
   BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
   BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
   BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
-  BOOST_CHECK_EQUAL(window.prediction[0], zAtTargetMeanR);
-  BOOST_CHECK_EQUAL(window.variance[0], o2::its::math_utils::Sq(sigmaZ));
+  const auto [midpointPrediction, midpointVariance] = evaluateSearchWindowAt(window, targetMeanRadius);
+  BOOST_CHECK_EQUAL(midpointPrediction, zAtTargetMeanR);
+  BOOST_CHECK_CLOSE_FRACTION(midpointVariance, varianceZ, 1.e-6f);
+  const auto [evaluatedMinPrediction, evaluatedMinVariance] = evaluateSearchWindowAt(window, state.targetMinR);
+  BOOST_CHECK_EQUAL(evaluatedMinPrediction, minPrediction);
+  BOOST_CHECK_CLOSE_FRACTION(evaluatedMinVariance, minVariance, 1.e-6f);
+  const auto [evaluatedMaxPrediction, evaluatedMaxVariance] = evaluateSearchWindowAt(window, state.targetMaxR);
+  BOOST_CHECK_EQUAL(evaluatedMaxPrediction, maxPrediction);
+  BOOST_CHECK_CLOSE_FRACTION(evaluatedMaxVariance, maxVariance, 1.e-6f);
 
   TrackletSearchWindow beamUncertaintyWindow{};
   BOOST_REQUIRE(projectTrackletSearchWindow(sourceMeasurement, vertex, 1.e-3f,
                                             SurfaceKind::Cylinder, state, indexUtils, params.nSigmaCut,
                                             beamUncertaintyWindow));
-  BOOST_CHECK_CLOSE_FRACTION(beamUncertaintyWindow.variance[0],
+  const auto [beamPrediction, beamVariance] = evaluateSearchWindowAt(beamUncertaintyWindow, targetMeanRadius);
+  BOOST_CHECK_EQUAL(beamPrediction, zAtTargetMeanR);
+  BOOST_CHECK_CLOSE_FRACTION(beamVariance,
                              varianceZ + o2::its::math_utils::Sq(tanLambda * originScale) * 1.e-3f, 1.e-6f);
 
   legacy.PVres = 0.025f;
@@ -354,22 +387,24 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
     o2::its::math_utils::Sq(slope * originScale) * vertex.getSigmaZ2() +
     o2::its::math_utils::Sq(deltaZ * state.edgeMSAngle);
 
-  BOOST_CHECK_EQUAL(window.prediction[0], expectedRadius);
-  BOOST_CHECK_EQUAL(window.prediction[1], source.phi);
-  BOOST_CHECK_EQUAL(window.variance[0], varianceR);
-  BOOST_CHECK_EQUAL(window.variance[1], 0.f);
-  BOOST_CHECK_EQUAL(window.variance[2], o2::its::math_utils::Sq(state.edgePhiCut / params.nSigmaCut));
+  const auto [evaluatedRadius, evaluatedVariance] = evaluateSearchWindowAt(window, toZ);
+  BOOST_CHECK_EQUAL(evaluatedRadius, expectedRadius);
+  BOOST_CHECK_CLOSE_FRACTION(evaluatedVariance, varianceR, 1.e-6f);
+  BOOST_CHECK_EQUAL(window.phiPrediction, source.phi);
+  BOOST_CHECK_EQUAL(window.phiVariance, o2::its::math_utils::Sq(state.edgePhiCut / params.nSigmaCut));
 
   TrackletSearchWindow beamUncertaintyWindow{};
   BOOST_REQUIRE(projectTrackletSearchWindow(sourceMeasurement, vertex, 1.e-3f,
                                             SurfaceKind::Disk, state, indexUtils, params.nSigmaCut,
                                             beamUncertaintyWindow));
-  BOOST_CHECK_CLOSE_FRACTION(beamUncertaintyWindow.variance[0],
+  const auto [beamRadius, beamVariance] = evaluateSearchWindowAt(beamUncertaintyWindow, toZ);
+  BOOST_CHECK_EQUAL(beamRadius, expectedRadius);
+  BOOST_CHECK_CLOSE_FRACTION(beamVariance,
                              varianceR + o2::its::math_utils::Sq(originScale) * 1.e-3f, 1.e-6f);
-  BOOST_CHECK_EQUAL(beamUncertaintyWindow.variance[2], window.variance[2]);
+  BOOST_CHECK_EQUAL(beamUncertaintyWindow.phiVariance, window.phiVariance);
 }
 
-BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoRadialVariance)
+BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowUsesCandidateZAndBoundsTheFullTargetInterval)
 {
   TrackingParameters legacy;
   const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
@@ -393,11 +428,47 @@ BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoRadialVariance
   BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, pointTarget, indexUtils, params, pointWindow)));
   BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, intervalTarget, indexUtils, params, intervalWindow)));
 
-  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[0], pointWindow.prediction[0], 1.e-6f);
-  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[1], pointWindow.prediction[1], 1.e-6f);
-  BOOST_CHECK_NE(intervalWindow.variance[0], pointWindow.variance[0]);
-  BOOST_CHECK_SMALL(intervalWindow.variance[1] - pointWindow.variance[1], 1.e-9f);
-  BOOST_CHECK_SMALL(intervalWindow.variance[2] - pointWindow.variance[2], 1.e-9f);
+  const float slope = source.radius / (source.z - vertex.getZ());
+  const float sourceCoordinateVariance = o2::its::math_utils::Sq(intervalTarget.sourcePositionResolution);
+  const float sourceVarianceScale = (1.f + o2::its::math_utils::Sq(slope)) * sourceCoordinateVariance;
+  const float originVarianceScale = o2::its::math_utils::Sq(slope) * vertex.getSigmaZ2();
+  const float edgeMSVarianceScale = o2::its::math_utils::Sq(intervalTarget.edgeMSAngle);
+  const auto predictionAndVarianceAt = [&](float z) {
+    const float deltaZ = z - source.z;
+    const float originScale = deltaZ / (source.z - vertex.getZ());
+    const float projectionScale = 1.f + originScale;
+    const float candidateVariance =
+      o2::its::math_utils::Sq(projectionScale) * sourceVarianceScale +
+      o2::its::math_utils::Sq(originScale) * originVarianceScale +
+      o2::its::math_utils::Sq(deltaZ) * edgeMSVarianceScale;
+    return std::pair{source.radius + slope * deltaZ, candidateVariance};
+  };
+  const auto [minPrediction, minVariance] = predictionAndVarianceAt(intervalTarget.targetMinZ);
+  const auto [maxPrediction, maxVariance] = predictionAndVarianceAt(intervalTarget.targetMaxZ);
+  const float lowerBound = std::min(minPrediction - params.nSigmaCut * std::sqrt(minVariance),
+                                    maxPrediction - params.nSigmaCut * std::sqrt(maxVariance));
+  const float upperBound = std::max(minPrediction + params.nSigmaCut * std::sqrt(minVariance),
+                                    maxPrediction + params.nSigmaCut * std::sqrt(maxVariance));
+  const auto directBins = getBinsPhiColumn(source.phi, intervalTarget.toLayer, 0.5f * (lowerBound + upperBound),
+                                           0.5f * (upperBound - lowerBound), intervalTarget.edgePhiCut, indexUtils);
+
+  BOOST_CHECK_EQUAL(intervalWindow.bins.x, directBins.x);
+  BOOST_CHECK_EQUAL(intervalWindow.bins.y, directBins.y);
+  BOOST_CHECK_EQUAL(intervalWindow.bins.z, directBins.z);
+  BOOST_CHECK_EQUAL(intervalWindow.bins.w, directBins.w);
+  const auto [pointPrediction, pointVariance] = evaluateSearchWindowAt(pointWindow, toZ);
+  const auto [intervalPrediction, intervalVariance] = evaluateSearchWindowAt(intervalWindow, toZ);
+  BOOST_CHECK_CLOSE_FRACTION(intervalPrediction, pointPrediction, 1.e-6f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalVariance, pointVariance, 1.e-6f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.phiPrediction, pointWindow.phiPrediction, 1.e-6f);
+  BOOST_CHECK_SMALL(intervalWindow.phiVariance - pointWindow.phiVariance, 1.e-9f);
+
+  const auto [evaluatedMinPrediction, evaluatedMinVariance] = evaluateSearchWindowAt(intervalWindow, intervalTarget.targetMinZ);
+  BOOST_CHECK_EQUAL(evaluatedMinPrediction, minPrediction);
+  BOOST_CHECK_CLOSE_FRACTION(evaluatedMinVariance, minVariance, 1.e-6f);
+  const auto [evaluatedMaxPrediction, evaluatedMaxVariance] = evaluateSearchWindowAt(intervalWindow, intervalTarget.targetMaxZ);
+  BOOST_CHECK_EQUAL(evaluatedMaxPrediction, maxPrediction);
+  BOOST_CHECK_CLOSE_FRACTION(evaluatedMaxVariance, maxVariance, 1.e-6f);
 }
 
 BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchanged)
@@ -412,7 +483,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const auto cylinderState = makeCylinderProjectionCache(0, 3, 2.f, 4.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f);
   const TrackletSearchWindow cylinderSentinel{
-    {101, 102, 103, 104}, {105.f, 106.f}, {107.f, 108.f, 109.f}};
+    {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f, 109.f, 110.f, 111.f, 112.f};
   auto cylinderOut = cylinderSentinel;
   BOOST_CHECK(!(projectCylinderSearchWindow(
     cylinderMeasurement, cylinderSource, cylinderVertex, cylinderState, cylinderIndexUtils, cylinderParams, cylinderOut)));
@@ -430,7 +501,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const auto diskState = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
   const TrackletSearchWindow diskSentinel{
-    {201, 202, 203, 204}, {205.f, 206.f}, {207.f, 208.f, 210.f}};
+    {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 209.f, 210.f, 211.f, 212.f};
   auto diskOut = diskSentinel;
   BOOST_CHECK(!(projectDiskSearchWindow(
     diskMeasurement, diskSource, diskVertex, diskState, diskIndexUtils, diskParams, diskOut)));
@@ -458,8 +529,10 @@ BOOST_AUTO_TEST_CASE(DiskProjectionUsesBeamCenteredPolarCoordinatesAndIgnoresVer
     sourceMeasurement, source, straightVertex, state, indexUtils, params, straightWindow)));
   const float slope = source.radius / (source.z - straightVertex.getZ());
   const float expectedRadius = source.radius + slope * (toZ - source.z);
-  BOOST_CHECK_EQUAL(straightWindow.prediction[0], expectedRadius);
-  BOOST_CHECK_EQUAL(straightWindow.prediction[1], source.phi);
+  const auto [straightPrediction, straightVariance] = evaluateSearchWindowAt(straightWindow, toZ);
+  BOOST_CHECK_EQUAL(straightPrediction, expectedRadius);
+  BOOST_CHECK(straightVariance > 0.f);
+  BOOST_CHECK_EQUAL(straightWindow.phiPrediction, source.phi);
 
   const auto displacedVertex = makeVertex(-3.f, 4.f, straightVertex.getZ(), 8.f, 9.f, straightVertex.getSigmaZ2());
   TrackletSearchWindow displacedWindow{};
@@ -469,7 +542,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionUsesBeamCenteredPolarCoordinatesAndIgnoresVer
 
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
   TrackletSearchWindow fallbackWindow{};
-  const TrackletSearchWindow sentinel{{1, 2, 3, 4}, {5.f, 6.f}, {7.f, 8.f, 9.f}};
+  const TrackletSearchWindow sentinel{{1, 2, 3, 4}, 5.f, 6.f, 7.f, 8.f, 9.f, 10.f, 11.f, 12.f};
   fallbackWindow = sentinel;
   BOOST_CHECK(!(projectDiskSearchWindow(
     sourceMeasurement, source, fallbackVertex, state, indexUtils, params, fallbackWindow)));

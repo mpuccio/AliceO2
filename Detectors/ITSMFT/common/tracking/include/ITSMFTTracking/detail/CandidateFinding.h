@@ -53,8 +53,14 @@ struct TrackletProjectionCache {
 
 struct TrackletSearchWindow {
   int4 bins;
-  float prediction[2];
-  float variance[3];
+  float sourceReferenceCoordinate{0.f};
+  float sourceProjectedCoordinate{0.f};
+  float slope{0.f};
+  float varianceConstant{0.f};
+  float varianceLinear{0.f};
+  float varianceQuadratic{0.f};
+  float phiPrediction{0.f};
+  float phiVariance{0.f};
 };
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,

@@ -281,20 +281,20 @@ void TrackerTraits::computeLayerTracklets(IterationContext& context, const int i
                   continue;
                 }
 
-                const std::array<float, 2> coordinates{kind == SurfaceKind::Cylinder ? targetMeasurement.z : targetMeasurement.radius,
-                                                       targetMeasurement.phi};
-                std::array<float, 2> residual{window.prediction[0] - coordinates[0],
-                                              std::remainder(window.prediction[1] - coordinates[1], o2::constants::math::TwoPI)};
+                const float targetReferenceCoordinate = kind == SurfaceKind::Cylinder ? targetMeasurement.radius : targetMeasurement.z;
+                const float targetProjectedCoordinate = kind == SurfaceKind::Cylinder ? targetMeasurement.z : targetMeasurement.radius;
+                const float referenceDelta = targetReferenceCoordinate - window.sourceReferenceCoordinate;
+                const float candidatePrediction = window.sourceProjectedCoordinate + window.slope * referenceDelta;
+                const float candidateVariance = window.varianceConstant +
+                                                referenceDelta * (window.varianceLinear + referenceDelta * window.varianceQuadratic);
+                const float projectedResidual = candidatePrediction - targetProjectedCoordinate;
+                const float phiResidual = std::remainder(window.phiPrediction - targetMeasurement.phi, o2::constants::math::TwoPI);
 
-                const auto& variance = window.variance;
-                const float determinant = variance[0] * variance[2] - o2::its::math_utils::Sq(variance[1]);
-                if (!(determinant > 0.f)) {
+                if (!(candidateVariance > 0.f && window.phiVariance > 0.f)) {
                   continue;
                 }
-                const float chi2 = (residual[0] * residual[0] * window.variance[2] -
-                                    2.f * residual[0] * residual[1] * variance[1] +
-                                    residual[1] * residual[1] * window.variance[0]) /
-                                   determinant;
+                const float chi2 = o2::its::math_utils::Sq(projectedResidual) / candidateVariance +
+                                   o2::its::math_utils::Sq(phiResidual) / window.phiVariance;
                 if (chi2 >= o2::its::math_utils::Sq(mKernelParameters.nSigmaCut)) {
                   continue;
                 }
