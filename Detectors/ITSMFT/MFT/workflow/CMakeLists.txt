@@ -12,6 +12,7 @@
 o2_add_library(MFTWorkflow
                TARGETVARNAME targetName
                SOURCES src/RecoWorkflow.cxx
+                       src/CARecoWorkflow.cxx
                        src/CATrackerSpec.cxx
                        src/TrackerSpec.cxx
                        src/TrackReaderSpec.cxx
@@ -60,6 +61,11 @@ o2_add_executable(ca-tracker-workflow
                   COMPONENT_NAME mft
                   PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
 
+o2_add_executable(ca-reco-workflow
+                  SOURCES src/mft-ca-reco-workflow.cxx
+                  COMPONENT_NAME mft
+                  PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
 o2_add_test(ca-tracker-publication-decision
             COMPONENT_NAME mft
             LABELS "mft;workflow;itsmft"
@@ -70,4 +76,10 @@ o2_add_test(ca-tracker-dpl-contract
             COMPONENT_NAME mft
             LABELS "mft;workflow;itsmft"
             SOURCES test/testMFTCATrackerDPLContract.cxx
+            PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_test(ca-reco-workflow
+            COMPONENT_NAME mft
+            LABELS "mft;workflow;itsmft"
+            SOURCES test/testMFTCARecoWorkflow.cxx
             PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
