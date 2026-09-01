@@ -83,11 +83,9 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
 /// It is distinct from the dormant TrackerParamConfig<DetID::ITS> and does
 /// not use the registered name "ITSCATrackerParam", which belongs to the
 /// legacy o2::its::TrackerParamConfig.
-/// It exposes only fields consumed by
-/// TrackingMode::getTrackingParameters(DetID::ITS, Sync); legacy-only knobs
-/// are intentionally absent. Defaults match TrackingParameters' Sync
-/// baseline, so leaving this configuration unchanged preserves the detector
-/// defaults.
+/// It exposes only fields consumed by the ITS common-CA workflow; legacy-only
+/// knobs are intentionally absent. Defaults preserve the detector tracking
+/// baseline for both supported modes.
 ///
 /// diamondPos, pvRes, and useDiamond define the static vertex/beam constraint
 /// consumed by the shared TrackerTraits.

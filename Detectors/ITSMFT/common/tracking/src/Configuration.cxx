@@ -182,25 +182,57 @@ std::string toString(Type mode)
 std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId, Type mode)
 {
   if (detId == detectors::DetID::ITS) {
-    // Only Sync is implemented for ITS; reject all other modes explicitly.
-    if (mode != Sync) {
-      LOGP(fatal, "ITS common-CA tracking mode '{}' is not supported yet; only 'sync' is implemented", toString(mode));
+    const auto& tc = ITSCommonCATrackerParam::Instance();
+    std::vector<TrackingParameters> trackParams;
+    if (mode == Async) {
+      trackParams.resize(3);
+      for (auto& p : trackParams) {
+        resetDetectorDefaults(p, detectors::DetID::ITS);
+        p.ColBins = 64;
+        p.RowBins = 32;
+      }
+      trackParams[1].TrackletMinPt = 0.2f;
+      trackParams[2].TrackletMinPt = 0.1f;
+      trackParams[0].MinPt[0] = 1.f / 12.f;
+      trackParams[1].MinPt[0] = 1.f / 12.f;
+      trackParams[2].MinTrackLength = TrackerParamConfig<detectors::DetID::ITS>::MinTrackLength;
+      trackParams[2].MinPt[0] = 1.f / 12.f;
+      trackParams[2].MinPt[1] = 1.f / 5.f;
+      trackParams[2].MinPt[2] = 1.f;
+      trackParams[2].MinPt[3] = 1.f / 6.f;
+      trackParams[2].StartLayerMask = (1u << 6) | (1u << 3);
+    } else if (mode == Sync) {
+      trackParams.resize(1);
+      resetDetectorDefaults(trackParams[0], detectors::DetID::ITS);
+      trackParams[0].ColBins = 64;
+      trackParams[0].RowBins = 32;
+      trackParams[0].MinTrackLength = TrackerParamConfig<detectors::DetID::ITS>::MinTrackLength;
+    } else {
+      LOGP(fatal, "ITS common-CA tracking mode '{}' is not supported yet; use 'sync' or 'async'", toString(mode));
     }
 
-    const auto& tc = ITSCommonCATrackerParam::Instance();
-    std::vector<TrackingParameters> trackParams(1);
-    auto& p = trackParams[0];
-    resetDetectorDefaults(p, detectors::DetID::ITS);
-    p.MinTrackLength = TrackerParamConfig<detectors::DetID::ITS>::MinTrackLength;
-    p.DropTFUponFailure = tc.dropTFUponFailure;
-    p.PrintMemory = tc.printMemory;
-    p.MaxMemory = tc.maxMemory;
-    p.SaveTimeBenchmarks = tc.saveTimeBenchmarks;
-    p.UseDiamond = tc.useDiamond;
-    for (int iD = 0; iD < 3; ++iD) {
-      p.Diamond[iD] = tc.diamondPos[iD];
+    for (auto& p : trackParams) {
+      p.PassFlags.reset();
     }
-    p.PVres = tc.pvRes > 0 ? tc.pvRes : p.PVres;
+    trackParams.front().PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
+
+    const float bFactor = std::abs(o2::base::Propagator::Instance()->getNominalBz()) / 5.0066791f;
+    const float bFactorTracklets = bFactor < 0.01f ? 1.f : bFactor;
+    for (auto& p : trackParams) {
+      p.TrackletMinPt *= bFactorTracklets;
+      for (auto& minPt : p.MinPt) {
+        minPt *= bFactor;
+      }
+      p.DropTFUponFailure = tc.dropTFUponFailure;
+      p.PrintMemory = tc.printMemory;
+      p.MaxMemory = tc.maxMemory;
+      p.SaveTimeBenchmarks = tc.saveTimeBenchmarks;
+      p.UseDiamond = tc.useDiamond;
+      for (int iD = 0; iD < 3; ++iD) {
+        p.Diamond[iD] = tc.diamondPos[iD];
+      }
+      p.PVres = tc.pvRes > 0 ? tc.pvRes : p.PVres;
+    }
     return trackParams;
   }
   if (detId != detectors::DetID::MFT) {

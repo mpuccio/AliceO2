@@ -53,11 +53,11 @@ void applyConfigKeyValuesOrFatal(const std::string& configKeyValues)
   o2::conf::ConfigurableParam::updateFromString(configKeyValues);
 }
 
-void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode)
+void requireSupportedTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode)
 {
-  if (mode != o2::itsmft::TrackingMode::Sync) {
+  if (mode != o2::itsmft::TrackingMode::Sync && mode != o2::itsmft::TrackingMode::Async) {
     LOGP(fatal,
-         "ITS common-CA tracker workflow supports only tracking-mode 'sync'; '{}' is not supported yet",
+         "ITS common-CA tracker workflow supports tracking-mode 'sync' and 'async'; '{}' is not supported",
          o2::itsmft::TrackingMode::toString(mode));
   }
 }

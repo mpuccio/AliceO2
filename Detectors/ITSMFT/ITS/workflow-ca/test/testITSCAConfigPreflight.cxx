@@ -135,20 +135,20 @@ BOOST_FIXTURE_TEST_CASE(RepeatedAcceptedAndRejectedCallsRemainDeterministic, Fat
   o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
 }
 
-// --- requireSyncTrackingModeOrFatal(): every non-Sync mode fails closed ----
+// --- requireSupportedTrackingModeOrFatal(): Sync and Async are accepted ---
 
-BOOST_FIXTURE_TEST_CASE(SyncModeIsAccepted, FatalToExceptionFixture)
+BOOST_FIXTURE_TEST_CASE(SupportedModesAreAccepted, FatalToExceptionFixture)
 {
-  BOOST_CHECK_NO_THROW(requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Sync));
+  BOOST_CHECK_NO_THROW(requireSupportedTrackingModeOrFatal(o2::itsmft::TrackingMode::Sync));
+  BOOST_CHECK_NO_THROW(requireSupportedTrackingModeOrFatal(o2::itsmft::TrackingMode::Async));
 }
 
-BOOST_FIXTURE_TEST_CASE(EveryNonSyncModeFailsClosed, FatalToExceptionFixture)
+BOOST_FIXTURE_TEST_CASE(UnsupportedModesFailClosed, FatalToExceptionFixture)
 {
-  const std::array<o2::itsmft::TrackingMode::Type, 4> rejected{
-    o2::itsmft::TrackingMode::Off, o2::itsmft::TrackingMode::Unset,
-    o2::itsmft::TrackingMode::Async, o2::itsmft::TrackingMode::Cosmics};
+  const std::array<o2::itsmft::TrackingMode::Type, 3> rejected{
+    o2::itsmft::TrackingMode::Off, o2::itsmft::TrackingMode::Unset, o2::itsmft::TrackingMode::Cosmics};
   for (const auto mode : rejected) {
-    BOOST_CHECK_THROW(requireSyncTrackingModeOrFatal(mode), std::runtime_error);
+    BOOST_CHECK_THROW(requireSupportedTrackingModeOrFatal(mode), std::runtime_error);
   }
 }
 

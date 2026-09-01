@@ -43,7 +43,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
   workflowOptions.push_back(ConfigParamSpec{"disable-mc", VariantType::Bool, false, {"disable MC labels"}});
   workflowOptions.push_back(ConfigParamSpec{"disable-root-output", VariantType::Bool, false, {"do not write output root files"}});
   workflowOptions.push_back(ConfigParamSpec{"use-geom", VariantType::Bool, false, {"use geometry from the global geometry manager"}});
-  workflowOptions.push_back(ConfigParamSpec{"tracking-mode", VariantType::String, "sync", {"only 'sync' is supported by this opt-in workflow"}});
+  workflowOptions.push_back(ConfigParamSpec{"tracking-mode", VariantType::String, "sync", {"ITS tracking mode: 'sync' or 'async'"}});
   workflowOptions.push_back(ConfigParamSpec{"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings (e.g. ITSCommonCATrackerParam.useDiamond=true)"}});
   o2::raw::HBFUtilsInitializer::addConfigOption(workflowOptions);
 }
@@ -57,7 +57,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& config)
   o2::its::ca::applyConfigKeyValuesOrFatal(config.options().get<std::string>("configKeyValues"));
 
   const auto trMode = o2::itsmft::TrackingMode::fromString(config.options().get<std::string>("tracking-mode"));
-  o2::its::ca::requireSyncTrackingModeOrFatal(trMode);
+  o2::its::ca::requireSupportedTrackingModeOrFatal(trMode);
   o2::its::ca::requireVertexConstraintOrFatal();
 
   const bool useMC = !config.options().get<bool>("disable-mc");

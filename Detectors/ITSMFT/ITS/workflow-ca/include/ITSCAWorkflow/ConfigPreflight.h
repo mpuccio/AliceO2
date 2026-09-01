@@ -19,7 +19,7 @@
 /// device:
 ///
 ///   1. applyConfigKeyValuesOrFatal(rawConfigKeyValues)
-///   2. requireSyncTrackingModeOrFatal(trackingMode)
+///   2. requireSupportedTrackingModeOrFatal(trackingMode)
 ///   3. requireVertexConstraintOrFatal()  (call AFTER step 1, since it reads
 ///      the configurable-parameter singletons post-update)
 ///
@@ -41,9 +41,9 @@ namespace o2::its::ca
 /// override before applying the accepted string to ConfigurableParam.
 void applyConfigKeyValuesOrFatal(const std::string& configKeyValues);
 
-/// Fatals unless mode == Sync, naming the rejected mode explicitly, before
-/// device construction.
-void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
+/// Fatals unless mode is Sync or Async, naming the rejected mode explicitly,
+/// before device construction.
+void requireSupportedTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 
 /// Fatals unless exactly one supported vertex source is selected: a static
 /// diamond or MC-truth vertices. Call after applyConfigKeyValuesOrFatal() so

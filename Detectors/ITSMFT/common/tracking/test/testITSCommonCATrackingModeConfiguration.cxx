@@ -11,7 +11,7 @@
 
 // Workflow-onboarding Slice 1: focused tests for the dedicated
 // ITSCommonCATrackerParam configuration type (TrackingConfigParam.h) and the
-// real ITS Sync branch of TrackingMode::getTrackingParameters()
+// real ITS Sync and Async branches of TrackingMode::getTrackingParameters()
 // (Configuration.cxx). No workflow spec exists yet -- these tests call the
 // common-tracking library directly, the same way
 // the workflow loading tests already document that the
@@ -29,12 +29,23 @@
 #include <stdexcept>
 
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/ITSTrackingConfigParam.h"
+#include "ITStracking/Configuration.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
+
+namespace
+{
+struct MagneticFieldFixture {
+  MagneticFieldFixture() { o2::base::Propagator::initFieldFromGRP(0.f, 0.f, true, false); }
+};
+} // namespace
+
+BOOST_TEST_GLOBAL_FIXTURE(MagneticFieldFixture);
 
 // --- Dedicated name is distinct from every other registered CA param name --
 
@@ -109,6 +120,34 @@ BOOST_AUTO_TEST_CASE(ITSSyncTrackingParametersAreDeterministic)
   BOOST_CHECK(a[0].LayerRadii == b[0].LayerRadii);
 }
 
+BOOST_AUTO_TEST_CASE(ITSAsyncMatchesLegacySelectionParameters)
+{
+  const auto common = TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, TrackingMode::Async);
+  const auto legacy = o2::its::TrackingMode::getTrackingParameters(o2::its::TrackingMode::Async);
+
+  BOOST_REQUIRE_EQUAL(common.size(), 3u);
+  BOOST_REQUIRE_EQUAL(common.size(), legacy.size());
+  for (size_t iteration = 0; iteration < common.size(); ++iteration) {
+    const auto& commonIteration = common[iteration];
+    const auto& legacyIteration = legacy[iteration];
+    BOOST_CHECK_EQUAL(commonIteration.ColBins, legacyIteration.ZBins);
+    BOOST_CHECK_EQUAL(commonIteration.RowBins, legacyIteration.PhiBins);
+    BOOST_CHECK_EQUAL(commonIteration.MinTrackLength, legacyIteration.MinTrackLength);
+    BOOST_CHECK_EQUAL(commonIteration.TrackletMinPt, legacyIteration.TrackletMinPt);
+    BOOST_CHECK_EQUAL(commonIteration.StartLayerMask.value(), legacyIteration.StartLayerMask.value());
+    BOOST_REQUIRE_EQUAL(commonIteration.MinPt.size(), legacyIteration.MinPt.size());
+    for (size_t length = 0; length < commonIteration.MinPt.size(); ++length) {
+      BOOST_CHECK_EQUAL(commonIteration.MinPt[length], legacyIteration.MinPt[length]);
+    }
+  }
+
+  // These are currently intentional algorithm limitations, not selection
+  // mismatches: common CA has no CellDeltaTanLambdaSigma analogue and its ITS
+  // cylindrical surfaces do not yet support the legacy material LUT.
+  BOOST_CHECK(legacy.front().CorrType == o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT);
+  BOOST_CHECK(common.front().CorrType == o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE);
+}
+
 // --- Every unsupported TrackingMode fails closed, none silently mapped -----
 //
 // LOGP(fatal, ...) normally terminates the process (FairLogger default). A
@@ -129,8 +168,8 @@ struct FatalToExceptionFixture {
 
 BOOST_FIXTURE_TEST_CASE(EveryUnsupportedITSModeFailsClosed, FatalToExceptionFixture)
 {
-  const std::array<TrackingMode::Type, 4> unsupported{
-    TrackingMode::Off, TrackingMode::Unset, TrackingMode::Async, TrackingMode::Cosmics};
+  const std::array<TrackingMode::Type, 3> unsupported{
+    TrackingMode::Off, TrackingMode::Unset, TrackingMode::Cosmics};
 
   for (const auto mode : unsupported) {
     BOOST_CHECK_THROW(TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, mode), std::runtime_error);
@@ -139,9 +178,10 @@ BOOST_FIXTURE_TEST_CASE(EveryUnsupportedITSModeFailsClosed, FatalToExceptionFixt
 
 BOOST_FIXTURE_TEST_CASE(SyncStillSucceedsAfterFatalHandlerInstalled, FatalToExceptionFixture)
 {
-  // The OnFatal fixture above must not turn the *supported* path into a
-  // false failure: Sync should still construct normally.
+  // The OnFatal fixture above must not turn the supported paths into false
+  // failures: Sync and Async should still construct normally.
   BOOST_CHECK_NO_THROW(TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, TrackingMode::Sync));
+  BOOST_CHECK_NO_THROW(TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, TrackingMode::Async));
 }
 
 // Sync/Async/Cosmics require a configured magnetic-field singleton. The
