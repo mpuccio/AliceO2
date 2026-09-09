@@ -78,12 +78,12 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   static constexpr int MaxTrackLength = tracking::MFTNLayers;
   static constexpr int getNLayers() { return tracking::MFTNLayers; }
 
-  std::string materialModel = "nominal"; // Implemented provider: nominal descriptor material.
-  bool useMatCorrTGeo = false;           // Legacy alias: true requests unsupported TGeo and is rejected.
-  bool useFastMaterial = true;           // Legacy alias: true selects nominal; false requests unsupported LUT.
+  std::string materialModel = "nominal";                                                          // Implemented provider: nominal descriptor material.
+  bool useMatCorrTGeo = false;                                                                    // Legacy alias: true requests unsupported TGeo and is rejected.
+  bool useFastMaterial = true;                                                                    // Legacy alias: true selects nominal; false requests unsupported LUT.
   int addTimeError[getNLayers()] = {0};                                                           // Tracking window width in BC.
   int minTrackLgtIter[o2::itsmft::tracking::MaxIter] = {};                                        // Async minimum track length per iteration; <=0 keeps preset.
-  uint32_t startLayerMask[o2::itsmft::tracking::MaxIter] = {}; // Per-pass starts; 0 keeps the preset, bits must name detector layers.
+  uint32_t startLayerMask[o2::itsmft::tracking::MaxIter] = {};                                    // Per-pass starts; 0 keeps the preset, bits must name detector layers.
   int maxHolesIter[o2::itsmft::tracking::MaxIter] = {};                                           // Maximum missing internal layers per iteration.
   uint16_t holeLayerMask = 0;                                                                     // Detector layers that may be absent from accepted tracks.
   float minPtIterLgt[o2::itsmft::tracking::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // Async minimum pT by track length; <=0 keeps preset.
@@ -104,11 +104,11 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool overrideBeamEstimation = false;     // Reserved alias: true is rejected (no MFT beam estimation).
   int trackingMode = -1;                   // -1: use --tracking-mode; 0: sync, 1: async, 2: cosmics, 3: off.
   bool doUPCIteration = false;             // Reserved alias: true is rejected (no MFT UPC preset).
-  int nIterations = -1; // -1 uses all mode preset passes; otherwise a positive limit no larger than the preset.
-  int reseedIfShorter = 6;                                                              // Reserved while reseeding is developed; currently diagnosed as ineffective.
-  bool shiftRefToCluster{true};                                                         // Shift the linearization reference to the cluster after update.
-  bool repeatRefitOut{false};                                                           // Repeat outward refit using the inward refit as a seed.
-  bool createArtefactLabels{false};                                                     // Create labels for artefacts on the fly.
+  int nIterations = -1;                    // -1 uses all mode preset passes; otherwise a positive limit no larger than the preset.
+  int reseedIfShorter = 6;                 // Reserved while reseeding is developed; currently diagnosed as ineffective.
+  bool shiftRefToCluster{true};            // Shift the linearization reference to the cluster after update.
+  bool repeatRefitOut{false};              // Repeat outward refit using the inward refit as a seed.
+  bool createArtefactLabels{false};        // Create labels for artefacts on the fly.
 
   int nThreads = 1;
   bool printMemory = false; // Reserved alias: true is rejected (no memory report).
