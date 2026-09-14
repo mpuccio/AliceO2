@@ -525,7 +525,8 @@ void checkMinimumHitLayers(SurfaceKind kind, TrackingParameters params, std::vec
   // Exercise both an internal hole (span exceeds hit count) and a missing
   // endpoint (no internal hole, but MaxHoles must not lower the minimum).
   for (const int missingLayer : {3, NLayers - 1}) {
-    BOOST_TEST_CONTEXT("missing layer " << missingLayer) {
+    BOOST_TEST_CONTEXT("missing layer " << missingLayer)
+    {
       auto incomplete = clusters;
       incomplete.erase(incomplete.begin() + missingLayer);
       StandaloneRun<DetId, NLayers> accepted{DetId, kind, params, incomplete, 40, allowedHoles};
