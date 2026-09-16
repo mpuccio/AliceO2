@@ -65,7 +65,6 @@ namespace
 constexpr uint8_t kCompatibilityAbsCharge = 1;
 const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
 
-
 void reserveGenericTrackPublication(TimeFrame& frame, std::size_t candidateCount, std::size_t maxReferencesPerTrack)
 {
   auto& tracks = frame.getGenericTracks();

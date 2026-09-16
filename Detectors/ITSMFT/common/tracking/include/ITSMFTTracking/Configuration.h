@@ -266,7 +266,6 @@ TrackingPlan getTrackingPlan(o2::detectors::DetID::ID detId, Type mode);
 
 } // namespace TrackingMode
 
-
 } // namespace o2::itsmft
 
 namespace o2::itsmft::tracking
