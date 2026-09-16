@@ -131,7 +131,6 @@ BOOST_AUTO_TEST_CASE(ITSAsyncMatchesLegacySelectionParameters)
       BOOST_CHECK_EQUAL(commonIteration.MinPt[length], legacyIteration.MinPt[length]);
     }
   }
-
 }
 
 // --- Every unsupported TrackingMode fails closed, none silently mapped -----

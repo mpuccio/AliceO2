@@ -50,9 +50,9 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   bool dropTFUponFailure = false;
   size_t maxMemory = std::numeric_limits<size_t>::max();
   bool useDiamond = false;
-  float diamondPos[3] = {0.f, 0.f, 0.f}; // Diamond vertex position when useDiamond is set.
-  float pvRes = -1.f;                    // Diamond-vertex PV resolution; <=0 keeps the default.
-  uint16_t holeLayerMask = 0;            // Detector layers that may be absent from accepted tracks.
+  float diamondPos[3] = {0.f, 0.f, 0.f};        // Diamond vertex position when useDiamond is set.
+  float pvRes = -1.f;                           // Diamond-vertex PV resolution; <=0 keeps the default.
+  uint16_t holeLayerMask = 0;                   // Detector layers that may be absent from accepted tracks.
   float sysErr2Row[tracking::ITSNLayers] = {0}; // Additional sensor-row variance for cluster covariance and candidate windows (cm^2).
   float sysErr2Col[tracking::ITSNLayers] = {0}; // Additional sensor-column variance for cluster covariance and candidate windows (cm^2).
 
@@ -89,14 +89,14 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   float nSigmaCut = -1.f;
   float minPt = -1.f;
   float pvRes = -1.f;
-  int LUTbinsU = 64;                       // Radial bins in the MFT PhiR index (radius in cm).
-  int LUTbinsV = 128;                      // Phi bins in the MFT PhiR index (angle in radians).
-  float diamondPos[3] = {0.f, 0.f, 0.f};   // Diamond vertex for MFT seeds (cm).
-  int trackingMode = -1;                   // -1: use --tracking-mode; 0: sync, 1: async, 2: cosmics, 3: off.
-  int nIterations = -1;                    // -1 uses all mode preset passes; otherwise a positive limit no larger than the preset.
-  bool shiftRefToCluster{true};            // Shift the linearization reference to the cluster after update.
-  bool repeatRefitOut{false};              // Repeat outward refit using the inward refit as a seed.
-  bool createArtefactLabels{false};        // Create labels for artefacts on the fly.
+  int LUTbinsU = 64;                     // Radial bins in the MFT PhiR index (radius in cm).
+  int LUTbinsV = 128;                    // Phi bins in the MFT PhiR index (angle in radians).
+  float diamondPos[3] = {0.f, 0.f, 0.f}; // Diamond vertex for MFT seeds (cm).
+  int trackingMode = -1;                 // -1: use --tracking-mode; 0: sync, 1: async, 2: cosmics, 3: off.
+  int nIterations = -1;                  // -1 uses all mode preset passes; otherwise a positive limit no larger than the preset.
+  bool shiftRefToCluster{true};          // Shift the linearization reference to the cluster after update.
+  bool repeatRefitOut{false};            // Repeat outward refit using the inward refit as a seed.
+  bool createArtefactLabels{false};      // Create labels for artefacts on the fly.
 
   int nThreads = 1;
   size_t maxMemory = std::numeric_limits<size_t>::max();
