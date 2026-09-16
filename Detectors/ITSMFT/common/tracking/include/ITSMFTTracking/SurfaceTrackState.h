@@ -41,7 +41,8 @@ struct SurfaceTrackState {
   uint8_t absCharge{0};
   o2::track::PID pid{o2::track::PID::Pion};
 
-  GPUhdi() float getP() const noexcept {
+  GPUhdi() float getP() const noexcept
+  {
     return absCharge * std::sqrt(1.f + parameters[3] * parameters[3]) / std::abs(parameters[4]);
   }
 
