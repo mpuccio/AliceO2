@@ -40,6 +40,12 @@ void customize(std::vector<o2::framework::CompletionPolicy>& policies)
 
 void customize(std::vector<ConfigParamSpec>& workflowOptions)
 {
+  workflowOptions.push_back(ConfigParamSpec{"validate-cells", VariantType::Bool, false, {"compare GPU cells and fit factors with CPU evaluation"}});
+  workflowOptions.push_back(ConfigParamSpec{"validate-neighbours", VariantType::Bool, false, {"compare GPU neighbour identities and order with CPU evaluation"}});
+  workflowOptions.push_back(ConfigParamSpec{"validate-roads", VariantType::Bool, false, {"compare GPU road seeds and states with CPU evaluation"}});
+  workflowOptions.push_back(ConfigParamSpec{"validate-refit", VariantType::Bool, false, {"compare GPU final refits with CPU evaluation"}});
+  workflowOptions.push_back(ConfigParamSpec{"validate-tracklets", VariantType::Bool, false, {"compare every GPU tracklet candidate with CPU evaluation"}});
+  workflowOptions.push_back(ConfigParamSpec{"tracklet-backend", VariantType::String, "cpu", {"tracklet, cell, neighbour and road execution: cpu, cuda, or hip; remaining tracking runs on CPU"}});
   workflowOptions.push_back(ConfigParamSpec{"disable-mc", VariantType::Bool, false, {"disable MC labels"}});
   workflowOptions.push_back(ConfigParamSpec{"disable-root-output", VariantType::Bool, false, {"do not write output root files"}});
   workflowOptions.push_back(ConfigParamSpec{"vertex-source", VariantType::String, "", {"diamond or truth; alternatively select exactly one legacy vertex alias"}});

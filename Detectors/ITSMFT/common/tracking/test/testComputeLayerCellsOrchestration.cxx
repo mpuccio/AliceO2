@@ -55,6 +55,9 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#if defined(TEST_CELLS_CUDA) || defined(TEST_CELLS_HIP)
+#include "ITSMFTTrackingGPU/TrackerTraitsGPU.h"
+#endif
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/TripletFitting.h"
 #include "ITSMFTTracking/Constants.h"
@@ -228,6 +231,9 @@ FixedMeasurementDecoder::MeasurementPair diskMeasurementFor(const GlobalMeasurem
 
 void checkTripletFitFactorEqual(const TripletFitFactor& lhs, const TripletFitFactor& rhs)
 {
+#if defined(TEST_CELLS_CUDA) || defined(TEST_CELLS_HIP)
+  BOOST_CHECK(cellFactorsEquivalent(lhs, rhs));
+#else
   BOOST_CHECK_EQUAL(lhs.psi.theta, rhs.psi.theta);
   BOOST_CHECK_EQUAL(lhs.psi.phi, rhs.psi.phi);
   BOOST_CHECK_EQUAL(lhs.rho.theta, rhs.rho.theta);
@@ -238,6 +244,7 @@ void checkTripletFitFactorEqual(const TripletFitFactor& lhs, const TripletFitFac
       BOOST_CHECK_EQUAL(lhs.h[hit].phi[coordinate], rhs.h[hit].phi[coordinate]);
     }
   }
+#endif
 }
 
 void checkTrackSeedContents(const TrackSeed& trackSeed, const Triplet& cell,
@@ -336,6 +343,8 @@ struct Rig : RigFrameStorage {
     // when this file loaded zero real clusters).
     params[0].PassFlags.reset(IterationStep::RebuildClusterLUT);
     traits.setNThreads(nThreads, arena);
+    traits.setValidateCells(true);
+    traits.setValidateNeighbours(true);
     frame.setBz(Bz);
   }
 
@@ -379,7 +388,11 @@ struct Rig : RigFrameStorage {
   TimeFrameScratch* tf{nullptr};
   Tracker tracker;
   std::array<gsl::span<const GlobalMeasurement>, MaxLayoutSurfaces> measurementSpans;
+#if defined(TEST_CELLS_CUDA) || defined(TEST_CELLS_HIP)
+  gpu::TrackerTraitsGPU traits;
+#else
   TrackerTraits traits;
+#endif
   std::shared_ptr<tbb::task_arena> arena;
   // The catalog must outlive the immutable layout and all event-local views.
   std::vector<SurfaceDescriptor> catalog;
@@ -1241,8 +1254,8 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
       continue;
     }
     BOOST_REQUIRE_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]].size(), 1u);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0], 0);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighboursTopology()[topologyIds[i]][0], topologyIds[i - 1]);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0].cell, 0);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0].cellPath, topologyIds[i - 1]);
   }
 }
 
@@ -1310,8 +1323,8 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
       continue;
     }
     BOOST_REQUIRE_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]].size(), 1u);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0], 0);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighboursTopology()[topologyIds[i]][0], topologyIds[i - 1]);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0].cell, 0);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsNeighbours()[topologyIds[i]][0].cellPath, topologyIds[i - 1]);
   }
 }
 

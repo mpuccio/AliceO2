@@ -65,17 +65,6 @@ class DetectorConfiguration
                                                  : 0.5f * (surface.chartRange.min + surface.chartRange.max);
   }
 
-  bool sameComponent(uint16_t first, uint16_t second) const noexcept
-  {
-    if (first >= mLayers.size() || second >= mLayers.size()) {
-      return false;
-    }
-    const auto component = [this](uint16_t position) {
-      return std::upper_bound(mComponentOffsets.begin(), mComponentOffsets.end(), position) - mComponentOffsets.begin();
-    };
-    return component(first) == component(second);
-  }
-
   // Prepared once by Tracker before the configuration is installed in a frame.
   IndexTableConfigurationSet indexTableConfigs;
   std::vector<float> positionResolutions;

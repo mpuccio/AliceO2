@@ -24,6 +24,49 @@
 
 namespace o2::its::math_utils
 {
+// Shared float-only range reduction for tracking angles. libdevice sinf/cosf
+// include an FP64 slow path; direct intrinsics lose accuracy at larger angles.
+// Reduce to [-pi/4, pi/4] with split pi/2, then evaluate float FMA polynomials.
+GPUhdi() void sinCosFloat(float x, float& sine, float& cosine)
+{
+  if (!std::isfinite(x) || std::abs(x) > 0x1p16f) {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+    sine = __sinf(x);
+    cosine = __cosf(x);
+#else
+    sine = std::sin(x);
+    cosine = std::cos(x);
+#endif
+    return;
+  }
+  const float quadrant = ::nearbyintf(x * 0x1.45f306p-1f);
+  const float r = ::fmaf(-quadrant, -0x1.777a5cp-25f, ::fmaf(-quadrant, 0x1.921fb6p+0f, x));
+  const float r2 = r * r;
+  const float sp = ::fmaf(r2, ::fmaf(r2, ::fmaf(r2, ::fmaf(r2,
+                     -1.f / 39916800.f, 1.f / 362880.f), -1.f / 5040.f), 1.f / 120.f), -1.f / 6.f);
+  const float cp = ::fmaf(r2, ::fmaf(r2, ::fmaf(r2, ::fmaf(r2,
+                     1.f / 479001600.f, -1.f / 3628800.f), 1.f / 40320.f), -1.f / 720.f), 1.f / 24.f);
+  const float sr = ::fmaf(r * r2, sp, r);
+  const float cr = ::fmaf(r2, ::fmaf(r2, cp, -0.5f), 1.f);
+  switch (static_cast<int>(quadrant) & 3) {
+    case 0: sine = sr; cosine = cr; break;
+    case 1: sine = cr; cosine = -sr; break;
+    case 2: sine = -sr; cosine = -cr; break;
+    default: sine = -cr; cosine = sr; break;
+  }
+}
+GPUhdi() float sinFloat(float x)
+{
+  float sine, cosine;
+  sinCosFloat(x, sine, cosine);
+  return sine;
+}
+GPUhdi() float cosFloat(float x)
+{
+  float sine, cosine;
+  sinCosFloat(x, sine, cosine);
+  return cosine;
+}
 
 GPUhdi() constexpr float computePhi(float x, float y)
 {
@@ -82,16 +125,12 @@ GPUhdi() float computeCurvatureCentreX(float x1, float y1, float x2, float y2, f
 GPUhdi() float computeTanDipAngle(float x1, float y1, float x2, float y2, float z1, float z2)
 {
   // in case the points vertically align we go to pos/neg infinity.
-  const float d = o2::gpu::CAMath::Hypot(x1 - x2, y1 - y2);
+  const float dx = x1 - x2, dy = y1 - y2;
+  const float d = std::sqrt(dx * dx + dy * dy);
   if (o2::gpu::CAMath::Abs(d) < o2::its::constants::Tolerance) {
     return ((z1 > z2) ? -1.f : 1.f) * o2::constants::math::VeryBig;
   }
   return (z1 - z2) / d;
-}
-
-GPUhdi() float smallestAngleDifference(float a, float b)
-{
-  return o2::gpu::CAMath::Remainderf(b - a, o2::constants::math::TwoPI);
 }
 
 GPUhdi() bool isPhiDifferenceBelow(const float phiA, const float phiB, const float phiCut)
@@ -113,11 +152,6 @@ GPUhdi() constexpr float SqSum(float v, float w)
 GPUhdi() constexpr float SqSum(float u, float v, float w)
 {
   return Sq(u) + SqSum(v, w);
-}
-
-GPUhdi() constexpr float SqDiff(float x, float y)
-{
-  return Sq(x - y);
 }
 
 GPUhdi() float MSangle(float mass, float p, float xX0)

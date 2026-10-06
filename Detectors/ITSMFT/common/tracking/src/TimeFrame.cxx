@@ -19,6 +19,10 @@
 #include <numeric>
 #include <stdexcept>
 
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/combinable.h>
+#include <oneapi/tbb/parallel_for.h>
+
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/MathUtils.h"
 
@@ -143,15 +147,6 @@ gsl::span<const int> TimeFrame::getROFrameClusters(int layer) const
   return gsl::make_span(mROFramesClusters[layer]);
 }
 
-gsl::span<int> TimeFrame::getIndexTable(int rofId, int layer)
-{
-  if (rofId < 0 || rofId >= getNrof(layer)) {
-    return {};
-  }
-  const int tableSize = mIndexTableUtils[layer].getNrowBins() * mIndexTableUtils[layer].getNcolBins() + 1;
-  return {mIndexTables[layer].data() + rofId * tableSize, static_cast<gsl::span<int>::size_type>(tableSize)};
-}
-
 int TimeFrame::getClusterROF(int layer, int cluster) const
 {
   return static_cast<int>(std::lower_bound(mROFramesClusters[layer].begin(), mROFramesClusters[layer].end(), cluster + 1) -
@@ -167,6 +162,41 @@ int TimeFrame::getTotalClustersPerROFrange(int rofMin, int range, int layer) con
 gsl::span<unsigned char> TimeFrame::getUsedClusters(int layer)
 {
   return layer >= 0 && static_cast<std::size_t>(layer) < mLayerUsedClusters.size() ? gsl::make_span(mLayerUsedClusters[layer]) : gsl::span<unsigned char>{};
+}
+
+FrameView TimeFrame::makeView(gsl::span<const gsl::span<const GlobalMeasurement>> clusters) const
+{
+  if (clusters.size() > MaxLayoutSurfaces) {
+    throw std::out_of_range{"TimeFrame view: too many layers"};
+  }
+  FrameView view;
+  view.nLayers = clusters.size();
+  view.vertices = mPrimaryVertices.data();
+  for (size_t index = 0; index < clusters.size(); ++index) {
+    const int layer = static_cast<int>(index);
+    auto& layerView = view.layers[index];
+    layerView.clusters = clusters[index].data();
+    layerView.nClusters = clusters[index].size();
+    const auto measurements = getSurfaceMeasurements(LayerId{static_cast<uint16_t>(index)});
+    layerView.measurements = measurements.data();
+    layerView.nMeasurements = measurements.size();
+    if (index < mLayerUsedClusters.size()) {
+      layerView.used = mLayerUsedClusters[index].data();
+      layerView.nUsed = mLayerUsedClusters[index].size();
+    }
+    if (index < mROFramesClusters.size() && !mROFramesClusters[index].empty()) {
+      layerView.rofClusters = mROFramesClusters[index].data();
+      layerView.nROFs = getNrof(layer);
+      const auto& views = getROFViews(layer);
+      const auto& mask = mUseUPC ? views.upcMask : views.mask;
+      layerView.rofEnabled = mask.mFlatMask ? mask.mFlatMask + mask.mLayerROFOffsets[getROFLocalLayer(layer)] : nullptr;
+    }
+    if (index < mIndexTables.size() && !mIndexTables[index].empty()) {
+      layerView.indexTables = mIndexTables[index].data();
+      layerView.tableSize = static_cast<size_t>(mIndexTableUtils[layer].getNrowBins()) * mIndexTableUtils[layer].getNcolBins() + 1;
+    }
+  }
+  return view;
 }
 
 bool TimeFrame::isClusterUsed(int layer, uint32_t clusterId) const
@@ -221,26 +251,10 @@ void TimeFrame::setROFViews(std::size_t position, RuntimeROFViews views, uint16_
   mUseUPC = false;
 }
 
-const RuntimeROFTableEntry& TimeFrame::getROFOverlap(int fromLayer, int toLayer, int rof) const noexcept
-{
-  return getROFViews(fromLayer).overlap.getOverlap(getROFLocalLayer(fromLayer), getROFLocalLayer(toLayer), rof);
-}
-
 bool TimeFrame::isROFEnabled(int layer, int rof) const noexcept
 {
   const auto& views = getROFViews(layer);
   return (mUseUPC ? views.upcMask : views.mask).isROFEnabled(getROFLocalLayer(layer), rof);
-}
-
-bool TimeFrame::isVertexCompatible(int layer, int rof, const Vertex& vertex) const noexcept
-{
-  return getROFViews(layer).vertexLookup.isVertexCompatible(getROFLocalLayer(layer), rof, vertex);
-}
-
-o2::its::TimeEstBC TimeFrame::getROFTimeStamp(int fromLayer, int fromROF, int toLayer, int toROF) const noexcept
-{
-  return getROFViews(fromLayer).overlap.getTimeStamp(getROFLocalLayer(fromLayer), fromROF,
-                                                     getROFLocalLayer(toLayer), toROF);
 }
 
 int TimeFrame::getMaxVerticesPerROF() const noexcept
@@ -307,6 +321,8 @@ bool TimeFrame::configure(DetectorConfiguration&& layout, std::size_t maxEdges, 
     mLayerUsedClusters.resize(nMeasurementSurfaces);
     mLayerClusterLabels.resize(nMeasurementSurfaces);
     clearResizeBoundedVector(mIndexTables, nOwnedSurfaces, mMemoryPool.get());
+    clearResizeBoundedVector(mClusterBins, nOwnedSurfaces, mMemoryPool.get());
+    clearResizeBoundedVector(mIndexTableBuilt, nOwnedSurfaces, mMemoryPool.get());
     mIndexTableUtils.reset(layout.getSurfaceCatalog());
     mMinR.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
     mMaxR.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
@@ -323,6 +339,8 @@ bool TimeFrame::configure(DetectorConfiguration&& layout, std::size_t maxEdges, 
     mLayerUsedClusters.clear();
     mLayerClusterLabels.clear();
     mIndexTables.clear();
+    mClusterBins.clear();
+    mIndexTableBuilt.clear();
     mIndexTableUtils.clear();
     mMinR.clear();
     mMaxR.clear();
@@ -376,7 +394,8 @@ void TimeFrame::resetTimeFrame() noexcept
   for (auto& boundaries : mROFramesClusters) {
     boundaries.clear();
   }
-  deepVectorClear(mIndexTables);
+  // Keep the index-table storage: prepareIndexTables resets every entry
+  // before use, and releasing ~100+ MB here made each TimeFrame re-fault it.
   std::fill(mMinR.begin(), mMinR.end(), std::numeric_limits<float>::max());
   std::fill(mMaxR.begin(), mMaxR.end(), std::numeric_limits<float>::lowest());
   std::fill(mMinZ.begin(), mMinZ.end(), std::numeric_limits<float>::max());
@@ -399,9 +418,15 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   for (auto& table : mIndexTables) {
     initVector(table);
   }
+  for (auto& bins : mClusterBins) {
+    initVector(bins);
+  }
+  for (auto& built : mIndexTableBuilt) {
+    initVector(built);
+  }
 }
 
-void TimeFrame::prepareIndexTables(const IndexTableConfigurationSet& indexTableConfigs)
+void TimeFrame::prepareIndexTables(const IndexTableConfigurationSet& indexTableConfigs, bool hostTables)
 {
   if (indexTableConfigs.size() != mIndexTables.size()) {
     throw std::logic_error{"TimeFrame::prepareIndexTables(): configuration extent mismatch"};
@@ -419,7 +444,12 @@ void TimeFrame::prepareIndexTables(const IndexTableConfigurationSet& indexTableC
     if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(getNrof(static_cast<int>(layer))), stride, tableSize)) {
       throw std::bad_alloc{};
     }
-    clearResizeBoundedVector(mIndexTables[layer], tableSize, mMemoryPool.get());
+    if (hostTables) {
+      clearResizeBoundedVector(mIndexTables[layer], tableSize, mMemoryPool.get());
+    } else {
+      mIndexTables[layer].clear();
+    }
+    clearResizeBoundedVector(mIndexTableBuilt[layer], static_cast<std::size_t>(getNrof(static_cast<int>(layer))), mMemoryPool.get(), uint8_t{0});
   }
   std::fill(mMinR.begin(), mMinR.end(), std::numeric_limits<float>::max());
   std::fill(mMaxR.begin(), mMaxR.end(), std::numeric_limits<float>::lowest());
@@ -446,51 +476,74 @@ void TimeFrame::prepareClusters(int maxLayers)
       throw std::bad_alloc{};
     }
     const std::size_t stride = numBins + 1;
-    bounded_vector<SortingHelper> helpers(mMemoryPool.get());
-    bounded_vector<GlobalMeasurement> sortedMeasurements(mMemoryPool.get());
-    bounded_vector<int> counts(numBins, 0, mMemoryPool.get());
-    bounded_vector<int> offsets(numBins, 0, mMemoryPool.get());
-
-    for (int rof = 0; rof < getNrof(layer); ++rof) {
-      if (!isROFEnabled(layer, rof)) {
-        continue;
-      }
-      const int first = mROFramesClusters[layer][rof];
-      const int last = mROFramesClusters[layer][rof + 1];
-      const int count = last - first;
-      auto* tableBase = mIndexTables[layer].data() + rof * stride;
-      helpers.resize(count);
-      sortedMeasurements.resize(count);
-      const bool usePhiRBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::PhiR;
-
-      for (int local = 0; local < count; ++local) {
-        const int measurementIndex = first + local;
-        const auto& measurement = mLayerGlobalMeasurements[layer][measurementIndex];
-        auto& helper = helpers[local];
-        int colBin = utils.getColBinIndex(layer, usePhiRBinning ? measurement.radius : measurement.z);
-        if (colBin < 0 || colBin >= colBinsCount) {
-          colBin = std::clamp(colBin, 0, colBinsCount - 1);
+    const bool hostTables = !mIndexTables[layer].empty();
+    const bool usePhiRBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::PhiR;
+    // ROFs own disjoint measurement and index-table slices, so they sort
+    // independently; the layer extent is an exact min/max reduction.
+    tbb::combinable<std::array<float, 4>> extents{[] {
+      return std::array<float, 4>{std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest(),
+                                  std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest()};
+    }};
+    // Bins and built flags of skipped ROFs keep their state, like their table slices.
+    mClusterBins[layer].resize(mLayerGlobalMeasurements[layer].size());
+    mIndexTableBuilt[layer].resize(static_cast<std::size_t>(getNrof(layer)), uint8_t{0});
+    tbb::parallel_for(tbb::blocked_range<int>(0, getNrof(layer)), [&](const tbb::blocked_range<int>& rofs) {
+      bounded_vector<SortingHelper> helpers(mMemoryPool.get());
+      bounded_vector<GlobalMeasurement> sortedMeasurements(mMemoryPool.get());
+      bounded_vector<int> counts(numBins, 0, mMemoryPool.get());
+      bounded_vector<int> offsets(numBins, 0, mMemoryPool.get());
+      auto& extent = extents.local();
+      for (int rof = rofs.begin(); rof < rofs.end(); ++rof) {
+        if (!isROFEnabled(layer, rof)) {
+          continue;
         }
-        helper.bin = utils.getBinIndex(colBin, utils.getRowBinIndex(measurement.phi));
-        helper.indexWithinBin = counts[helper.bin]++;
-        helper.measurementIndex = measurementIndex;
-        mMinR[layer] = o2::gpu::GPUCommonMath::Min(measurement.radius, mMinR[layer]);
-        mMaxR[layer] = o2::gpu::GPUCommonMath::Max(measurement.radius, mMaxR[layer]);
-        mMinZ[layer] = o2::gpu::GPUCommonMath::Min(measurement.z, mMinZ[layer]);
-        mMaxZ[layer] = o2::gpu::GPUCommonMath::Max(measurement.z, mMaxZ[layer]);
-      }
-      std::exclusive_scan(counts.begin(), counts.end(), offsets.begin(), 0);
+        const int first = mROFramesClusters[layer][rof];
+        const int last = mROFramesClusters[layer][rof + 1];
+        const int count = last - first;
+        helpers.resize(count);
+        sortedMeasurements.resize(count);
 
-      for (const auto& helper : helpers) {
-        sortedMeasurements[offsets[helper.bin] + helper.indexWithinBin] = mLayerGlobalMeasurements[layer][helper.measurementIndex];
+        for (int local = 0; local < count; ++local) {
+          const int measurementIndex = first + local;
+          const auto& measurement = mLayerGlobalMeasurements[layer][measurementIndex];
+          auto& helper = helpers[local];
+          int colBin = utils.getColBinIndex(layer, usePhiRBinning ? measurement.radius : measurement.z);
+          if (colBin < 0 || colBin >= colBinsCount) {
+            colBin = std::clamp(colBin, 0, colBinsCount - 1);
+          }
+          helper.bin = utils.getBinIndex(colBin, utils.getRowBinIndex(measurement.phi));
+          helper.indexWithinBin = counts[helper.bin]++;
+          helper.measurementIndex = measurementIndex;
+          extent[0] = o2::gpu::GPUCommonMath::Min(measurement.radius, extent[0]);
+          extent[1] = o2::gpu::GPUCommonMath::Max(measurement.radius, extent[1]);
+          extent[2] = o2::gpu::GPUCommonMath::Min(measurement.z, extent[2]);
+          extent[3] = o2::gpu::GPUCommonMath::Max(measurement.z, extent[3]);
+        }
+        std::exclusive_scan(counts.begin(), counts.end(), offsets.begin(), 0);
+
+        auto* binBase = mClusterBins[layer].data() + first;
+        for (const auto& helper : helpers) {
+          sortedMeasurements[offsets[helper.bin] + helper.indexWithinBin] = mLayerGlobalMeasurements[layer][helper.measurementIndex];
+          binBase[offsets[helper.bin] + helper.indexWithinBin] = helper.bin;
+        }
+        mIndexTableBuilt[layer][rof] = 1;
+        std::copy(sortedMeasurements.begin(), sortedMeasurements.end(), mLayerGlobalMeasurements[layer].begin() + first);
+        if (hostTables) {
+          auto* tableBase = mIndexTables[layer].data() + rof * stride;
+          std::copy_n(offsets.data(), counts.size(), tableBase);
+          std::fill_n(tableBase + counts.size(), stride - counts.size(), count);
+        }
+        std::fill(counts.begin(), counts.end(), 0);
+        helpers.clear();
+        sortedMeasurements.clear();
       }
-      std::copy(sortedMeasurements.begin(), sortedMeasurements.end(), mLayerGlobalMeasurements[layer].begin() + first);
-      std::copy_n(offsets.data(), counts.size(), tableBase);
-      std::fill_n(tableBase + counts.size(), stride - counts.size(), count);
-      std::fill(counts.begin(), counts.end(), 0);
-      helpers.clear();
-      sortedMeasurements.clear();
-    }
+    });
+    extents.combine_each([&](const std::array<float, 4>& extent) {
+      mMinR[layer] = o2::gpu::GPUCommonMath::Min(extent[0], mMinR[layer]);
+      mMaxR[layer] = o2::gpu::GPUCommonMath::Max(extent[1], mMaxR[layer]);
+      mMinZ[layer] = o2::gpu::GPUCommonMath::Min(extent[2], mMinZ[layer]);
+      mMaxZ[layer] = o2::gpu::GPUCommonMath::Max(extent[3], mMaxZ[layer]);
+    });
   }
 }
 

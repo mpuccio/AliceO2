@@ -26,10 +26,12 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TrackSeed.h"
 #include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackingKernels.h"
 #include "ITSMFTTracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
@@ -165,6 +167,28 @@ struct RefitFixture {
     }
   }
 };
+
+// One seed's refit as TrackerTraits::refitTracks runs it, into the caller's
+// states.
+bool fitTrackSeedLegs(const TrackSeed& seed, const TimeFrame& frame,
+                      gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
+                      SurfaceCatalogView surfaceCatalog, float bz, bool shiftReferenceToMeasurement,
+                      float maxChi2ClusterAttachment, float maxChi2NDF, bool repeatRefitOut,
+                      gsl::span<const float> minPt, SurfaceTrackState& outParamIn,
+                      SurfaceTrackState& outParamOut, float& outChi2)
+{
+  if (layerGlobals.empty() || layerGlobals.size() > MaxLayoutSurfaces) {
+    return false;
+  }
+  RefitJob job;
+  prepareRefitJob(frame.makeView(layerGlobals), seed, minPt.data(), minPt.size(), job);
+  if (!job.nSlots) {
+    return false;
+  }
+  return fitPreparedTrackStateLegs(seed.state(), {job.slots.data(), job.nSlots}, {job.points.data(), job.nPoints},
+                                   surfaceCatalog, bz, shiftReferenceToMeasurement, maxChi2ClusterAttachment,
+                                   maxChi2NDF, repeatRefitOut, job.minPt, outParamIn, outParamOut, outChi2);
+}
 
 bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 {
@@ -553,7 +577,7 @@ BOOST_AUTO_TEST_CASE(AllPointCircleRecoversSignedCurvatureAtDifferentLeverArms)
             points.push_back({static_cast<float>(2 + x * std::cos(phi) - y * std::sin(phi)),
                               static_cast<float>(-1 + x * std::sin(phi) + y * std::cos(phi)), 1.e-6f, 2.e-7f, 2.e-6f});
           }
-          const double fitted = detail::estimateCircleQOverPt(points, bz);
+          const double fitted = detail::estimateCircleQOverPt({points.data(), points.size()}, bz);
           BOOST_REQUIRE(std::isfinite(fitted));
           // Coordinate quantization is amplified as 1/leverArm^2 when
           // recovering curvature. Bound it separately from fit arithmetic,
@@ -578,19 +602,19 @@ BOOST_AUTO_TEST_CASE(AllPointCircleRejectsUnconstrainedOrInvalidInputs)
   std::array<detail::CircleFitPoint, 3> points{{{0.f, 0.f, 1.e-6f, 0.f, 1.e-6f},
                                                 {1.f, .01f, 1.e-6f, 0.f, 1.e-6f},
                                                 {2.f, .04f, 1.e-6f, 0.f, 1.e-6f}}};
-  BOOST_CHECK(std::isfinite(detail::estimateCircleQOverPt(points, 5.)));
-  BOOST_CHECK(std::isfinite(detail::estimateCircleQOverPt(points, detail::MinCircleFitBz)));
-  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt(points, 0.)));
+  BOOST_CHECK(std::isfinite(detail::estimateCircleQOverPt({points.data(), points.size()}, 5.)));
+  BOOST_CHECK(std::isfinite(detail::estimateCircleQOverPt({points.data(), points.size()}, detail::MinCircleFitBz)));
+  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({points.data(), points.size()}, 0.)));
   BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({points.data(), 2}, 5.)));
   auto invalid = points;
   invalid.back() = invalid.front();
-  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt(invalid, 5.)));
+  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({invalid.data(), invalid.size()}, 5.)));
   invalid = points;
   invalid[1].xx = invalid[1].yy = 0.;
-  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt(invalid, 5.)));
+  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({invalid.data(), invalid.size()}, 5.)));
   invalid = points;
   invalid[1].x = std::numeric_limits<float>::quiet_NaN();
-  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt(invalid, 5.)));
+  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({invalid.data(), invalid.size()}, 5.)));
 }
 
 BOOST_AUTO_TEST_CASE(AllPointCirclePreservesCorrelatedWeightsUnderRotation)
@@ -619,8 +643,8 @@ BOOST_AUTO_TEST_CASE(AllPointCirclePreservesCorrelatedWeightsUnderRotation)
                     static_cast<float>(cs * sn * point.xx + (cs * cs - sn * sn) * point.xy - cs * sn * point.yy),
                     static_cast<float>(sn * sn * point.xx + 2 * cs * sn * point.xy + cs * cs * point.yy)};
     }
-    BOOST_CHECK_SMALL(detail::estimateCircleQOverPt(rotated, 5.f) - references[rotation], 1.e-6);
-    BOOST_CHECK_SMALL(detail::estimateCircleQOverPt(rotated, -5.f) + references[rotation], 1.e-6);
+    BOOST_CHECK_SMALL(detail::estimateCircleQOverPt({rotated.data(), rotated.size()}, 5.f) - references[rotation], 1.e-6);
+    BOOST_CHECK_SMALL(detail::estimateCircleQOverPt({rotated.data(), rotated.size()}, -5.f) + references[rotation], 1.e-6);
   }
 }
 
@@ -635,7 +659,7 @@ BOOST_AUTO_TEST_CASE(AllPointCircleBoundsCachedPoints)
                  1.e-6f, 0.f, 1.e-6f};
   }
   BOOST_CHECK_SMALL(detail::estimateCircleQOverPt({points.data(), MaxLayoutSurfaces}, 5.f) - 1.f, 2.e-6f);
-  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt(points, 5.)));
+  BOOST_CHECK(!std::isfinite(detail::estimateCircleQOverPt({points.data(), points.size()}, 5.)));
 }
 
 BOOST_AUTO_TEST_CASE(AllPointCirclePreservesWeakCurvatureInFloat)
@@ -658,7 +682,7 @@ BOOST_AUTO_TEST_CASE(AllPointCirclePreservesWeakCurvatureInFloat)
         points[i] = {static_cast<float>(x * std::cos(phi) - y * std::sin(phi)),
                      static_cast<float>(x * std::sin(phi) + y * std::cos(phi)), 1.e-6f, 2.e-7f, 2.e-6f};
       }
-      BOOST_CHECK_SMALL(detail::estimateCircleQOverPt(points, 5.f) - references[rotation][sign], 2.e-7);
+      BOOST_CHECK_SMALL(detail::estimateCircleQOverPt({points.data(), points.size()}, 5.f) - references[rotation][sign], 2.e-7);
     }
   }
 }

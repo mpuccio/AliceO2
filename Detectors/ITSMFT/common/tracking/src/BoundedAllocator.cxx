@@ -125,11 +125,6 @@ size_t BoundedMemoryResource::getThrowCount() const noexcept
   return mCountThrow.load(std::memory_order_relaxed);
 }
 
-size_t BoundedMemoryResource::getPeakMemory() const noexcept
-{
-  return mPeakUsedMemory.load(std::memory_order_relaxed);
-}
-
 size_t BoundedMemoryResource::getPeakMemoryDelta() const noexcept
 {
   const size_t peak = mPeakUsedMemory.load(std::memory_order_relaxed);

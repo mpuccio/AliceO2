@@ -100,6 +100,15 @@ WorkflowOptions readWorkflowOptions(const o2::framework::ConfigContext& context)
   if (result.vertexSource == VertexSource::Truth && result.truthContext.empty()) {
     throw std::invalid_argument("--truth-context must name the digitization context for --vertex-source=truth");
   }
+  result.validateCells = options.get<bool>("validate-cells");
+  result.validateNeighbours = options.get<bool>("validate-neighbours");
+  result.validateRoads = options.get<bool>("validate-roads");
+  result.validateRefit = options.get<bool>("validate-refit");
+  result.validateTracklets = options.get<bool>("validate-tracklets");
+  result.trackletBackend = options.get<std::string>("tracklet-backend");
+  if (result.trackletBackend != "cpu" && result.trackletBackend != "cuda" && result.trackletBackend != "hip") {
+    throw std::invalid_argument("--tracklet-backend must be cpu, cuda, or hip");
+  }
   result.useMC = !options.get<bool>("disable-mc");
   result.useFullGeometry = options.get<bool>("use-geom") || options.get<bool>("use-full-geometry");
 

@@ -63,6 +63,7 @@ struct GlobalMeasurement {
   float radius{0.f};
   float phi{0.f};
   uint32_t clusterId{std::numeric_limits<uint32_t>::max()};
+  int rof{0}; // set by Tracker::prepareTimeFrame from the ROF boundaries
 
   GPUhdi() bool hasValidClusterId() const noexcept { return clusterId != std::numeric_limits<uint32_t>::max(); }
 };

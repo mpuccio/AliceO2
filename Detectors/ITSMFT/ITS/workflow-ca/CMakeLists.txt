@@ -24,6 +24,15 @@ o2_add_library(ITSCAWorkflow
                                      O2::Steer
                                      O2::CCDB)
 
+if(CUDA_ENABLED)
+  target_link_libraries(${targetName} PUBLIC O2::ITSMFTTrackingCUDA)
+  target_compile_definitions(${targetName} PRIVATE ITSMFT_TRACKING_CUDA)
+endif()
+if(HIP_ENABLED)
+  target_link_libraries(${targetName} PUBLIC O2::ITSMFTTrackingHIP)
+  target_compile_definitions(${targetName} PRIVATE ITSMFT_TRACKING_HIP)
+endif()
+
 o2_add_executable(ca-tracker-workflow
                   SOURCES src/its-ca-tracker-workflow.cxx
                   COMPONENT_NAME its

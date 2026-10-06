@@ -73,7 +73,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackUsesSharedStateAndLegacyTimestamp)
   track.firstClusterRef = 0;
   track.clusterRefEnd = 1;
   BOOST_CHECK(track.hitLayers.has(0));
-  BOOST_CHECK_EQUAL(trackClusterRefCount(track), 1u);
+  BOOST_CHECK_EQUAL(track.clusterRefEnd - track.firstClusterRef, 1u);
 
   const TrackClusterReference reference{LayerId{0}, 0, 17};
   BOOST_CHECK(reference.layer == LayerId{0});
@@ -121,7 +121,7 @@ BOOST_AUTO_TEST_CASE(EmptyDefaultRangeIsValidForAnyContainerSize)
   const GenericTrack track{};
   BOOST_CHECK(isValidTrackRange(track, 0));
   BOOST_CHECK(isValidTrackRange(track, 5));
-  BOOST_CHECK_EQUAL(trackClusterRefCount(track), 0u);
+  BOOST_CHECK_EQUAL(track.clusterRefEnd - track.firstClusterRef, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
@@ -131,7 +131,7 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
   single.firstClusterRef = 0;
   single.clusterRefEnd = 1;
   BOOST_CHECK(isValidTrackRange(single, 1));
-  BOOST_CHECK_EQUAL(trackClusterRefCount(single), 1u);
+  BOOST_CHECK_EQUAL(single.clusterRefEnd - single.firstClusterRef, 1u);
 
   // Multi-hit range: [1,4) into a 5-element array (some entries before/after
   // the range belong to other tracks sharing the same flat array).
@@ -139,7 +139,7 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
   multi.firstClusterRef = 1;
   multi.clusterRefEnd = 4;
   BOOST_CHECK(isValidTrackRange(multi, 5));
-  BOOST_CHECK_EQUAL(trackClusterRefCount(multi), 3u);
+  BOOST_CHECK_EQUAL(multi.clusterRefEnd - multi.firstClusterRef, 3u);
 
   // Hole-containing: the range itself is a dense [first,end) span of
   // *present* references (holes are never stored as sentinel entries); a

@@ -25,7 +25,6 @@
 #include "CommonConstants/MathConstants.h"
 #include "GPUCommonMath.h"
 #include "GPUCommonDef.h"
-#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/MathUtils.h"
 
@@ -84,11 +83,6 @@ class IndexTableUtilsCore
                         gsl::span<const float>{maxima.data(), static_cast<size_t>(count)});
   }
 
-  GPUhdi() float getInverseColCoordinate(const int layerIndex) const
-  {
-    return mInverseColBinSize[layerIndex];
-  }
-
   GPUhdi() int getColBinIndex(const int layerIndex, const float colCoordinate) const
   {
     return (colCoordinate - mLayerColMin[layerIndex]) * mInverseColBinSize[layerIndex];
@@ -117,11 +111,8 @@ class IndexTableUtilsCore
 
   GPUhdi() int getNcolBins() const { return mNcolBins; }
   GPUhdi() int getNrowBins() const { return mNrowBins; }
-  GPUhdi() float getLayerColHalfExtent(int i) const { return 0.5f * (mLayerColMax[i] - mLayerColMin[i]); }
   GPUhdi() float getLayerColMin(int i) const { return mLayerColMin[i]; }
   GPUhdi() float getLayerColMax(int i) const { return mLayerColMax[i]; }
-  GPUhdi() void setNcolBins(const int colBins) { mNcolBins = colBins; }
-  GPUhdi() void setNrowBins(const int rowBins) { mNrowBins = rowBins; }
   GPUhdi() IndexTableCoordType getCoordType() const { return mCoordType; }
   /// Row origin/span, needed alongside the other getters to detect a
   /// configuration mismatch between a freshly bound IndexTableUtils and one

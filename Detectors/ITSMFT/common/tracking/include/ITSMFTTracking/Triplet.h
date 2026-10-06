@@ -28,12 +28,12 @@
 namespace o2::itsmft::tracking
 {
 
-struct TripletNeighbour {
-  int cellTopology{-1};
-  int cell{-1};
-  int nextCellTopology{-1};
-  int nextCell{-1};
-  int level{-1};
+// A cell of a source path whose outer tracklet is the inner tracklet of the
+// target path's cell nextCell.
+struct CellNeighbour {
+  int cell;
+  int cellPath;
+  int nextCell;
 };
 
 struct TripleClusterReference {

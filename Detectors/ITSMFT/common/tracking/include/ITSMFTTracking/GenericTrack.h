@@ -18,9 +18,7 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
-#ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/TrackSeed.h"
-#endif
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceTrackState.h"
 #include "ITSMFTTracking/LayerMask.h"
@@ -52,8 +50,6 @@ struct GenericTrack {
   uint32_t clusterRefEnd{0};
 };
 
-#ifndef GPUCA_GPUCODE
-
 // Successful refit result; typed output remains adapter-owned.
 struct TrackingCandidate {
   TrackSeed seed;
@@ -64,18 +60,11 @@ struct TrackingCandidate {
   int getFirstClusterLayer() const noexcept { return seed.getHitLayerMask().first(); }
 };
 
-#endif
-
 // The caller supplies the current frame-owned reference-array size; do not
 // infer validity from the track itself.
 GPUhdi() constexpr bool isValidTrackRange(const GenericTrack& track, uint32_t trackClusterIndicesSize) noexcept
 {
   return track.firstClusterRef <= track.clusterRefEnd && track.clusterRefEnd <= trackClusterIndicesSize;
-}
-
-GPUhdi() constexpr uint32_t trackClusterRefCount(const GenericTrack& track) noexcept
-{
-  return track.clusterRefEnd - track.firstClusterRef;
 }
 
 } // namespace o2::itsmft::tracking

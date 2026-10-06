@@ -37,6 +37,9 @@
 #include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#if defined(TEST_TRACKLETS_CUDA) || defined(TEST_TRACKLETS_HIP)
+#include "ITSMFTTrackingGPU/TrackerTraitsGPU.h"
+#endif
 #include "TraversalTestSupport.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/Constants.h"
@@ -276,6 +279,31 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     const auto& idLookup = tf.getTrackletsLookupTable()[id];
     result.allLookups.emplace_back(idLookup.begin(), idLookup.end());
   }
+#if defined(TEST_TRACKLETS_CUDA) || defined(TEST_TRACKLETS_HIP)
+#if defined(TEST_TRACKLETS_CUDA)
+  auto gpuTraits = createTrackerTraitsCUDA();
+#else
+  auto gpuTraits = createTrackerTraitsHIP();
+#endif
+  gpuTraits->setNThreads(nThreads, arena);
+  gpuTraits->setValidateTracklets(true);
+  BOOST_CHECK(gpuTraits->isGPU());
+  TrackerTestAccess::computeTracklets(*gpuTraits, view, 0);
+  for (int id = 0; id < topology.nEdges; ++id) {
+    const auto& cpu = result.allTracklets[id];
+    const auto& gpu = tf.getTracklets()[id];
+    BOOST_REQUIRE_EQUAL(cpu.size(), gpu.size());
+    BOOST_CHECK_EQUAL_COLLECTIONS(result.allLookups[id].begin(), result.allLookups[id].end(),
+                                  tf.getTrackletsLookupTable()[id].begin(), tf.getTrackletsLookupTable()[id].end());
+    for (size_t i = 0; i < cpu.size(); ++i) {
+      BOOST_CHECK(cpu[i] == gpu[i]);
+      BOOST_CHECK_SMALL(cpu[i].tanLambda - gpu[i].tanLambda, 2.e-6f * std::max(1.f, std::abs(cpu[i].tanLambda)));
+      BOOST_CHECK_SMALL(cpu[i].phi - gpu[i].phi, 2.e-6f * std::max(1.f, std::abs(cpu[i].phi)));
+      BOOST_CHECK_EQUAL(cpu[i].getTimeStamp().getTimeStamp(), gpu[i].getTimeStamp().getTimeStamp());
+      BOOST_CHECK_EQUAL(cpu[i].getTimeStamp().getTimeStampError(), gpu[i].getTimeStamp().getTimeStampError());
+    }
+  }
+#endif
   return result;
 }
 

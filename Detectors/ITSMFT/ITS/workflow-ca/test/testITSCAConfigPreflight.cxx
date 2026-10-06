@@ -175,6 +175,12 @@ BOOST_AUTO_TEST_CASE(DriverResolvesTruthContextIndependentlyOfMCLabels)
   std::vector<ConfigParamSpec> specs{
     {"configKeyValues", VariantType::String, "ITSCommonCATrackerParam.useDiamond=false;ITSVertexerParam.useTruthSeeding=false", {"parameters"}},
     {"tracking-mode", VariantType::String, "async", {"mode"}},
+    {"tracklet-backend", VariantType::String, "cpu", {"backend"}},
+    {"validate-cells", VariantType::Bool, false, {"cell validation"}},
+    {"validate-neighbours", VariantType::Bool, false, {"neighbour validation"}},
+    {"validate-roads", VariantType::Bool, false, {"road validation"}},
+    {"validate-refit", VariantType::Bool, false, {"refit validation"}},
+    {"validate-tracklets", VariantType::Bool, false, {"validation"}},
     {"vertex-source", VariantType::String, "truth", {"vertices"}},
     {"truth-context", VariantType::String, "custom-context.root", {"context"}},
     {"disable-mc", VariantType::Bool, true, {"MC labels"}},
@@ -196,6 +202,22 @@ BOOST_AUTO_TEST_CASE(DriverResolvesTruthContextIndependentlyOfMCLabels)
   BOOST_CHECK(!resolved.useMC);
   BOOST_CHECK(resolved.useFullGeometry);
   BOOST_CHECK_EQUAL(resolved.truthContext, "custom-context.root");
+  BOOST_CHECK_EQUAL(resolved.trackletBackend, "cpu");
+  registry.override("tracklet-backend", std::string{"cuda"});
+  registry.override("validate-tracklets", true);
+  registry.override("validate-cells", true);
+  registry.override("validate-neighbours", true);
+  registry.override("validate-roads", true);
+  registry.override("validate-refit", true);
+  BOOST_CHECK_EQUAL(readWorkflowOptions(context).trackletBackend, "cuda");
+  BOOST_CHECK(readWorkflowOptions(context).validateTracklets);
+  BOOST_CHECK(readWorkflowOptions(context).validateCells);
+  BOOST_CHECK(readWorkflowOptions(context).validateNeighbours);
+  BOOST_CHECK(readWorkflowOptions(context).validateRoads);
+  BOOST_CHECK(readWorkflowOptions(context).validateRefit);
+  registry.override("tracklet-backend", std::string{"invalid"});
+  BOOST_CHECK_THROW(readWorkflowOptions(context), std::invalid_argument);
+  registry.override("tracklet-backend", std::string{"cpu"});
   registry.override("truth-context", std::string{});
   BOOST_CHECK_THROW(readWorkflowOptions(context), std::invalid_argument);
   registry.override("vertex-source", std::string{"diamond"});

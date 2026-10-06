@@ -43,44 +43,18 @@ struct CellPath {
   EdgeId second{};
 };
 
-struct TopologyRange {
-  uint32_t firstEntry{0};
-  uint32_t entries{0};
-
-  uint32_t getFirstEntry() const noexcept { return firstEntry; }
-  uint32_t getEntries() const noexcept { return entries; }
-  uint32_t getEntriesBound() const noexcept { return firstEntry + entries; }
-};
-
 struct TraversalTopologyView {
   SurfaceCatalogView catalog{};
-  uint32_t nLayers{0};
-  const LayerId* activeSurfaceList{nullptr};
-  uint32_t nActiveSurfaces{0};
-  LayerMask activeLayers{};
   const Edge* edges{nullptr};
   uint32_t nEdges{0};
   const CellPath* paths{nullptr};
   uint32_t nPaths{0};
-  const uint32_t* pathsByFirstEdgeOffsets{nullptr};
-  const CellPathId* pathsByFirstEdge{nullptr};
-  const CellPathId* scheduledPaths{nullptr};
-  uint32_t nScheduledPaths{0};
-  const CellPathId* roadStartPaths{nullptr};
-  uint32_t nRoadStartPaths{0};
-  const uint32_t* roadStartComponentOffsets{nullptr};
-  uint32_t nRoadStartComponentOffsets{0};
   LayerMask seedingLayers{};
 
   const SurfaceDescriptor& getSurface(LayerId id) const { return catalog.getSurface(id); }
   SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
   const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
   const CellPath& getPath(CellPathId id) const { return paths[id.value()]; }
-  TopologyRange getPathsStartingWithEdge(EdgeId edge) const
-  {
-    const auto index = edge.value();
-    return {pathsByFirstEdgeOffsets[index], pathsByFirstEdgeOffsets[index + 1] - pathsByFirstEdgeOffsets[index]};
-  }
 };
 
 #ifndef GPUCA_GPUCODE
@@ -91,8 +65,6 @@ struct TraversalTopology {
   LayerMask seedingLayers{};
   std::vector<Edge> edges;
   std::vector<CellPath> paths;
-  std::vector<uint32_t> pathsByFirstEdgeOffsets;
-  std::vector<CellPathId> pathsByFirstEdge;
   std::vector<CellPathId> scheduledPaths;
   std::vector<CellPathId> roadStartPaths;
   std::vector<uint32_t> roadStartComponentOffsets;
@@ -100,15 +72,8 @@ struct TraversalTopology {
   TraversalTopologyView getView(SurfaceCatalogView catalog) const noexcept
   {
     return {catalog,
-            nLayers,
-            activeSurfaceList.data(), static_cast<uint32_t>(activeSurfaceList.size()),
-            activeLayers,
             edges.data(), static_cast<uint32_t>(edges.size()),
             paths.data(), static_cast<uint32_t>(paths.size()),
-            pathsByFirstEdgeOffsets.data(), pathsByFirstEdge.data(),
-            scheduledPaths.data(), static_cast<uint32_t>(scheduledPaths.size()),
-            roadStartPaths.data(), static_cast<uint32_t>(roadStartPaths.size()),
-            roadStartComponentOffsets.data(), static_cast<uint32_t>(roadStartComponentOffsets.size()),
             seedingLayers};
   }
 };

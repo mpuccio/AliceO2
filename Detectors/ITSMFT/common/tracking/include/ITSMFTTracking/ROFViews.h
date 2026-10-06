@@ -255,6 +255,17 @@ struct ROFOverlapView {
 #endif
 };
 
+// Whether a vertex's time interval overlaps an ROF widened by the layer's
+// added time error; the lookup view and the tracklet search share it.
+GPUhdi() bool isVertexCompatibleWithROFTiming(const ROFTimingLayer& layerDef, int32_t rofIdx, const o2::its::Vertex& vertex) noexcept
+{
+  int64_t rofLower = o2::gpu::CAMath::Max(static_cast<int64_t>(layerDef.getROFStartInBC(rofIdx)) - static_cast<int64_t>(layerDef.mROFAddTimeErr), int64_t(0));
+  int64_t rofUpper = static_cast<int64_t>(layerDef.getROFEndInBC(rofIdx)) + layerDef.mROFAddTimeErr;
+  auto vLower = static_cast<int64_t>(vertex.getTimeStamp().lower());
+  auto vUpper = static_cast<int64_t>(vertex.getTimeStamp().upper());
+  return vUpper >= rofLower && vLower < rofUpper;
+}
+
 template <typename TableEntry, typename TableIndex>
 struct ROFVertexLookupView {
   const TableEntry* mFlatTable{nullptr};
@@ -291,12 +302,7 @@ struct ROFVertexLookupView {
   GPUhdi() bool isVertexCompatible(int32_t layer, size_t rofIdx, const o2::its::Vertex& vertex) const noexcept
   {
     assert(layer >= 0 && layer < mLayerCount);
-    const auto& layerDef = mLayers[layer];
-    int64_t rofLower = o2::gpu::CAMath::Max(static_cast<int64_t>(layerDef.getROFStartInBC(rofIdx)) - static_cast<int64_t>(layerDef.mROFAddTimeErr), int64_t(0));
-    int64_t rofUpper = static_cast<int64_t>(layerDef.getROFEndInBC(rofIdx)) + layerDef.mROFAddTimeErr;
-    auto vLower = static_cast<int64_t>(vertex.getTimeStamp().lower());
-    auto vUpper = static_cast<int64_t>(vertex.getTimeStamp().upper());
-    return vUpper >= rofLower && vLower < rofUpper;
+    return isVertexCompatibleWithROFTiming(mLayers[layer], static_cast<int32_t>(rofIdx), vertex);
   }
 
 #ifndef GPUCA_GPUCODE

@@ -50,6 +50,7 @@ struct TrackerTestAccess {
 
   static void computeCells(TrackerTraits& traits, IterationContext& view)
   {
+    traits.adoptHostTracklets(view);
     traits.computeLayerCells(view, view.iteration);
   }
 

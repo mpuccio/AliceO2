@@ -40,7 +40,7 @@ void TimeFrameScratch::clearResizeCellStorage(std::size_t nCells)
     clearResizeBoundedVector(container, nCells, mMemoryPool.get());
   };
   applyToContainers(clearResize, mCells, mCellsLookupTable, mCellsNeighbours,
-                    mCellsNeighboursTopology, mCellsNeighboursLUT, mCellLabels);
+                    mCellsNeighboursLUT, mCellLabels);
 }
 
 void TimeFrameScratch::configureStorage(std::size_t nEdges, std::size_t nCells)
@@ -55,7 +55,7 @@ void TimeFrameScratch::reset()
 {
   applyToContainers([](auto& container) { deepVectorClear(container); },
                     mTracklets, mTrackletsLookupTable, mTrackletLabels, mCells,
-                    mCellsLookupTable, mCellsNeighbours, mCellsNeighboursTopology,
+                    mCellsLookupTable, mCellsNeighbours,
                     mCellsNeighboursLUT, mCellLabels, mEdgePhiCuts, mEdgeMSAngles);
 }
 
@@ -63,7 +63,7 @@ void TimeFrameScratch::clearStorage() noexcept
 {
   applyToContainers([](auto& container) { container.clear(); },
                     mTracklets, mTrackletsLookupTable, mTrackletLabels, mCells,
-                    mCellsLookupTable, mCellsNeighbours, mCellsNeighboursTopology,
+                    mCellsLookupTable, mCellsNeighbours,
                     mCellsNeighboursLUT, mCellLabels);
   deepVectorClear(mEdgePhiCuts);
   deepVectorClear(mEdgeMSAngles);
@@ -77,7 +77,7 @@ void TimeFrameScratch::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool
   applyToContainers([this](auto& container) { deepVectorClear(container, mMemoryPool.get()); },
                     mEdgePhiCuts, mEdgeMSAngles, mTracklets, mTrackletsLookupTable,
                     mTrackletLabels, mCells, mCellsLookupTable, mCellsNeighbours,
-                    mCellsNeighboursTopology, mCellsNeighboursLUT, mCellLabels);
+                    mCellsNeighboursLUT, mCellLabels);
 }
 
 std::size_t TimeFrameScratch::getNumberOfCells() const

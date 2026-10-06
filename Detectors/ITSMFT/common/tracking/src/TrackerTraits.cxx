@@ -15,15 +15,19 @@
 
 #include <algorithm>
 #include <array>
-#include <iterator>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_sort.h>
 
 #include "CommonConstants/MathConstants.h"
 #include "Framework/Logger.h"
@@ -55,16 +59,8 @@ namespace o2::itsmft::tracking
 namespace math_utils = o2::its::math_utils;
 using o2::its::TimeEstBC;
 
-struct TrackerTraits::RoadSeedEmission {
-  TrackSeed seed;
-  int cellId{-1};
-  int cellPathId{-1};
-};
-
 namespace
 {
-constexpr uint8_t kCompatibilityAbsCharge = 1;
-const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
 
 void reserveGenericTrackPublication(TimeFrame& frame, std::size_t candidateCount, std::size_t maxReferencesPerTrack)
 {
@@ -132,19 +128,6 @@ bool appendGenericTrack(TimeFrame& frame,
   return true;
 }
 
-// A static diamond vertex represents all primary vertices and has no event
-// timestamp. Derive its envelope from the tested ROF's configured bounds;
-// TimeEstBC cannot represent a full TimeFrame. The resulting timestamp is
-// compatible by construction with that ROF.
-template <typename ROFOverlapView>
-Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapView, int layer, int rofId)
-{
-  Vertex v = base;
-  v.setTimeStamp(rofOverlapView.getLayer(layer).getROFTimeBounds(rofId, true));
-  return v;
-}
-
-// Convert ROOT-visible parameters to the device-portable record once per iteration.
 } // namespace
 
 void TrackerTraits::runTraversal(IterationContext& view)
@@ -156,377 +139,220 @@ void TrackerTraits::runTraversal(IterationContext& view)
   if (view.configuration.parameters.PerPrimaryVertexProcessing) {
     maxNvertices = view.frame.getMaxVerticesPerROF();
   }
+  const auto timed = [&](Stage stage, auto&& run) {
+    const auto start = std::chrono::steady_clock::now();
+    run();
+    mStageMs[stage] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  };
   int iVertex = std::min(maxNvertices, 0);
   do {
-    computeLayerTracklets(view, view.iteration, iVertex);
-    computeLayerCells(view, view.iteration);
-    findCellsNeighbours(view, view.iteration);
-    findRoads(view, view.iteration);
+    beginPass(view);
+    try {
+      timed(Tracklets, [&] { computeLayerTracklets(view, view.iteration, iVertex); });
+      timed(Cells, [&] { computeLayerCells(view, view.iteration); });
+      timed(Neighbours, [&] { findCellsNeighbours(view, view.iteration); });
+      timed(Roads, [&] { findRoads(view, view.iteration); });
+    } catch (...) {
+      endPass(view);
+      throw;
+    }
+    endPass(view);
   } while (++iVertex < maxNvertices);
 }
 
 void TrackerTraits::computeLayerTracklets(IterationContext& context, const int iteration, int iVertex)
 {
   auto& scratch = context.scratch;
-  const auto scratchEdgeCount = scratch.getTracklets().size();
-  for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
-    scratch.getTracklets()[edgeId].clear();
-    scratch.getTrackletsLabel(edgeId).clear();
-    std::fill(scratch.getTrackletsLookupTable()[edgeId].begin(), scratch.getTrackletsLookupTable()[edgeId].end(), 0);
+  for (size_t edge = 0; edge < scratch.getTracklets().size(); ++edge) {
+    scratch.getTracklets()[edge].clear();
+    scratch.getTrackletsLabel(edge).clear();
+    std::fill(scratch.getTrackletsLookupTable()[edge].begin(), scratch.getTrackletsLookupTable()[edge].end(), 0);
   }
-
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
   const auto edgeIds = context.configuration.edgeIds();
-  const auto& mMemoryPool = scratch.getMemoryPool();
-  auto* mFrame = &context.frame;
-  const auto& trkParam = context.configuration.parameters;
-  const auto& mTraversalGraph = context.topology;
-  const auto& mKernelParameters = context.configuration.kernelParameters;
-  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const auto& topology = mTraversalGraph;
-  const Vertex diamondVert(trkParam.Diamond, trkParam.DiamondCov, 1, 1.f);
-
+  const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
+  const int nConcurrentSinks = std::min(static_cast<int>(edgeIds.size()), maxConcurrency);
+  auto& estimator = context.frame.getCapacityEstimator();
   mTaskArena->execute([&] {
-    auto forTracklets = [&](int fromLayer, int toLayer, SurfaceKind kind,
-                            const TrackletProjectionCache& edgeCache, int pivotROF, auto&& emit) {
-      if (!mFrame->isROFEnabled(fromLayer, pivotROF)) {
-        return;
+    tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
+      const auto edgeId = edgeIds[edgeIndex];
+      const auto edge = prepareTrackletSearch(context, iVertex, edgeId);
+      const auto& from = frame.layers[edge.edgeCache.fromLayer];
+      const int nSources = static_cast<int>(from.nClusters);
+      const auto key = CapacityEstimator::makeKey(SlabSite::Tracklets, iteration, iVertex + 1, edgeId);
+      const auto capacity = estimator.capacity(key, nSources);
+      UnorderedSlabSink<Tracklet> sink{{.capacity = capacity, .nThreads = maxConcurrency, .nConcurrentSinks = nConcurrentSinks}, scratch.getMemoryPool().get()};
+      tbb::parallel_for(0, nSources, [&](const int source) {
+        auto& handle = sink.local();
+        forEachTracklet(frame, edge, source, [&](const Tracklet& tracklet) { handle.emplace(tracklet); });
+      });
+      const auto stats = sink.stats();
+      auto& tracklets = scratch.getTracklets()[edgeId.value()];
+      sink.finalizeUnordered(tracklets);
+      estimator.update(key, nSources, stats.requested, stats.capacity, stats.emitted, stats.spilled, stats.overflowed, stats.memoryLimited);
+      // The same pair can be found from several vertices, always with the
+      // same content, so equal tracklets may be sorted in any order.
+      tbb::parallel_sort(tracklets.begin(), tracklets.end());
+      tracklets.erase(std::unique(tracklets.begin(), tracklets.end()), tracklets.end());
+      auto& lookup = scratch.getTrackletsLookupTable()[edgeId.value()];
+      for (const auto& tracklet : tracklets) {
+        ++lookup[tracklet.firstClusterIndex + 1];
       }
-      // Derive a diamond vertex for this pivot ROF; each invocation owns its
-      // stack frame, so this is safe inside the parallel dispatch.
-      Vertex diamondForROF{};
-      gsl::span<const Vertex> primaryVertices;
-      if (trkParam.UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, mFrame->getROFViews(fromLayer).overlap,
-                                            mFrame->getROFLocalLayer(fromLayer), pivotROF);
-        primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
-      } else {
-        primaryVertices = mFrame->getPrimaryVertices(fromLayer, pivotROF);
-      }
-      if (primaryVertices.empty()) {
-        return;
-      }
-      const int startVtx = iVertex >= 0 ? iVertex : 0;
-      const int endVtx = iVertex >= 0 ? o2::gpu::CAMath::Min(iVertex + 1, int(primaryVertices.size())) : int(primaryVertices.size());
-      if (endVtx <= startVtx || (iVertex + 1) > primaryVertices.size()) {
-        return;
-      }
+      std::inclusive_scan(lookup.begin(), lookup.end(), lookup.begin());
+    });
+  });
+  createTrackletLabels(context);
+}
 
-      const auto& rofOverlap = mFrame->getROFOverlap(fromLayer, toLayer, pivotROF);
-      if (!rofOverlap.getEntries()) {
-        return;
-      }
-
-      auto layer0 = mFrame->getClustersOnLayer(pivotROF, fromLayer);
-      if (layer0.empty()) {
-        return;
-      }
-
-      for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
-        const GlobalMeasurement& sourceMeasurement = layer0[iCluster];
-        const int currentSortedIndex = mFrame->getSortedIndex(pivotROF, fromLayer, iCluster);
-        if (mFrame->isClusterUsed(fromLayer, sourceMeasurement.clusterId)) {
-          continue;
-        }
-
-        for (int iV = startVtx; iV < endVtx; ++iV) {
-          const auto& pv = primaryVertices[iV];
-          if (!mFrame->isVertexCompatible(fromLayer, pivotROF, pv)) {
-            continue;
-          }
-          if (pv.isFlagSet(Vertex::Flags::UPCMode) != trkParam.PassFlags[IterationStep::SelectUPCVertices]) {
-            continue;
-          }
-          const auto& indexTableUtils = mFrame->getIndexTableUtils(toLayer);
-          TrackletSearchWindow window{};
-          if (!projectTrackletSearchWindow(sourceMeasurement, pv, mFrame->getBeamPositionVariance(),
-                                           kind, edgeCache, indexTableUtils,
-                                           mKernelParameters.nSigmaCut, window)) {
-            continue;
-          }
-          const auto bins = window.bins;
-          int rowBinsNum = bins.w - bins.y + 1;
-          if (rowBinsNum < 0) {
-            rowBinsNum += indexTableUtils.getNrowBins();
-          }
-          rowBinsNum = std::max(0, rowBinsNum);
-
-          for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!mFrame->isROFEnabled(toLayer, targetROF)) {
-              continue;
-            }
-            auto layer1 = mFrame->getClustersOnLayer(targetROF, toLayer);
-            if (layer1.empty()) {
-              continue;
-            }
-            const auto ts = mFrame->getROFTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
-            if (!ts.isCompatible(pv.getTimeStamp())) {
-              continue;
-            }
-            const auto& targetIndexTable = mFrame->getIndexTable(targetROF, toLayer);
-            const int colBinRange = (bins.z - bins.x) + 1;
-            for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
-              int iRowBin = bins.y + iRow;
-              iRowBin %= indexTableUtils.getNrowBins();
-              if (iRowBin < 0 || iRowBin >= indexTableUtils.getNrowBins()) {
-                break;
-              }
-              const int firstBinIdx = indexTableUtils.getBinIndex(bins.x, iRowBin);
-              const int maxBinIdx = firstBinIdx + colBinRange;
-              const int firstRow = targetIndexTable[firstBinIdx];
-              const int lastRow = targetIndexTable[maxBinIdx];
-              for (int iNext = firstRow; iNext < lastRow; ++iNext) {
-                if (iNext >= int(layer1.size())) {
-                  break;
-                }
-                const GlobalMeasurement& targetMeasurement = layer1[iNext];
-                if (mFrame->isClusterUsed(toLayer, targetMeasurement.clusterId)) {
-                  continue;
-                }
-
-                const float targetReferenceCoordinate = kind == SurfaceKind::Cylinder ? targetMeasurement.radius : targetMeasurement.z;
-                const float targetProjectedCoordinate = kind == SurfaceKind::Cylinder ? targetMeasurement.z : targetMeasurement.radius;
-                const float referenceDelta = targetReferenceCoordinate - window.sourceReferenceCoordinate;
-                const float candidatePrediction = window.sourceProjectedCoordinate + window.slope * referenceDelta;
-                const float candidateVariance = window.varianceConstant +
-                                                referenceDelta * (window.varianceLinear + referenceDelta * window.varianceQuadratic);
-                const float projectedResidual = candidatePrediction - targetProjectedCoordinate;
-                const float phiResidual = std::remainder(window.phiPrediction - targetMeasurement.phi, o2::constants::math::TwoPI);
-
-                if (!(candidateVariance > 0.f && window.phiVariance > 0.f)) {
-                  continue;
-                }
-                const float chi2 = o2::its::math_utils::Sq(projectedResidual) / candidateVariance +
-                                   o2::its::math_utils::Sq(phiResidual) / window.phiVariance;
-                if (chi2 >= o2::its::math_utils::Sq(mKernelParameters.nSigmaCut)) {
-                  continue;
-                }
-                // The segment dip follows the directed edge for every surface kind.
-                // A vanishing transverse chord also leaves its azimuth undefined.
-                const float transverseChord = std::hypot(targetMeasurement.x - sourceMeasurement.x,
-                                                         targetMeasurement.y - sourceMeasurement.y);
-                if (!(transverseChord > 1.e-6f)) {
-                  continue;
-                }
-                const float tanL = (targetMeasurement.z - sourceMeasurement.z) / transverseChord;
-                const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.y - targetMeasurement.y,
-                                                              sourceMeasurement.x - targetMeasurement.x)};
-                emit(currentSortedIndex, mFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
-              }
-            }
-          }
-        }
-      }
-    };
-
-    const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
-    const int nConcurrentSinks = std::min(static_cast<int>(edgeIds.size()), maxConcurrency);
+void TrackerTraits::createTrackletLabels(IterationContext& context)
+{
+  auto& scratch = context.scratch;
+  auto* mFrame = &context.frame;
+  if (!mFrame->hasMCinformation() || !context.configuration.parameters.CreateArtefactLabels) {
+    return;
+  }
+  const auto edgeIds = context.configuration.edgeIds();
+  const auto& topology = context.topology;
+  executeInArena([&] {
     tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
       const auto edgeId = edgeIds[edgeIndex];
       const auto& edge = topology.getEdge(edgeId);
       const int fromLayer = edge.from.value();
       const int toLayer = edge.to.value();
-      const auto kind = topology.getSurface(edge.from).kind;
-      const TrackletProjectionCache edgeCache{
-        fromLayer, toLayer, context.detectorConfiguration.getRepresentativeRadius(edge.from), context.detectorConfiguration.getRepresentativeRadius(edge.to),
-        mFrame->getMinR(toLayer), mFrame->getMaxR(toLayer),
-        mFrame->getMinZ(toLayer), mFrame->getMaxZ(toLayer),
-        context.detectorConfiguration.positionResolutions[fromLayer],
-        scratch.getEdgeMSAngle(edgeId.value()), scratch.getEdgePhiCut(edgeId.value())};
-      const int endROF = mFrame->getROFTiming(fromLayer).mNROFsTF;
-      const auto key = CapacityEstimator::makeKey(SlabSite::Tracklets, iteration, iVertex + 1, edgeId);
-      const auto scale = static_cast<double>(mFrame->getClusters()[fromLayer].size());
-      const auto capacity = mFrame->getCapacityEstimator().capacity(key, scale);
-      UnorderedSlabSink<Tracklet> sink{{.capacity = capacity, .nThreads = maxConcurrency, .nConcurrentSinks = nConcurrentSinks}, mMemoryPool.get()};
-      tbb::parallel_for(0, endROF, [&](const int pivotROF) {
-        auto& handle = sink.local();
-        forTracklets(fromLayer, toLayer, kind, edgeCache, pivotROF,
-                     [&handle](auto&&... args) { handle.emplace(std::forward<decltype(args)>(args)...); });
-      });
-      const auto stats = sink.stats();
-      sink.finalizeUnordered(scratch.getTracklets()[edgeId.value()]);
-      mFrame->getCapacityEstimator().update(key, scale, stats.requested, stats.capacity, stats.emitted,
-                                            stats.spilled, stats.overflowed, stats.memoryLimited);
-    });
-
-    tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
-      const auto edgeId = edgeIds[edgeIndex];
-      /// Sort tracklets & remove duplicates
-      // duplicates can exist simply since we evaluate per vertex
-      auto& trkl{scratch.getTracklets()[edgeId.value()]};
-      std::sort(trkl.begin(), trkl.end());
-      trkl.erase(std::unique(trkl.begin(), trkl.end()), trkl.end());
-      trkl.shrink_to_fit();
-      auto& lut{scratch.getTrackletsLookupTable()[edgeId.value()]};
-      if (!trkl.empty()) {
-        for (const auto& tkl : trkl) {
-          lut[tkl.firstClusterIndex + 1]++;
-        }
-        std::inclusive_scan(lut.begin(), lut.end(), lut.begin());
-      }
-    });
-
-    /// Create tracklets labels
-    if (mFrame->hasMCinformation() && trkParam.CreateArtefactLabels) {
-      tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
-        const auto edgeId = edgeIds[edgeIndex];
-        const auto& edge = topology.getEdge(edgeId);
-        const int fromLayer = edge.from.value();
-        const int toLayer = edge.to.value();
-        for (auto& trk : scratch.getTracklets()[edgeId.value()]) {
-          MCCompLabel label;
-          const auto currentId = mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId;
-          const auto nextId = mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId;
-          for (const auto& lab1 : mFrame->getLabels(LayerId{static_cast<uint16_t>(fromLayer)}, currentId)) {
-            for (const auto& lab2 : mFrame->getLabels(LayerId{static_cast<uint16_t>(toLayer)}, nextId)) {
-              if (lab1 == lab2 && lab1.isValid()) {
-                label = lab1;
-                break;
-              }
-            }
-            if (label.isValid()) {
+      for (auto& trk : scratch.getTracklets()[edgeId.value()]) {
+        MCCompLabel label;
+        const auto currentId = mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId;
+        const auto nextId = mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId;
+        for (const auto& lab1 : mFrame->getLabels(LayerId{static_cast<uint16_t>(fromLayer)}, currentId)) {
+          for (const auto& lab2 : mFrame->getLabels(LayerId{static_cast<uint16_t>(toLayer)}, nextId)) {
+            if (lab1 == lab2 && lab1.isValid()) {
+              label = lab1;
               break;
             }
           }
-          scratch.getTrackletsLabel(edgeId.value()).emplace_back(label);
+          if (label.isValid()) {
+            break;
+          }
         }
-      });
-    }
+        scratch.getTrackletsLabel(edgeId.value()).emplace_back(label);
+      }
+    });
   });
+}
+
+TrackletSearch TrackerTraits::prepareTrackletSearch(IterationContext& context, int iVertex, EdgeId edgeId) const
+{
+  const auto& frame = context.frame;
+  const auto& parameters = context.configuration.parameters;
+  const auto& edge = context.topology.getEdge(edgeId);
+  const int fromLayer = edge.from.value();
+  const int toLayer = edge.to.value();
+  const int fromLocal = frame.getROFLocalLayer(fromLayer);
+  const int toLocal = frame.getROFLocalLayer(toLayer);
+  const auto& overlapView = frame.getROFViews(fromLayer).overlap;
+  const auto& overlap = overlapView.mIndices[(fromLocal * overlapView.mLayerCount) + toLocal];
+  TrackletSearch search;
+  search.overlapRanges = overlapView.mFlatTable + overlap.getFirstEntry();
+  search.nOverlapRanges = overlap.getEntries();
+  if (!parameters.UseDiamond) {
+    const auto& vertexView = frame.getROFViews(fromLayer).vertexLookup;
+    const auto& vertices = vertexView.mIndices[fromLocal];
+    search.vertexRanges = vertexView.mFlatTable + vertices.getFirstEntry();
+    search.nVertexRanges = vertices.getEntries();
+  }
+  search.fromLayerTiming = overlapView.getLayer(fromLocal);
+  search.toLayerTiming = overlapView.getLayer(toLocal);
+  search.edgeCache = {fromLayer, toLayer, context.detectorConfiguration.getRepresentativeRadius(edge.from),
+                      context.detectorConfiguration.getRepresentativeRadius(edge.to), frame.getMinR(toLayer), frame.getMaxR(toLayer),
+                      frame.getMinZ(toLayer), frame.getMaxZ(toLayer), context.detectorConfiguration.positionResolutions[fromLayer],
+                      context.scratch.getEdgeMSAngle(edgeId.value()), context.scratch.getEdgePhiCut(edgeId.value())};
+  search.indexTableUtils = frame.getIndexTableUtils(toLayer);
+  search.nSigmaCut = context.configuration.kernelParameters.nSigmaCut;
+  search.beamPositionVariance = frame.getBeamPositionVariance();
+  search.useDiamond = parameters.UseDiamond;
+  search.diamondBase = Vertex(parameters.Diamond, parameters.DiamondCov, 1, 1.f);
+  search.selectUPC = parameters.PassFlags[IterationStep::SelectUPCVertices];
+  search.iVertex = iVertex;
+  search.kind = context.topology.getSurface(edge.from).kind;
+  return search;
 }
 
 void TrackerTraits::computeLayerCells(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto scratchCellCount = scratch.getCells().size();
-  for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
-    deepVectorClear(scratch.getCells()[cellPathId]);
-    deepVectorClear(scratch.getCellsLookupTable()[cellPathId]);
+  for (size_t path = 0; path < scratch.getCells().size(); ++path) {
+    deepVectorClear(scratch.getCells()[path]);
+    deepVectorClear(scratch.getCellsLookupTable()[path]);
     if (context.frame.hasMCinformation() && context.configuration.parameters.CreateArtefactLabels) {
-      deepVectorClear(scratch.getCellsLabel(cellPathId));
+      deepVectorClear(scratch.getCellsLabel(path));
     }
   }
-
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
+  const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
+  auto& estimator = context.frame.getCapacityEstimator();
   const auto cellIds = context.configuration.cellIds();
-  const auto& mMemoryPool = scratch.getMemoryPool();
-  const auto& trkParam = context.configuration.parameters;
-  const auto mBz = context.bz;
-  const auto& mTraversalGraph = context.topology;
-  const auto& mKernelParameters = context.configuration.kernelParameters;
-  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const auto& topology = mTraversalGraph;
-
+  const int nConcurrentSinks = std::min(static_cast<int>(cellIds.size()), maxConcurrency);
+  // Paths write disjoint outputs, so they run concurrently, as the legacy
+  // cell topologies do.
   mTaskArena->execute([&] {
-    auto forTrackletCells = [&](int firstEdgeId, int secondEdgeId, const std::array<int, 3>& hitLayers, int iTracklet, auto&& emit) {
-      const Tracklet& currentTracklet{scratch.getTracklets()[firstEdgeId][iTracklet]};
-      const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
-      const int nextLayerFirstTrackletIndex{scratch.getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex]};
-      const int nextLayerLastTrackletIndex{scratch.getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex + 1]};
-      for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        const Tracklet& nextTracklet{scratch.getTracklets()[secondEdgeId][iNextTracklet]};
-        if (nextTracklet.firstClusterIndex != nextLayerClusterIndex) {
-          break;
-        }
-        if (!currentTracklet.getTimeStamp().isCompatible(nextTracklet.getTimeStamp())) {
-          continue;
-        }
-
-        /// Prepare the track seed; clusters are numbered from inner to outer.
-        const int sortedId[3]{currentTracklet.firstClusterIndex, nextTracklet.firstClusterIndex, nextTracklet.secondClusterIndex};
-
-        const float edgeMSAngle = scratch.getEdgeMSAngle(secondEdgeId);
-        const float angularTolerance = mKernelParameters.nSigmaCut * edgeMSAngle;
-        const float lambda01 = std::atan(currentTracklet.tanLambda);
-        const float lambda12 = std::atan(nextTracklet.tanLambda);
-        const float sinTheta = std::max(std::abs(std::cos(0.5f * (lambda01 + lambda12))),
-                                        o2::constants::math::Almost0);
-        const bool isDisk = topology.getSurface(LayerId{static_cast<uint16_t>(hitLayers[1])}).kind == SurfaceKind::Disk;
-        // The disk edge estimate uses pT_min as p. Convert to the candidate
-        // momentum with 1/p = sin(theta)/pT_min for the dip-angle allowance.
-        const float dipAngleTolerance = isDisk ? angularTolerance * sinTheta : angularTolerance;
-        const float deltaLambda = std::abs(lambda01 - lambda12);
-        if (deltaLambda > dipAngleTolerance) {
-          continue;
-        }
-
-        const auto& inner = mLayerGlobalMeasurements[hitLayers[0]][sortedId[0]];
-        const auto& middle = mLayerGlobalMeasurements[hitLayers[1]][sortedId[1]];
-        const auto& outer = mLayerGlobalMeasurements[hitLayers[2]][sortedId[2]];
-        const float length01 = std::hypot(inner.x - middle.x, inner.y - middle.y);
-        const float length12 = std::hypot(middle.x - outer.x, middle.y - outer.y);
-        const float maximumCurvature = std::min({std::abs(o2::constants::math::B2C * mBz) /
-                                                   mKernelParameters.trackletMinPt,
-                                                 2.f / length01,
-                                                 2.f / length12});
-        const float maximumBending =
-          std::asin(std::clamp(0.5f * maximumCurvature * length01, 0.f, 1.f)) +
-          std::asin(std::clamp(0.5f * maximumCurvature * length12, 0.f, 1.f));
-        const float deltaPhi = std::abs(std::remainder(currentTracklet.phi - nextTracklet.phi,
-                                                       o2::constants::math::TwoPI));
-        // For disks, projection into azimuth cancels the momentum correction.
-        const float azimuthalTolerance = isDisk ? angularTolerance : angularTolerance / sinTheta;
-        if (deltaPhi > maximumBending + azimuthalTolerance) {
-          continue;
-        }
-
-        const std::array<GlobalMeasurement, 3> measurements{inner, middle, outer};
-        TripletFitFactor tripletFactor{};
-        if (makeTripletFitFactor(measurements, tripletFactor)) {
-          TimeEstBC ts = currentTracklet.getTimeStamp();
-          ts += nextTracklet.getTimeStamp();
-          // Build directly from the resolved plan positions; plan validation
-          // already checked them against the cell's hit-surface mask.
-          const LayerMask hitLayerMask{hitLayers[0], hitLayers[1], hitLayers[2]};
-          Triplet seed{hitLayerMask, sortedId[0], sortedId[1], sortedId[2], iTracklet, iNextTracklet, ts};
-          seed.tripletFactor() = tripletFactor;
-          emit(std::move(seed));
-        }
+    tbb::parallel_for(size_t{0}, static_cast<size_t>(cellIds.size()), [&](size_t index) {
+      const auto cellId = cellIds[index];
+      const auto& path = context.topology.getPath(cellId);
+      const auto& first = scratch.getTracklets()[path.first.value()];
+      const auto& second = scratch.getTracklets()[path.second.value()];
+      if (first.empty() || second.empty()) {
+        return;
       }
-    };
-
-    const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
-    for (const auto cellId : cellIds) {
-      const auto& cellTopology = topology.getPath(cellId);
-      const auto firstEdgeId = cellTopology.first;
-      const auto secondEdgeId = cellTopology.second;
-      if (scratch.getTracklets()[firstEdgeId.value()].empty() ||
-          scratch.getTracklets()[secondEdgeId.value()].empty()) {
-        continue;
-      }
-
-      const auto& firstEdge = topology.getEdge(cellTopology.first);
-      const auto& secondEdge = topology.getEdge(cellTopology.second);
-      const std::array<int, 3> layers{firstEdge.from.value(), firstEdge.to.value(), secondEdge.to.value()};
-
-      auto& layerCells = scratch.getCells()[cellId.value()];
-      auto& lut = scratch.getCellsLookupTable()[cellId.value()];
-      const int currentLayerTrackletsNum{static_cast<int>(scratch.getTracklets()[firstEdgeId.value()].size())};
+      auto search = prepareCellSearch(context, cellId);
+      search.first = first.data();
+      search.second = second.data();
+      search.secondLookup = scratch.getTrackletsLookupTable()[path.second.value()].data();
+      const int nFirst = static_cast<int>(first.size());
       const auto key = CapacityEstimator::makeKey(SlabSite::Cells, iteration, 0, cellId);
-      const auto scale = static_cast<double>(currentLayerTrackletsNum);
-      const auto capacity = context.frame.getCapacityEstimator().capacity(key, scale);
-      GroupedSlabSink<Triplet> sink{{.capacity = capacity, .nThreads = maxConcurrency}, mMemoryPool.get()};
-      tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
+      GroupedSlabSink<Triplet> sink{{.capacity = estimator.capacity(key, nFirst), .nThreads = maxConcurrency, .nConcurrentSinks = nConcurrentSinks}, scratch.getMemoryPool().get()};
+      tbb::parallel_for(0, nFirst, [&](const int tracklet) {
         auto& handle = sink.local();
-        handle.beginProducer(iTracklet);
-        forTrackletCells(firstEdgeId.value(), secondEdgeId.value(), layers, iTracklet,
-                         [&handle](Triplet seed) { handle.emplace(std::move(seed)); });
+        handle.beginProducer(tracklet);
+        forEachCell(frame, search, tracklet, [&](const Triplet& cell) { handle.emplace(cell); });
       });
       const auto stats = sink.stats();
-      sink.finalizeGrouped(static_cast<size_t>(currentLayerTrackletsNum), lut, layerCells);
-      context.frame.getCapacityEstimator().update(key, scale, stats.requested, stats.capacity, stats.emitted,
-                                                  stats.spilled, stats.overflowed, stats.memoryLimited);
+      sink.finalizeGrouped(first.size(), scratch.getCellsLookupTable()[cellId.value()], scratch.getCells()[cellId.value()]);
+      estimator.update(key, nFirst, stats.requested, stats.capacity, stats.emitted, stats.spilled, stats.overflowed, stats.memoryLimited);
+    });
+  });
+  finishCells(context);
+}
 
-      if (context.frame.hasMCinformation() && trkParam.CreateArtefactLabels) {
-        auto& labels = scratch.getCellsLabel(cellId.value());
-        labels.reserve(layerCells.size());
-        for (const auto& cell : layerCells) {
-          MCCompLabel currentLab{scratch.getTrackletsLabel(firstEdgeId.value())[cell.getFirstTrackletIndex()]};
-          MCCompLabel nextLab{scratch.getTrackletsLabel(secondEdgeId.value())[cell.getSecondTrackletIndex()]};
-          labels.emplace_back(currentLab == nextLab ? currentLab : MCCompLabel());
-        }
+CellSearch TrackerTraits::prepareCellSearch(IterationContext& context, CellPathId cellId) const
+{
+  const auto& topology = context.topology;
+  const auto& path = topology.getPath(cellId);
+  const auto& firstEdge = topology.getEdge(path.first);
+  const auto& kernel = context.configuration.kernelParameters;
+  CellSearch search;
+  search.layers = {firstEdge.from.value(), firstEdge.to.value(), topology.getEdge(path.second).to.value()};
+  search.parameters = {kernel.nSigmaCut * context.scratch.getEdgeMSAngle(path.second.value()),
+                       std::abs(o2::constants::math::B2C * context.bz) / kernel.trackletMinPt,
+                       topology.getSurface(firstEdge.to).kind == SurfaceKind::Disk};
+  return search;
+}
+
+void TrackerTraits::finishCells(IterationContext& context)
+{
+  auto& scratch = context.scratch;
+  if (context.frame.hasMCinformation() && context.configuration.parameters.CreateArtefactLabels) {
+    for (const auto cellId : context.configuration.cellIds()) {
+      const auto& path = context.topology.getPath(cellId);
+      auto& labels = scratch.getCellsLabel(cellId.value());
+      const auto& cells = scratch.getCells()[cellId.value()];
+      labels.reserve(cells.size());
+      for (const auto& cell : cells) {
+        MCCompLabel currentLab{scratch.getTrackletsLabel(path.first.value())[cell.getFirstTrackletIndex()]};
+        MCCompLabel nextLab{scratch.getTrackletsLabel(path.second.value())[cell.getSecondTrackletIndex()]};
+        labels.emplace_back(currentLab == nextLab ? currentLab : MCCompLabel());
       }
     }
-  });
-
+  }
   const auto scratchEdgeCount = scratch.getTracklets().size();
   for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
     deepVectorClear(scratch.getTracklets()[edgeId]);
@@ -537,438 +363,243 @@ void TrackerTraits::computeLayerCells(IterationContext& context, const int itera
 void TrackerTraits::findCellsNeighbours(IterationContext& context, const int iteration)
 {
   auto& scratch = context.scratch;
-  const auto& memoryPool = scratch.getMemoryPool();
-  const auto& topology = context.topology;
-  const auto& globalMeasurements = context.layerGlobalMeasurements;
-  const auto& params = context.configuration.kernelParameters;
-  for (std::size_t slot = 0; slot < scratch.getCellsNeighbours().size(); ++slot) {
-    deepVectorClear(scratch.getCellsNeighbours()[slot]);
-    deepVectorClear(scratch.getCellsNeighboursTopology()[slot]);
-    deepVectorClear(scratch.getCellsNeighboursLUT()[slot]);
+  for (size_t path = 0; path < scratch.getCellsNeighbours().size(); ++path) {
+    deepVectorClear(scratch.getCellsNeighbours()[path]);
+    deepVectorClear(scratch.getCellsNeighboursLUT()[path]);
   }
-  const auto& scheduledCells = context.configuration.topology.scheduledPaths;
-  const auto scratchCellCount = scratch.getCells().size();
-  if (scratch.getCellsLookupTable().size() != scratchCellCount ||
-      scratch.getCellsNeighbours().size() != scratchCellCount ||
-      scratch.getCellsNeighboursTopology().size() != scratchCellCount ||
-      scratch.getCellsNeighboursLUT().size() != scratchCellCount) {
-    throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-  }
-  mTaskArena->execute([&] {
-    std::vector<bounded_vector<TripletNeighbour>> cellsNeighboursByTarget;
-    cellsNeighboursByTarget.reserve(scratchCellCount);
-    for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
-      cellsNeighboursByTarget.emplace_back(memoryPool.get());
-    }
-
-    for (const auto cellId : scheduledCells) {
-      if (static_cast<size_t>(cellId.value()) >= scratchCellCount ||
-          static_cast<size_t>(cellId.value()) >= scratch.getCellsLookupTable().size()) {
-        throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-      }
-      const auto& cellTopology = topology.getPath(cellId);
-      const float currentMSAngle = scratch.getEdgeMSAngle(cellTopology.second.value());
-      const float currentAngularVariance = currentMSAngle * currentMSAngle;
-      if (scratch.getCells()[cellId.value()].empty()) {
-        continue;
-      }
-      const auto successors = topology.getPathsStartingWithEdge(cellTopology.second);
-      if (!successors.getEntries()) {
-        continue;
-      }
-
-      struct SuccessorBinding {
-        CellPathId cellId;
-        float angularVariance;
-      };
-      std::array<SuccessorBinding, MaxLayoutSurfaces> successorBindings{};
-      size_t successorBindingCount = 0;
-      if (successors.getEntries() > successorBindings.size()) {
-        throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-      }
-      for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
-        const auto nextCellId = topology.pathsByFirstEdge[successors.getFirstEntry() + iSuccessor];
-        if (static_cast<size_t>(nextCellId.value()) >= scratch.getCells().size() ||
-            static_cast<size_t>(nextCellId.value()) >= scratch.getCellsLookupTable().size()) {
-          throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-        }
-        if (scratch.getCells()[nextCellId.value()].empty() ||
-            scratch.getCellsLookupTable()[nextCellId.value()].empty()) {
-          continue;
-        }
-        const auto& nextCellTopology = topology.getPath(nextCellId);
-        const float nextMSAngle = scratch.getEdgeMSAngle(nextCellTopology.second.value());
-        successorBindings[successorBindingCount++] = {nextCellId, nextMSAngle * nextMSAngle};
-      }
-
-      const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
-      const auto key = CapacityEstimator::makeKey(SlabSite::Neighbours, iteration, 0, cellId);
-      const auto scale = static_cast<double>(scratch.getCells()[cellId.value()].size());
-      const auto capacity = context.frame.getCapacityEstimator().capacity(key, scale);
-      UnorderedSlabSink<TripletNeighbour> sink{{.capacity = capacity, .nThreads = maxConcurrency}, memoryPool.get()};
-      tbb::parallel_for(0, static_cast<int>(scratch.getCells()[cellId.value()].size()), [&](const int iCell) {
-        auto& handle = sink.local();
-        const auto& currentTriplet{scratch.getCells()[cellId.value()][iCell]};
-        const int nextLayerTrackletIndex{currentTriplet.getSecondTrackletIndex()};
-        for (size_t iSuccessor = 0; iSuccessor < successorBindingCount; ++iSuccessor) {
-          const auto& successor = successorBindings[iSuccessor];
-          const auto& nextCellLUT = scratch.getCellsLookupTable()[successor.cellId.value()];
-          if (nextLayerTrackletIndex < 0 || nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
-            continue;
-          }
-          const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
-          const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
-          if (nextLayerFirstCellIndex < 0 || nextLayerLastCellIndex < nextLayerFirstCellIndex ||
-              nextLayerLastCellIndex > static_cast<int>(scratch.getCells()[successor.cellId.value()].size())) {
-            throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-          }
-          for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
-            const auto& nextTripletRef{scratch.getCells()[successor.cellId.value()][iNextCell]};
-            if (nextTripletRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentTriplet.getTimeStamp().isCompatible(nextTripletRef.getTimeStamp())) {
-              break;
-            }
-
-            const auto currentMiddle = currentTriplet.getClusterReference(1);
-            const auto currentOuter = currentTriplet.getClusterReference(2);
-            const auto nextInner = nextTripletRef.getClusterReference(0);
-            const auto nextMiddle = nextTripletRef.getClusterReference(1);
-            if (currentMiddle.surfacePosition != nextInner.surfacePosition ||
-                currentMiddle.clusterIndex != nextInner.clusterIndex ||
-                currentOuter.surfacePosition != nextMiddle.surfacePosition ||
-                currentOuter.clusterIndex != nextMiddle.clusterIndex) {
-              continue;
-            }
-
-            const std::array<TripleClusterReference, 4> references{
-              currentTriplet.getClusterReference(0), currentMiddle,
-              currentOuter, nextTripletRef.getClusterReference(2)};
-            std::array<GlobalMeasurement, 4> measurements{};
-            bool measurementsValid = true;
-            for (std::size_t hit = 0; hit < references.size(); ++hit) {
-              const auto reference = references[hit];
-              if (reference.surfacePosition < 0 ||
-                  static_cast<std::size_t>(reference.surfacePosition) >= globalMeasurements.size() ||
-                  reference.clusterIndex < 0 ||
-                  static_cast<std::size_t>(reference.clusterIndex) >= globalMeasurements[reference.surfacePosition].size()) {
-                measurementsValid = false;
-                break;
-              }
-              measurements[hit] = globalMeasurements[reference.surfacePosition][reference.clusterIndex];
-            }
-            AdjacentTripletFitResult adjacentFit{};
-            const bool fitValid = measurementsValid &&
-                                  fitAdjacentTripletFactors(
-                                    currentTriplet.tripletFactor(), nextTripletRef.tripletFactor(), measurements,
-                                    {currentAngularVariance, successor.angularVariance}, adjacentFit);
-            if (!fitValid || adjacentFit.chi2 > params.maxChi2ClusterAttachment) {
-              continue;
-            }
-
-            const int nextLevel = currentTriplet.getLevel() + 1;
-            handle.emplace(cellId.value(), iCell, successor.cellId.value(), iNextCell, nextLevel);
-          }
-        }
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
+  const int maxConcurrency = std::max(1, mTaskArena->max_concurrency());
+  const int nConcurrentSinks = std::min(static_cast<int>(context.configuration.topology.scheduledPaths.size()), maxConcurrency);
+  auto& estimator = context.frame.getCapacityEstimator();
+  const auto nCells = [&](CellPathId path) { return scratch.getCells()[path.value()].size(); };
+  forEachNeighbourTarget(context, nCells, [&](CellPathId target, std::span<NeighbourSearch> sources, size_t nSourceCells) {
+    auto& cells = scratch.getCells()[target.value()];
+    const auto& lookup = scratch.getCellsLookupTable()[target.value()];
+    const auto key = CapacityEstimator::makeKey(SlabSite::Neighbours, iteration, 0, target);
+    UnorderedSlabSink<CellNeighbour> sink{{.capacity = estimator.capacity(key, nSourceCells), .nThreads = maxConcurrency, .nConcurrentSinks = nConcurrentSinks},
+                                          scratch.getMemoryPool().get()};
+    for (auto& search : sources) {
+      const auto& sourceCells = scratch.getCells()[search.sourcePath];
+      search.sources = sourceCells.data();
+      search.targets = cells.data();
+      search.targetLookup = lookup.data();
+      search.lookupSize = lookup.size();
+      tbb::parallel_for(0, static_cast<int>(sourceCells.size()), [&](int source) {
+        forEachNeighbour(frame, search, source, [&](const CellNeighbour& neighbour) { sink.local().emplace(neighbour); });
       });
-
-      const auto stats = sink.stats();
-      bounded_vector<TripletNeighbour> sourceNeighbours{memoryPool.get()};
-      sink.finalizeUnordered(sourceNeighbours);
-      context.frame.getCapacityEstimator().update(key, scale, stats.requested, stats.capacity, stats.emitted,
-                                                  stats.spilled, stats.overflowed, stats.memoryLimited);
-      for (const auto& neighbour : sourceNeighbours) {
-        cellsNeighboursByTarget[neighbour.nextCellTopology].push_back(neighbour);
-        if (neighbour.level > scratch.getCells()[neighbour.nextCellTopology][neighbour.nextCell].getLevel()) {
-          scratch.getCells()[neighbour.nextCellTopology][neighbour.nextCell].setLevel(neighbour.level);
-        }
-      }
     }
-
-    for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
-      auto& cellsNeighbours = cellsNeighboursByTarget[cellPathId];
-      if (cellsNeighbours.empty()) {
-        continue;
-      }
-
-      std::sort(cellsNeighbours.begin(), cellsNeighbours.end(), [](const auto& a, const auto& b) {
-        return std::tie(a.nextCell, a.cellTopology, a.cell) < std::tie(b.nextCell, b.cellTopology, b.cell);
-      });
-
-      auto& cellsNeighbourLUT = scratch.getCellsNeighboursLUT()[cellPathId];
-      cellsNeighbourLUT.assign(scratch.getCells()[cellPathId].size(), 0);
-      for (const auto& neigh : cellsNeighbours) {
-        ++cellsNeighbourLUT[neigh.nextCell];
-      }
-      std::inclusive_scan(cellsNeighbourLUT.begin(), cellsNeighbourLUT.end(), cellsNeighbourLUT.begin());
-
-      scratch.getCellsNeighbours()[cellPathId].reserve(cellsNeighbours.size());
-      scratch.getCellsNeighboursTopology()[cellPathId].reserve(cellsNeighbours.size());
-      std::ranges::transform(cellsNeighbours, std::back_inserter(scratch.getCellsNeighbours()[cellPathId]), [](const auto& neigh) { return neigh.cell; });
-      std::ranges::transform(cellsNeighbours, std::back_inserter(scratch.getCellsNeighboursTopology()[cellPathId]), [](const auto& neigh) { return neigh.cellTopology; });
+    const auto stats = sink.stats();
+    auto& neighbours = scratch.getCellsNeighbours()[target.value()];
+    sink.finalizeUnordered(neighbours);
+    estimator.update(key, nSourceCells, stats.requested, stats.capacity, stats.emitted, stats.spilled, stats.overflowed, stats.memoryLimited);
+    if (neighbours.empty()) {
+      return;
     }
+    // Every (target cell, source path, source cell) key is unique.
+    tbb::parallel_sort(neighbours.begin(), neighbours.end(), [](const auto& a, const auto& b) {
+      return std::tie(a.nextCell, a.cellPath, a.cell) < std::tie(b.nextCell, b.cellPath, b.cell);
+    });
+    auto& neighbourLookup = scratch.getCellsNeighboursLUT()[target.value()];
+    neighbourLookup.assign(cells.size() + 1, 0);
+    for (const auto& neighbour : neighbours) {
+      ++neighbourLookup[neighbour.nextCell + 1];
+      auto& cell = cells[neighbour.nextCell];
+      cell.setLevel(std::max(cell.getLevel(), scratch.getCells()[neighbour.cellPath][neighbour.cell].getLevel() + 1));
+    }
+    std::inclusive_scan(neighbourLookup.begin(), neighbourLookup.end(), neighbourLookup.begin());
   });
-  for (auto& cellLUT : scratch.getCellsLookupTable()) {
-    deepVectorClear(cellLUT);
+  for (auto& lookup : scratch.getCellsLookupTable()) {
+    deepVectorClear(lookup);
   }
 }
 
-bool TrackerTraits::buildTrackSeed(IterationContext& context, int,
-                                   const Triplet& cell, TrackSeed& output) const
+bool TrackerTraits::buildTrackSeed(IterationContext& context, int, const Triplet& cell, TrackSeed& output) const
 {
-  std::array<const GlobalMeasurement*, 3> globals{};
-  std::array<const SurfaceMeasurement*, 3> measurements{};
-  std::array<const SurfaceDescriptor*, 3> surfaces{};
-  for (int hit = 0; hit < 3; ++hit) {
-    const auto reference = cell.getClusterReference(hit);
-    const auto surface = LayerId{static_cast<uint16_t>(reference.surfacePosition)};
-    globals[hit] = &context.layerGlobalMeasurements[reference.surfacePosition][reference.clusterIndex];
-    measurements[hit] = context.frame.getSurfaceMeasurement(surface, globals[hit]->clusterId);
-    surfaces[hit] = &context.topology.getSurface(surface);
-  }
-
-  SurfaceTrackState state{};
-  float chi2{0.f};
-  const auto& outer = *measurements[2];
-  const auto kind = surfaces[2]->kind;
-
-  float sinPhi = 0.f, cosPhi = 0.f, tanLambda = 0.f, qOverPt = 1.f / o2::track::kMostProbablePt;
-  float curvatureSquared = 1.f;
-
-  state.referenceCoordinate = outer.frame.q;
-  state.alpha = (kind == SurfaceKind::Cylinder) ? outer.frame.frameAngle : 0.f;
-  state.parameters[0] = outer.frame.u;
-  state.parameters[1] = outer.frame.v;
-
-  float cosAlpha, sinAlpha, x[3], y[3];
-  o2::math_utils::detail::sincos(state.alpha, sinAlpha, cosAlpha);
-  for (int i{0}; i < 3; ++i) {
-    const auto& pos = globals[i]->position;
-    x[i] = pos.x * cosAlpha + pos.y * sinAlpha;
-    y[i] = -pos.x * sinAlpha + pos.y * cosAlpha;
-  }
-  const float dx = x[2] - x[1];
-  const float dy = y[2] - y[1];
-  const float chordLength = std::hypot(dx, dy);
-  const float inverseLength = 1.f / chordLength;
-
-  const float chordCos = dx * inverseLength;
-  const float chordSin = dy * inverseLength;
-  tanLambda = -0.5f *
-              (math_utils::computeTanDipAngle(x[0], y[0], x[1], y[1], globals[0]->position.z, globals[1]->position.z) +
-               math_utils::computeTanDipAngle(x[1], y[1], x[2], y[2], globals[1]->position.z, globals[2]->position.z));
-
-  if (std::abs(context.bz) < 0.01f) {
-    cosPhi = chordCos;
-    sinPhi = chordSin;
-  } else {
-    const float curvature =
-      math_utils::computeCurvature(
-        x[2], y[2], x[1], y[1], x[0], y[0]);
-
-    const float halfSin = 0.5f * curvature * chordLength;
-    const float halfCos =
-      std::sqrt((1.f - halfSin) * (1.f + halfSin));
-
-    cosPhi = chordCos * halfCos - chordSin * halfSin;
-    sinPhi = chordSin * halfCos + chordCos * halfSin;
-    qOverPt = curvature /
-              (context.bz * o2::constants::math::B2C);
-    curvatureSquared = curvature * curvature;
-  }
-
-  float phi = o2::gpu::GPUCommonMath::ASin(sinPhi);
-  if (cosPhi < 0.f) {
-    phi = o2::constants::math::PI - phi;
-  } else if (phi < 0.f) {
-    phi += o2::constants::math::TwoPI;
-  }
-
-  state.parameters[2] = (kind == SurfaceKind::Cylinder) ? sinPhi : phi;
-  state.parameters[3] = tanLambda;
-  state.parameters[4] = qOverPt;
-  state.covariance[packedCovarianceIndex(0, 0)] = outer.covariance.uu;
-  state.covariance[packedCovarianceIndex(1, 0)] = outer.covariance.uv;
-  state.covariance[packedCovarianceIndex(1, 1)] = outer.covariance.vv;
-  state.covariance[packedCovarianceIndex(2, 2)] = (kind == SurfaceKind::Cylinder) ? o2::track::kCSnp2max : o2::track::kCSnp2max / (cosPhi * cosPhi);
-  state.covariance[packedCovarianceIndex(3, 3)] = o2::track::kCTgl2max;
-  state.covariance[packedCovarianceIndex(4, 4)] = o2::track::kC1Pt2max * std::clamp(curvatureSquared, 0.0005f, 1.f);
-
-  state.kind = kind;
-  state.flags = 0;
-  state.absCharge = kCompatibilityAbsCharge;
-  state.pid = kCompatibilityPID;
-
-  const std::array<const SurfaceMeasurement*, 2> attachmentMeasurements{measurements[1], measurements[0]};
-  const std::array<const SurfaceDescriptor*, 2> attachmentSurfaces{surfaces[1], surfaces[0]};
-  for (int step = 0; step < 2; ++step) {
-    const auto& targetSurface = *attachmentSurfaces[step];
-    if (!Propagator::attachMeasurement(
-          state, targetSurface, *attachmentMeasurements[step], context.bz,
-          material::MaterialTraversalDirection::OppositeMomentum,
-          step == 1,
-          context.configuration.kernelParameters.maxChi2ClusterAttachment,
-          chi2)) {
-      return false;
-    }
-  }
-
-  output = TrackSeed{cell, state, chi2};
-  return true;
+  SeedInput input;
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
+  throwRoadError(makeSeedInput(frame, context.topology.getSurfaceCatalogView(), resolveCell(frame, cell), &input));
+  return initializeTrackSeed(input, context.bz, context.configuration.kernelParameters.maxChi2ClusterAttachment, output);
 }
 
 template <typename InputSeed>
-void TrackerTraits::processNeighbours(IterationContext& context, int iteration, CellPathId startingPath,
-                                      int defaultCellPathId, int startLevel, int currentLevel,
-                                      const bounded_vector<InputSeed>& currentSeeds,
-                                      bounded_vector<RoadSeedEmission>& updatedCells,
-                                      const TrackingKernelParameters& params)
+void TrackerTraits::buildRoadJobs(IterationContext& context, int startPath, int currentLevel, const bounded_vector<InputSeed>& seeds,
+                                  bounded_vector<RoadJob>& jobs, bounded_vector<RoadTarget>& targets) const
 {
-  auto* scratch = &context.scratch;
-  const auto& mMemoryPool = scratch->getMemoryPool();
-  const auto mBz = context.bz;
-  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const int activeSurfaceCount = context.configuration.topology.nLayers;
-
-  mTaskArena->execute([&] {
-    auto forTripletNeighbours = [&](int iCell, auto&& emit) {
-      const auto& input = currentSeeds[iCell];
-      const auto& currentCell = [&]() -> const auto& {
-        if constexpr (std::is_same_v<InputSeed, Triplet>) {
-          return input;
-        } else {
-          return input.seed;
-        }
-      }();
-      int cellId = iCell;
-      int cellPathId = defaultCellPathId;
-      if constexpr (std::is_same_v<InputSeed, RoadSeedEmission>) {
-        cellId = input.cellId;
-        cellPathId = input.cellPathId;
-      }
-
-      if (currentCell.getLevel() != currentLevel) {
-        return;
-      }
-      if constexpr (std::is_same_v<InputSeed, Triplet>) {
-        for (int layer = 0; layer < activeSurfaceCount; ++layer) {
-          const int clusterIndex = currentCell.getCluster(layer);
-          if (clusterIndex != o2::its::constants::UnusedIndex &&
-              context.frame.isClusterUsed(layer, mLayerGlobalMeasurements[layer][clusterIndex].clusterId)) {
-            return;
-          }
-        }
-      }
-
-      if (cellPathId < 0 || scratch->getCellsNeighboursLUT()[cellPathId].empty()) {
-        return;
-      }
-      const int startNeighbourId{cellId ? scratch->getCellsNeighboursLUT()[cellPathId][cellId - 1] : 0};
-      const int endNeighbourId{scratch->getCellsNeighboursLUT()[cellPathId][cellId]};
-      TrackSeed baseSeed{};
-      if constexpr (std::is_same_v<InputSeed, Triplet>) {
-
-        if (!buildTrackSeed(context, cellPathId, currentCell, baseSeed)) {
-          return;
-        }
-      } else {
-        baseSeed = currentCell;
-      }
-      for (int iNeighbourCell{startNeighbourId}; iNeighbourCell < endNeighbourId; ++iNeighbourCell) {
-        const int neighbourCellPathId = scratch->getCellsNeighboursTopology()[cellPathId][iNeighbourCell];
-        const int neighbourCellId = scratch->getCellsNeighbours()[cellPathId][iNeighbourCell];
-        const auto& neighbourCell = scratch->getCells()[neighbourCellPathId][neighbourCellId];
-        if (neighbourCell.getSecondTrackletIndex() != currentCell.getFirstTrackletIndex()) {
-          continue;
-        }
-        if (!currentCell.getTimeStamp().isCompatible(neighbourCell.getTimeStamp())) {
-          continue;
-        }
-        if (currentCell.getLevel() - 1 != neighbourCell.getLevel()) {
-          continue;
-        }
-        const int neighbourLayer = neighbourCell.getInnerLayer();
-        if (neighbourLayer < 0 || neighbourLayer >= activeSurfaceCount) {
-          throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
-        }
-        const int neighbourCluster = neighbourCell.getFirstClusterIndex();
-        const auto& neighbourGlobal = mLayerGlobalMeasurements[neighbourLayer][neighbourCluster];
-        if (context.frame.isClusterUsed(neighbourLayer, neighbourGlobal.clusterId)) {
-          continue;
-        }
-
-        /// Let's start the fitting procedure
-        TrackSeed seed{baseSeed};
-        seed.getTimeStamp() = currentCell.getTimeStamp();
-        seed.getTimeStamp() += neighbourCell.getTimeStamp();
-
-        const auto* measurement = context.frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(neighbourLayer)}, neighbourGlobal.clusterId);
-        if (measurement == nullptr) {
-          continue;
-        }
-        float chi2 = seed.getChi2();
-
-        const bool attached = Propagator::attachMeasurement(seed.state(), context.topology.getSurface(LayerId{static_cast<uint16_t>(neighbourLayer)}), *measurement, mBz,
-                                                            material::MaterialTraversalDirection::OppositeMomentum, true,
-                                                            params.maxChi2ClusterAttachment, chi2);
-        if (!attached) {
-          continue;
-        }
-        seed.setChi2(chi2);
-
-        seed.setCluster(neighbourLayer, neighbourCluster);
-        auto hitLayerMask = seed.getHitLayerMask();
-        hitLayerMask.set(neighbourLayer);
-        seed.setHitLayerMask(hitLayerMask);
-        seed.setLevel(neighbourCell.getLevel());
-        seed.setFirstTrackletIndex(neighbourCell.getFirstTrackletIndex());
-        seed.setSecondTrackletIndex(neighbourCell.getSecondTrackletIndex());
-        emit(RoadSeedEmission{std::move(seed), neighbourCellId, neighbourCellPathId});
-      }
-    };
-
-    const int nCells = static_cast<int>(currentSeeds.size());
-    const auto key = CapacityEstimator::makeKey(SlabSite::Roads, iteration,
-                                                CapacityEstimator::makeVariant(startLevel, currentLevel),
-                                                startingPath);
-    const auto scale = static_cast<double>(nCells);
-    const auto capacity = context.frame.getCapacityEstimator().capacity(key, scale);
-    GroupedSlabSink<RoadSeedEmission> sink{{.capacity = capacity, .nThreads = std::max(1, mTaskArena->max_concurrency())}, mMemoryPool.get()};
-    tbb::parallel_for(0, nCells, [&](const int iCell) {
-      auto& handle = sink.local();
-      handle.beginProducer(iCell);
-      forTripletNeighbours(iCell, [&handle](RoadSeedEmission emission) { handle.emplace(std::move(emission)); });
-    });
-    const auto stats = sink.stats();
-    bounded_vector<int> lut{mMemoryPool.get()};
-    sink.finalizeGrouped(static_cast<size_t>(nCells), lut, updatedCells);
-    context.frame.getCapacityEstimator().update(key, scale, stats.requested, stats.capacity, stats.emitted,
-                                                stats.spilled, stats.overflowed, stats.memoryLimited);
+  constexpr bool startCells = std::is_same_v<InputSeed, Triplet>;
+  auto& scratch = context.scratch;
+  const auto& pool = scratch.getMemoryPool();
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
+  bounded_vector<RoadGraphPath> graph(scratch.getCells().size(), pool.get());
+  for (size_t path = 0; path < graph.size(); ++path) {
+    const auto& cells = scratch.getCells()[path];
+    const auto& lookup = scratch.getCellsNeighboursLUT()[path];
+    const auto& neighbours = scratch.getCellsNeighbours()[path];
+    graph[path] = {cells.data(), cells.size(), lookup.data(), lookup.size(), neighbours.data(), neighbours.size()};
+  }
+  const RoadStep step{graph.data(), graph.size(), context.configuration.topology.nLayers, currentLevel, context.topology.getSurfaceCatalogView()};
+  std::atomic<unsigned> errors{0};
+  // The neighbour range of every seed; only seeds with neighbours get a job.
+  bounded_vector<std::array<int, 3>> ranges(seeds.size(), pool.get()); // path, begin, end
+  tbb::parallel_for(size_t{0}, seeds.size(), [&](size_t i) {
+    auto& [path, begin, end] = ranges[i];
+    unsigned error;
+    if constexpr (startCells) {
+      path = startPath;
+      error = roadRange(frame, step, path, static_cast<int>(i), seeds[i].getLevel(), true, begin, end);
+    } else {
+      path = seeds[i].cellPathId;
+      error = roadRange(frame, step, path, seeds[i].cellId, seeds[i].seed.getLevel(), false, begin, end);
+    }
+    if (error) {
+      errors |= error;
+    }
   });
+  throwRoadError(errors);
+  jobs.clear();
+  size_t nTargets = 0;
+  for (size_t i = 0; i < seeds.size(); ++i) {
+    if (const size_t n = ranges[i][2] - ranges[i][1]) {
+      jobs.push_back({{}, nTargets, nTargets + n, {}, startCells, i});
+      nTargets += n;
+    }
+  }
+  targets.assign(nTargets, RoadTarget{});
+  tbb::parallel_for(size_t{0}, jobs.size(), [&](size_t index) {
+    auto& job = jobs[index];
+    const auto& [path, begin, end] = ranges[job.source];
+    unsigned error = 0;
+    if constexpr (startCells) {
+      error = makeSeedInput(frame, step.catalog, resolveCell(frame, seeds[job.source]), &job.initial);
+    } else {
+      job.seed = seeds[job.source].seed;
+    }
+    for (int neighbour = begin; neighbour < end; ++neighbour) {
+      error |= makeRoadTarget(frame, step, graph[path].neighbours[neighbour], targets[job.firstTarget + neighbour - begin]);
+    }
+    if (error) {
+      errors |= error;
+    }
+  });
+  throwRoadError(errors);
+}
+template void TrackerTraits::buildRoadJobs<Triplet>(IterationContext&, int, int, const bounded_vector<Triplet>&,
+                                                    bounded_vector<RoadJob>&, bounded_vector<RoadTarget>&) const;
+template void TrackerTraits::buildRoadJobs<RoadSeedEmission>(IterationContext&, int, int, const bounded_vector<RoadSeedEmission>&,
+                                                             bounded_vector<RoadJob>&, bounded_vector<RoadTarget>&) const;
+
+RoadSeedSelector TrackerTraits::makeRoadSeedSelector(IterationContext& context, int startLevel) const
+{
+  const auto& trkParam = context.configuration.parameters;
+  // Filter roads by absolute q/pT in parameters[4]'s units, identically for
+  // both families. Non-finite values fail the finite-bound comparison.
+  constexpr float maxAbsQOverPt = 1.e3f;
+  // Missing layers may be allowed, but do not count toward MinTrackLength.
+  return {~context.topology.seedingLayers, context.frame.getDetectorConfiguration().getHoleLayers(), trkParam.MaxHoles,
+          trkParam.MinTrackLength, maxAbsQOverPt, trkParam.MaxChi2NDF * ((startLevel + 2) * 2 - 5)};
 }
 
 void TrackerTraits::findRoads(IterationContext& context, const int iteration)
 {
-  auto* scratch = &context.scratch;
-  const auto& mMemoryPool = scratch->getMemoryPool();
-  const auto& trkParam = context.configuration.parameters;
-  const auto mBz = context.bz;
-  const auto& mTraversalGraph = context.topology;
-  const auto& mKernelParameters = context.configuration.kernelParameters;
-  const auto& mLayerGlobalMeasurements = context.layerGlobalMeasurements;
-  const gsl::span<const CellPathId> roadStartCells = context.configuration.topology.roadStartPaths;
+  auto& scratch = context.scratch;
+  const auto& pool = scratch.getMemoryPool();
+  const float maxChi2 = context.configuration.kernelParameters.maxChi2ClusterAttachment;
+  auto& estimator = context.frame.getCapacityEstimator();
+  auto firstClusters = makeFirstClusters(context);
+  forEachRoadStartLevel(context, iteration, [&](std::span<const CellPathId> starts, int startLevel) {
+    const auto selector = makeRoadSeedSelector(context, startLevel);
+    bounded_vector<TrackSeed> trackSeeds(pool.get());
+    for (const auto start : starts) {
+      if (scratch.getCells()[start.value()].empty()) {
+        continue;
+      }
+      bounded_vector<RoadSeedEmission> current(pool.get()), next(pool.get());
+      const auto extend = [&](const auto& seeds, int level) {
+        bounded_vector<RoadJob> jobs(pool.get());
+        bounded_vector<RoadTarget> targets(pool.get());
+        const auto key = CapacityEstimator::makeKey(SlabSite::Roads, iteration, CapacityEstimator::makeVariant(startLevel, level), start);
+        mTaskArena->execute([&] {
+          buildRoadJobs(context, start.value(), level, seeds, jobs, targets);
+          GroupedSlabSink<RoadSeedEmission> sink{{.capacity = estimator.capacity(key, seeds.size()), .nThreads = std::max(1, mTaskArena->max_concurrency())}, pool.get()};
+          tbb::parallel_for(size_t{0}, jobs.size(), [&](size_t index) {
+            const auto& job = jobs[index];
+            auto& handle = sink.local();
+            handle.beginProducer(static_cast<int>(job.source));
+            forEachRoad(job.seed, job.initialize ? &job.initial : nullptr, targets.data(), job.firstTarget, job.endTarget, context.bz, maxChi2,
+                        [&](const RoadSeedEmission& emission) { handle.emplace(emission); });
+          });
+          const auto stats = sink.stats();
+          bounded_vector<int> lookup(pool.get());
+          sink.finalizeGrouped(seeds.size(), lookup, next);
+          estimator.update(key, seeds.size(), stats.requested, stats.capacity, stats.emitted, stats.spilled, stats.overflowed, stats.memoryLimited);
+        });
+      };
+      extend(scratch.getCells()[start.value()], startLevel);
+      for (int level = startLevel - 1; level >= 2 && !next.empty(); --level) {
+        current.swap(next);
+        deepVectorClear(next);
+        extend(current, level);
+      }
+      deepVectorClear(current);
+      for (const auto& road : next) {
+        if (selector(road.seed)) {
+          trackSeeds.push_back(road.seed);
+        }
+      }
+    }
+    if (trackSeeds.empty()) {
+      return;
+    }
+    bounded_vector<TrackingCandidate> tracks(pool.get());
+    refitTracks(context, trackSeeds, tracks);
+    // As o2::its::track::isBetter (longer, then lower chi2); ties keep seed
+    // order, as the device sort does. The candidates are large: sort compact
+    // keys, then move every candidate once.
+    struct SortKey {
+      int nClusters;
+      float chi2;
+      int index;
+    };
+    bounded_vector<SortKey> keys(tracks.size(), pool.get());
+    for (size_t i = 0; i < tracks.size(); ++i) {
+      keys[i] = {tracks[i].getNumberOfClusters(), tracks[i].track.chi2, static_cast<int>(i)};
+    }
+    std::sort(keys.begin(), keys.end(), [](const SortKey& a, const SortKey& b) {
+      if (a.nClusters != b.nClusters) {
+        return a.nClusters > b.nClusters;
+      }
+      if (a.chi2 < b.chi2 || b.chi2 < a.chi2) {
+        return a.chi2 < b.chi2;
+      }
+      return a.index < b.index;
+    });
+    bounded_vector<TrackingCandidate> sorted(pool.get());
+    sorted.reserve(tracks.size());
+    for (const auto& key : keys) {
+      sorted.push_back(std::move(tracks[key.index]));
+    }
+    acceptSortedTracks(context, iteration, sorted, firstClusters);
+  });
+}
+
+bounded_vector<bounded_vector<int>> TrackerTraits::makeFirstClusters(IterationContext& context) const
+{
+  const auto& pool = context.scratch.getMemoryPool();
   const int activeSurfaceCount = context.configuration.topology.nLayers;
-  bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
+  bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(pool.get()), pool.get());
   firstClusters.resize(activeSurfaceCount);
+  return firstClusters;
+}
+
+void TrackerTraits::forEachRoadStartLevel(IterationContext& context, int iteration,
+                                          const std::function<void(std::span<const CellPathId>, int)>& run) const
+{
+  const auto& trkParam = context.configuration.parameters;
   // Road starts are the binding's seeding-eligible sparse-plan subsequence.
   // CellPathId values use compact slots; LayerId directly indexes layout-owned
   // layer data.
-  // Filter roads by absolute q/pT in parameters[4]'s units, identically for
-  // both families. Non-finite values fail the finite-bound comparison.
-  constexpr float maxAbsQOverPt = 1.e3f;
-  const auto seedingLayerMask = context.topology.seedingLayers;
-  const auto nonSeedingLayerMask = ~seedingLayerMask;
-  const int cellsPerRoad = seedingLayerMask.count() - 2;
+  const gsl::span<const CellPathId> roadStartCells = context.configuration.topology.roadStartPaths;
+  const int cellsPerRoad = context.topology.seedingLayers.count() - 2;
   const auto& componentOffsets = context.configuration.topology.roadStartComponentOffsets;
-  const auto holeLayerMask = context.frame.getDetectorConfiguration().getHoleLayers();
   if (componentOffsets.empty() || componentOffsets.front() != 0 || componentOffsets.back() != roadStartCells.size()) {
     throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"};
   }
@@ -976,99 +607,69 @@ void TrackerTraits::findRoads(IterationContext& context, const int iteration)
     const auto componentRoadStarts = roadStartCells.subspan(componentOffsets[component],
                                                             componentOffsets[component + 1] - componentOffsets[component]);
     for (int startLevel{cellsPerRoad}; startLevel >= trkParam.CellMinimumLevel(); --startLevel) {
-
-      auto seedFilter = [&](const auto& seed) {
-        const auto hitLayerMask = seed.getHitLayerMask();
-        const auto effectiveHoleMask = hitLayerMask.holeMask() & ~nonSeedingLayerMask;
-        // Missing layers may be allowed, but do not count toward MinTrackLength.
-        return effectiveHoleMask.isAllowedHoleMask(trkParam.MaxHoles, holeLayerMask) &&
-               hitLayerMask.count() >= trkParam.MinTrackLength &&
-               std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= trkParam.MaxChi2NDF * ((startLevel + 2) * 2 - 5);
-      };
-
-      bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
-      // The binding supplies the ownership-filtered road-start span.
-      for (const auto startId : componentRoadStarts) {
-        // Cell population is per-event/per-vertex data, so check it against
-        // the current vertex rather than caching it in the pass plan.
-        if (scratch->getCells()[startId.value()].empty()) {
-          continue;
-        }
-
-        bounded_vector<RoadSeedEmission> currentCells(mMemoryPool.get()), updatedCells(mMemoryPool.get());
-
-        processNeighbours(context, iteration, startId, startId.value(), startLevel, startLevel,
-                          scratch->getCells()[startId.value()], updatedCells, mKernelParameters);
-
-        int level = startLevel;
-        while (level > 2 && !updatedCells.empty()) {
-          currentCells.swap(updatedCells);
-          deepVectorClear(updatedCells); // Release the previous expansion before producing the next one.
-          --level;
-          processNeighbours(context, iteration, startId, o2::its::constants::UnusedIndex, startLevel, level,
-                            currentCells, updatedCells, mKernelParameters);
-        }
-        deepVectorClear(currentCells);
-
-        const auto accepted = std::count_if(updatedCells.begin(), updatedCells.end(),
-                                            [&](const auto& cell) { return seedFilter(cell.seed); });
-        trackSeeds.reserve(trackSeeds.size() + accepted);
-        for (auto& cell : updatedCells) {
-          if (seedFilter(cell.seed)) {
-            trackSeeds.push_back(std::move(cell.seed));
-          }
-        }
-      }
-
-      if (trackSeeds.empty()) {
-        continue;
-      }
-
-      bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
-      mTaskArena->execute([&] {
-        const int nSeeds = static_cast<int>(trackSeeds.size());
-        const auto key = CapacityEstimator::makeKey(SlabSite::Tracks, iteration,
-                                                    CapacityEstimator::makeVariant(startLevel, static_cast<int>(component)), 0);
-        const auto scale = static_cast<double>(nSeeds);
-        const auto capacity = context.frame.getCapacityEstimator().capacity(key, scale);
-        GroupedSlabSink<TrackingCandidate> sink{{.capacity = capacity, .nThreads = std::max(1, mTaskArena->max_concurrency())}, mMemoryPool.get()};
-        tbb::parallel_for(0, nSeeds, [&](const int iSeed) {
-          SurfaceTrackState innerState{};
-          SurfaceTrackState outerState{};
-          float chi2 = 0.f;
-
-          if (!fitTrackSeedLegs(trackSeeds[iSeed], context.frame, mLayerGlobalMeasurements,
-                                mTraversalGraph.getSurfaceCatalogView(), mBz,
-                                trkParam.ShiftRefToCluster, trkParam.MaxChi2ClusterAttachment, trkParam.MaxChi2NDF,
-                                trkParam.RepeatRefitOut, gsl::span<const float>(trkParam.MinPt),
-                                innerState, outerState, chi2)) {
-            return;
-          }
-          TrackingCandidate temporaryTrack;
-          temporaryTrack.seed = trackSeeds[iSeed];
-          temporaryTrack.track.innerState = innerState;
-          temporaryTrack.track.outerState = outerState;
-          temporaryTrack.track.chi2 = chi2;
-          auto& handle = sink.local();
-          handle.beginProducer(iSeed);
-          handle.emplace(std::move(temporaryTrack));
-        });
-        const auto stats = sink.stats();
-        bounded_vector<int> lut{mMemoryPool.get()};
-        sink.finalizeGrouped(static_cast<size_t>(nSeeds), lut, tracks);
-        context.frame.getCapacityEstimator().update(key, scale, stats.requested, stats.capacity, stats.emitted,
-                                                    stats.spilled, stats.overflowed, stats.memoryLimited);
-        deepVectorClear(trackSeeds);
-      });
-
-      // Same ordering as o2::its::track::isBetter (longer track, then lower chi2).
-      std::sort(tracks.begin(), tracks.end(), [](const TrackingCandidate& a, const TrackingCandidate& b) {
-        const auto ncla = a.getNumberOfClusters();
-        const auto nclb = b.getNumberOfClusters();
-        return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
-      });
-      acceptTracks(context, iteration, tracks, firstClusters);
+      run({componentRoadStarts.data(), componentRoadStarts.size()}, startLevel);
     }
+  }
+}
+
+void TrackerTraits::acceptSortedTracks(IterationContext& context, int iteration, bounded_vector<TrackingCandidate>& tracks,
+                                       bounded_vector<bounded_vector<int>>& firstClusters)
+{
+  acceptTracks(context, iteration, tracks, firstClusters);
+  usedClustersChanged(context);
+}
+
+void TrackerTraits::bindHostBuffers(const std::shared_ptr<BoundedMemoryResource>& pool)
+{
+  if (mHostBuffersPool == pool) {
+    return;
+  }
+  // Rebuild in place: pmr allocators do not propagate on assignment. The old
+  // pool is still held here, so the old buffers are released into it.
+  deepVectorClear(mRefitJobs, pool.get());
+  mHostBuffersPool = pool;
+}
+
+RefitParameters TrackerTraits::makeRefitParameters(IterationContext& context) const
+{
+  const auto& p = context.configuration.parameters;
+  return {context.bz, p.MaxChi2ClusterAttachment, p.MaxChi2NDF, p.ShiftRefToCluster, p.RepeatRefitOut};
+}
+
+const bounded_vector<RefitJob>& TrackerTraits::prepareRefitJobs(IterationContext& context, std::span<const TrackSeed> seeds)
+{
+  const auto& p = context.configuration.parameters;
+  bindHostBuffers(context.scratch.getMemoryPool());
+  auto& jobs = mRefitJobs;
+  jobs.resize(seeds.size());
+  const auto frame = context.frame.makeView(context.layerGlobalMeasurements);
+  mTaskArena->execute([&] {
+    tbb::parallel_for(size_t{0}, seeds.size(), [&](size_t i) { prepareRefitJob(frame, seeds[i], p.MinPt.data(), p.MinPt.size(), jobs[i]); });
+  });
+  return jobs;
+}
+
+void TrackerTraits::refitTracks(IterationContext& context, std::span<const TrackSeed> seeds, bounded_vector<TrackingCandidate>& tracks)
+{
+  const auto catalog = context.topology.getSurfaceCatalogView();
+  const auto parameters = makeRefitParameters(context);
+  const auto& jobs = prepareRefitJobs(context, seeds);
+  bounded_vector<RefitResult> output(jobs.size(), RefitResult{}, context.scratch.getMemoryPool().get());
+  mTaskArena->execute([&] {
+    tbb::parallel_for(size_t{0}, jobs.size(), [&](size_t i) { output[i] = evaluateRefit(jobs[i], catalog, parameters); });
+  });
+  tracks.clear();
+  tracks.reserve(std::count_if(output.begin(), output.end(), [](const auto& result) { return result.accepted; }));
+  for (size_t i = 0; i < output.size(); ++i) {
+    if (!output[i].accepted) {
+      continue;
+    }
+    TrackingCandidate track;
+    track.seed = seeds[i];
+    track.track.innerState = output[i].inner;
+    track.track.outerState = output[i].outer;
+    track.track.chi2 = output[i].chi2;
+    tracks.push_back(std::move(track));
   }
 }
 
@@ -1115,7 +716,7 @@ void TrackerTraits::acceptTracks(IterationContext& context, int iteration,
       smallestROFHalf = std::min(smallestROFHalf, mFrame->getROFTiming(iLayer).mROFLength * 0.5f);
       const auto clusterId = mLayerGlobalMeasurements[iLayer][track.getClusterIndex(iLayer)].clusterId;
       mFrame->markUsedCluster(iLayer, clusterId);
-      int currentROF = mFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
+      const int currentROF = mLayerGlobalMeasurements[iLayer][track.getClusterIndex(iLayer)].rof;
       const auto nominalROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF);
       const auto expandedROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF, true);
       if (firstCls) {

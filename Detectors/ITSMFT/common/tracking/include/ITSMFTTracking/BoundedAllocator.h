@@ -55,7 +55,6 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
   [[nodiscard]] size_t getUsedMemory() const noexcept;
   [[nodiscard]] size_t getMaxMemory() const noexcept;
   [[nodiscard]] size_t getThrowCount() const noexcept;
-  [[nodiscard]] size_t getPeakMemory() const noexcept;
   [[nodiscard]] size_t getPeakMemoryDelta() const noexcept;
 
   void resetPeakMemory() noexcept;
@@ -131,6 +130,17 @@ template <typename T>
 inline void clearResizeBoundedVector(bounded_vector<T>& vec, size_t sz, std::pmr::memory_resource* mr = nullptr, T def = T())
 {
   std::pmr::memory_resource* tmr = (mr != nullptr) ? mr : vec.get_allocator().resource();
+  // Callers rely on every element being reset to `def` (e.g. index-table
+  // slices for a disabled ROF are never overwritten afterwards), but not on
+  // getting a freshly allocated buffer. When the size and resource already
+  // match, skip the destroy/reallocate cycle and just reset the contents in
+  // place -- repeated same-sized calls (e.g. once per timeframe on a
+  // long-running process) would otherwise unconditionally round-trip
+  // through the shared, mutex-protected memory resource every single time.
+  if (vec.size() == sz && vec.get_allocator().resource() == tmr) {
+    std::fill(vec.begin(), vec.end(), def);
+    return;
+  }
   vec.~bounded_vector<T>();
   new (&vec) bounded_vector<T>(sz, def, std::pmr::polymorphic_allocator<T>{tmr});
 }
@@ -143,22 +153,6 @@ inline void clearResizeBoundedVector(std::vector<bounded_vector<T>>& vec, size_t
   for (size_t i = 0; i < size; ++i) {
     vec.emplace_back(std::pmr::polymorphic_allocator<bounded_vector<T>>{mr});
   }
-}
-
-template <typename T, size_t S>
-inline void clearResizeBoundedArray(std::array<bounded_vector<T>, S>& arr, size_t size, std::pmr::memory_resource* mr = nullptr, T def = T())
-{
-  for (size_t i{0}; i < S; ++i) {
-    clearResizeBoundedVector(arr[i], size, mr, def);
-  }
-}
-
-template <typename T>
-inline std::vector<T> toSTDVector(const bounded_vector<T>& b)
-{
-  std::vector<T> t(b.size());
-  std::copy(b.cbegin(), b.cend(), t.begin());
-  return t;
 }
 
 } // namespace o2::itsmft::tracking

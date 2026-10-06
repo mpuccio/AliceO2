@@ -36,6 +36,9 @@
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/Tracker.h"
+#if defined(ITSMFT_TRACKING_CUDA) || defined(ITSMFT_TRACKING_HIP)
+#include "ITSMFTTrackingGPU/TrackerTraitsGPU.h"
+#endif
 #include "ITSMFTTracking/TrackPublicationHelpers.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
@@ -317,7 +320,29 @@ void CATrackerDPL::initialiseTracking()
     return;
   }
 
-  mTrackerTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
+  if (mOptions.trackletBackend == "cuda") {
+#ifdef ITSMFT_TRACKING_CUDA
+    mTrackerTraits = o2::itsmft::tracking::createTrackerTraitsCUDA();
+#else
+    throw std::runtime_error{"CUDA trackleting was not built"};
+#endif
+  } else if (mOptions.trackletBackend == "hip") {
+#ifdef ITSMFT_TRACKING_HIP
+    mTrackerTraits = o2::itsmft::tracking::createTrackerTraitsHIP();
+#else
+    throw std::runtime_error{"HIP trackleting was not built"};
+#endif
+  } else if (mOptions.trackletBackend == "cpu") {
+    mTrackerTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
+  } else {
+    throw std::invalid_argument{"Unknown tracklet backend: " + mOptions.trackletBackend};
+  }
+  mTrackerTraits->setValidateCells(mOptions.validateCells);
+  mTrackerTraits->setValidateNeighbours(mOptions.validateNeighbours);
+  mTrackerTraits->setValidateRoads(mOptions.validateRoads);
+  mTrackerTraits->setValidateRefit(mOptions.validateRefit);
+  mTrackerTraits->setValidateTracklets(mOptions.validateTracklets);
+  LOGP(info, "ITS CA execution: {}", mTrackerTraits->getName());
   std::shared_ptr<tbb::task_arena> taskArena;
   const auto& commonParams = o2::itsmft::ITSCommonCATrackerParam::Instance();
   mTrackerTraits->setNThreads(mOptions.nThreads, taskArena);

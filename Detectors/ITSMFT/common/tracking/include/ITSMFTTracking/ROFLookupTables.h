@@ -447,13 +447,6 @@ class ROFMaskTable : public LayerTimingBase
     std::memset(mFlatMask.data(), s, mFlatMask.size());
   }
 
-  GPUh() void invertMask()
-  {
-    for (auto& state : mFlatMask) {
-      state = 1 - state;
-    }
-  }
-
   GPUh() void swap(ROFMaskTable& other) noexcept
   {
     std::swap(mLayers, other.mLayers);
@@ -499,13 +492,6 @@ class LayerTimingBase : public o2::itsmft::tracking::LayerTimingBase
   LayerTimingBase() : o2::itsmft::tracking::LayerTimingBase(NLayers) {}
   GPUhdi() constexpr int32_t getEntries() const noexcept { return NLayers; }
 };
-
-template <int32_t NLayers, typename TableEntry, typename TableIndex>
-using ROFOverlapTableView = o2::itsmft::tracking::ROFOverlapView<TableEntry, TableIndex>;
-template <int32_t NLayers, typename TableEntry, typename TableIndex>
-using ROFVertexLookupTableView = o2::itsmft::tracking::ROFVertexLookupView<TableEntry, TableIndex>;
-template <int32_t NLayers, typename TableEntry, typename TableIndex>
-using ROFMaskTableView = o2::itsmft::tracking::ROFMaskView<TableEntry, TableIndex>;
 
 template <int32_t NLayers>
 class ROFOverlapTable : public o2::itsmft::tracking::ROFOverlapTable

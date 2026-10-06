@@ -42,11 +42,6 @@ namespace o2::itsmft::tracking
 
 namespace
 {
-constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
-{
-  return kind == SurfaceKind::Cylinder ? 0u : 1u;
-}
-
 TrackingKernelParameters bindTrackingKernelParameters(const IterationParameters& params) noexcept
 {
   TrackingKernelParameters out;
@@ -67,8 +62,8 @@ void validateSparsePlan(const IterationConfiguration& configuration, int iterati
   const auto fail = [iteration]() { throw std::invalid_argument{"CA traversal: sparse topology mismatch (iteration " + std::to_string(iteration) + ")"}; };
   const auto& topology = layout;
   if (layout.catalog.surfaces == nullptr || layout.catalog.nSurfaces == 0 ||
-      (topology.nEdges != 0 && (topology.edges == nullptr || topology.pathsByFirstEdgeOffsets == nullptr)) ||
-      (topology.nPaths != 0 && (topology.paths == nullptr || topology.pathsByFirstEdge == nullptr))) {
+      (topology.nEdges != 0 && topology.edges == nullptr) ||
+      (topology.nPaths != 0 && topology.paths == nullptr)) {
     fail();
   }
 
@@ -283,7 +278,7 @@ void prepareTraversalEdgeTolerances(
 
 } // namespace
 
-void Tracker::initializeIteration(IterationContext& context) const
+void Tracker::initializeIteration(IterationContext& context, bool hostIndexTables) const
 {
   const int iteration = context.iteration;
   if (iteration < 0 || static_cast<size_t>(iteration) >= mIterations.size()) {
@@ -296,7 +291,7 @@ void Tracker::initializeIteration(IterationContext& context) const
   const auto layerCount = configuration.topology.nLayers;
 
   if (parameters.PassFlags[IterationStep::FirstPass]) {
-    frame.prepareIndexTables(context.detectorConfiguration.indexTableConfigs);
+    frame.prepareIndexTables(context.detectorConfiguration.indexTableConfigs, hostIndexTables);
   } else {
     for (std::size_t position = 0; position < layerCount; ++position) {
       if (!indexTableConfigurationsMatch(context.detectorConfiguration.indexTableConfigs[position],
@@ -323,8 +318,10 @@ void Tracker::initializeIteration(IterationContext& context) const
   scratch.beginIteration(edgeIds.size(), cellIds.size(), {trackletLookupSizes.data(), edgeIds.size()});
 
   // Sorted clusters are a locator cache. Validate every enabled ROF that can
-  // participate in a configured edge, including LUT-reuse paths.
-  // Keep spans local until validation and kind setup complete.
+  // participate in a configured edge, including LUT-reuse paths: its span
+  // matches its boundaries and holds no cluster twice. prepareTimeFrame has
+  // already checked every cluster id and its surface measurement; sorting
+  // only permutes clusters within their ROF.
   std::array<bool, MaxLayoutSurfaces> candidateReachableLayers{};
   for (const auto edgeId : edgeIds) {
     const auto& edge = context.topology.getEdge(edgeId);
@@ -345,6 +342,9 @@ void Tracker::initializeIteration(IterationContext& context) const
     if (rofMask.mFlatMask == nullptr || rofMask.mLayerROFOffsets == nullptr) {
       continue;
     }
+    // The last ROF in which each cluster id was seen: a duplicate within a
+    // ROF finds its own ROF there.
+    std::vector<int> lastROF(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(layer)}).size(), -1);
     for (int rof = 0; rof < frame.getNrof(static_cast<int>(layer)); ++rof) {
       const auto sorted = frame.getClustersOnLayer(rof, static_cast<int>(layer));
       if (sorted.empty()) {
@@ -359,18 +359,11 @@ void Tracker::initializeIteration(IterationContext& context) const
           sorted.size() != static_cast<size_t>(last - first)) {
         throw std::invalid_argument{"CA traversal: normalized measurement mismatch (iteration " + std::to_string(iteration) + ")"};
       }
-      std::vector<uint32_t> seen;
-      seen.reserve(sorted.size());
       for (const auto& measurement : sorted) {
-        if (!measurement.hasValidClusterId() ||
-            frame.getSurfaceMeasurement(LayerId{static_cast<uint16_t>(layer)}, measurement.clusterId) == nullptr) {
+        if (measurement.clusterId >= lastROF.size() || lastROF[measurement.clusterId] == rof) {
           throw std::invalid_argument{"CA traversal: normalized measurement mismatch (iteration " + std::to_string(iteration) + ")"};
         }
-        seen.push_back(measurement.clusterId);
-      }
-      std::sort(seen.begin(), seen.end());
-      if (std::adjacent_find(seen.begin(), seen.end()) != seen.end()) {
-        throw std::invalid_argument{"CA traversal: normalized measurement mismatch (iteration " + std::to_string(iteration) + ")"};
+        lastROF[measurement.clusterId] = rof;
       }
     }
   }
@@ -404,6 +397,9 @@ gsl::span<const gsl::span<const GlobalMeasurement>> Tracker::prepareTimeFrame(
       const int last = rofBoundaries[rof + 1];
       if (first < 0 || last < first || last > static_cast<int>(globals.size())) {
         throw std::invalid_argument{"CA traversal: normalized measurement mismatch"};
+      }
+      for (int cluster = first; cluster < last; ++cluster) {
+        globals[cluster].rof = static_cast<int>(rof);
       }
     }
     measurements[position] = globals;
@@ -575,7 +571,16 @@ bool Tracker::run(TimeFrame& frame, TrackerTraits& traits)
   if (!isConfiguredFor(frame)) {
     throw std::invalid_argument{"CA traversal: missing layout"};
   }
+  traits.beginTimeframe();
+  traits.resetStageTimes();
   const auto start = std::chrono::steady_clock::now();
+  std::array<float, TrackingStatistics::NSteps> stepMs{};
+  auto stepStart = start;
+  const auto endStep = [&](TrackingStatistics::Step step) {
+    const auto now = std::chrono::steady_clock::now();
+    stepMs[step] += std::chrono::duration<float, std::milli>(now - stepStart).count();
+    stepStart = now;
+  };
   std::vector<std::size_t> acceptedTrackCounts;
   auto& estimator = frame.getCapacityEstimator();
   bool estimatorTransactionStarted{false};
@@ -600,6 +605,7 @@ bool Tracker::run(TimeFrame& frame, TrackerTraits& traits)
         memoryPool->getMaxMemory() > mExecutionPolicy.MaxMemory) {
       memoryPool->setMaxMemory(mExecutionPolicy.MaxMemory);
     }
+    endStep(TrackingStatistics::Preparation);
     for (int iteration = 0; iteration < static_cast<int>(mIterations.size()); ++iteration) {
       const auto& configuration = mIterations[iteration];
       const auto& trkParam = configuration.parameters;
@@ -612,11 +618,17 @@ bool Tracker::run(TimeFrame& frame, TrackerTraits& traits)
                                configuration.getTopologyView(frame.getDetectorConfiguration().getSurfaceCatalog()),
                                configuration, layerGlobalMeasurements,
                                frame.getBz()};
-      initializeIteration(context);
+      if (iteration > 0 && trkParam.PassFlags[IterationStep::RebuildClusterLUT]) {
+        traits.beginTimeframe(); // clusters are re-sorted: drop device-resident frame data
+      }
+      traits.executeInArena([&] { initializeIteration(context, traits.usesHostIndexTables()); });
+      endStep(TrackingStatistics::IterationSetup);
       traits.runTraversal(context);
+      stepStart = std::chrono::steady_clock::now(); // the traversal stages are timed by the traits
       acceptedTrackCounts.push_back(frame.getGenericTracks().size() - acceptedTrackBegin);
     }
     computeTracksMClabels(frame);
+    endStep(TrackingStatistics::Labels);
     if (std::getenv("O2_ITSMFT_PRINT_SLAB_STATS") != nullptr) {
       estimator.print();
     }
@@ -653,6 +665,12 @@ bool Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 
   mRunStatistics.elapsedMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
   mRunStatistics.acceptedTrackCounts = std::move(acceptedTrackCounts);
+  const auto& stageMs = traits.getStageTimes();
+  stepMs[TrackingStatistics::Tracklets] = stageMs[TrackerTraits::Tracklets];
+  stepMs[TrackingStatistics::Cells] = stageMs[TrackerTraits::Cells];
+  stepMs[TrackingStatistics::Neighbours] = stageMs[TrackerTraits::Neighbours];
+  stepMs[TrackingStatistics::Roads] = stageMs[TrackerTraits::Roads];
+  mRunStatistics.stepMs = stepMs;
   return true;
 }
 

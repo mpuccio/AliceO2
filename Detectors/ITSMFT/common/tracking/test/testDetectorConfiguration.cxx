@@ -92,8 +92,6 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesAndKindIndependentCatalogs)
   const std::vector<uint16_t> componentOffsets = {0, 2};
   const auto layout = DetectorConfiguration{mixed, componentOffsets};
   BOOST_REQUIRE(layout.valid());
-  BOOST_CHECK(layout.sameComponent(0, 1));
-  BOOST_CHECK(!layout.sameComponent(1, 2));
 
   const auto topology = deriveTraversalTopology(layout, parametersFor(layout));
   BOOST_REQUIRE(topology.ok());

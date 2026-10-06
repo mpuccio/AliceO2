@@ -47,6 +47,36 @@ namespace o2::itsmft::tracking
 using Vertex = o2::its::Vertex;
 using VertexLabel = o2::its::VertexLabel;
 
+// A layer of the timeframe as the CA steps read it, on the host or on the
+// device: clusters sorted by ROF and index-table bin, and, by cluster id,
+// surface measurements and used flags.
+struct LayerView {
+  const GlobalMeasurement* clusters{};
+  size_t nClusters{};
+  const SurfaceMeasurement* measurements{};
+  size_t nMeasurements{};
+  const uint8_t* used{};
+  size_t nUsed{};
+  const int* rofClusters{}; // first cluster of every ROF, plus the total
+  int nROFs{};
+  const uint8_t* rofEnabled{};
+  const int* indexTables{}; // one table of tableSize entries per ROF
+  size_t tableSize{};
+
+  GPUhdi() bool isUsed(uint32_t clusterId) const { return clusterId < nUsed && used[clusterId]; }
+  GPUhdi() const SurfaceMeasurement* measurement(uint32_t clusterId) const { return clusterId < nMeasurements ? measurements + clusterId : nullptr; }
+};
+struct FrameView {
+  std::array<LayerView, MaxLayoutSurfaces> layers{};
+  size_t nLayers{};
+  const Vertex* vertices{};
+
+  GPUhdi() const GlobalMeasurement* cluster(int layer, int index) const
+  {
+    return layer >= 0 && size_t(layer) < nLayers && index >= 0 && size_t(index) < layers[layer].nClusters ? layers[layer].clusters + index : nullptr;
+  }
+};
+
 struct TimeFrame {
   TimeFrame() = default;
   TimeFrame(const TimeFrame&) = delete;
@@ -86,13 +116,17 @@ struct TimeFrame {
                       gsl::span<const o2::MCCompLabel> labels);
   void setHasMCInformation(bool value) noexcept { mHasMCInformation = value; }
   const SurfaceMeasurement* getSurfaceMeasurement(LayerId layer, uint32_t clusterId) const noexcept;
+  // A layer's surface measurements, indexed by cluster id.
+  gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(LayerId layer) const noexcept
+  {
+    return layer.isValid() && layer.value() < mLayerSurfaceMeasurements.size() ? gsl::make_span(mLayerSurfaceMeasurements[layer.value()]) : gsl::span<const SurfaceMeasurement>{};
+  }
   gsl::span<const o2::MCCompLabel> getLabels(LayerId layer, uint32_t clusterId) const;
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerGlobalMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
   int getTotalClusters() const { return static_cast<int>(getTotalMeasurements()); }
   bool empty() const { return getTotalMeasurements() == 0; }
-  int getSortedIndex(int rofId, int layer, int idx) const { return mROFramesClusters[layer][rofId] + idx; }
   int getSortedStartIndex(int rofId, int layer) const { return mROFramesClusters[layer][rofId]; }
   int getNrof(int layer) const
   {
@@ -105,10 +139,17 @@ struct TimeFrame {
   gsl::span<const GlobalMeasurement> getClustersPerROFrange(int rofMin, int range, int layer) const;
   gsl::span<const int> getROFramesClustersPerROFrange(int rofMin, int range, int layer) const;
   gsl::span<const int> getROFrameClusters(int layer) const;
-  gsl::span<int> getIndexTable(int rofId, int layer);
+  // Index-table bin of every cluster of a layer, in sorted cluster order,
+  // and whether prepareClusters built each ROF's table (unbuilt ones stay
+  // zero). Together they reproduce the index tables exactly.
+  gsl::span<const int> getClusterBins(int layer) const { return mClusterBins[layer]; }
+  gsl::span<const uint8_t> getIndexTableBuilt(int layer) const { return mIndexTableBuilt[layer]; }
   int getClusterROF(int layer, int cluster) const;
   int getTotalClustersPerROFrange(int rofMin, int range, int layer) const;
 
+  // The frame as the CA steps read it, with the given sorted clusters of
+  // every layer (the frame's own, as the tracker prepares them).
+  FrameView makeView(gsl::span<const gsl::span<const GlobalMeasurement>> clusters) const;
   bool isClusterUsed(int layer, uint32_t clusterId) const;
   void markUsedCluster(int layer, uint32_t clusterId);
   gsl::span<unsigned char> getUsedClusters(int layer);
@@ -129,13 +170,9 @@ struct TimeFrame {
   const RuntimeROFViews& getROFViews(int layer) const noexcept { return mROFViewsBySurface.empty() ? mROFViews : mROFViewsBySurface[layer]; }
   int getROFLocalLayer(int layer) const noexcept { return mROFLocalLayerBySurface.empty() ? layer : mROFLocalLayerBySurface[layer]; }
   const ROFTimingLayer& getROFTiming(int layer) const noexcept { return getROFViews(layer).overlap.getLayer(getROFLocalLayer(layer)); }
-  const RuntimeROFTableEntry& getROFOverlap(int fromLayer, int toLayer, int rof) const noexcept;
   bool isROFEnabled(int layer, int rof) const noexcept;
-  bool isVertexCompatible(int layer, int rof, const Vertex& vertex) const noexcept;
-  o2::its::TimeEstBC getROFTimeStamp(int fromLayer, int fromROF, int toLayer, int toROF) const noexcept;
   int getMaxVerticesPerROF() const noexcept;
   const RuntimeROFOverlapView& getROFOverlapView() const noexcept { return mROFViews.overlap; }
-  const RuntimeROFVertexLookupView& getROFVertexLookupView() const noexcept { return mROFViews.vertexLookup; }
   const RuntimeROFMaskView& getROFMaskView() const noexcept { return mUseUPC ? mROFViews.upcMask : mROFViews.mask; }
   void useUPCMask() noexcept { mUseUPC = true; }
   gsl::span<const Vertex> getPrimaryVertices(int layer, int rofId) const;
@@ -177,6 +214,8 @@ struct TimeFrame {
   // TimeFrame and cross-iteration tracking state.
   std::vector<std::vector<int>> mROFramesClusters;
   std::vector<bounded_vector<int>> mIndexTables;
+  std::vector<bounded_vector<int>> mClusterBins;
+  std::vector<bounded_vector<uint8_t>> mIndexTableBuilt;
   std::vector<std::vector<uint8_t>> mLayerUsedClusters;
   IndexTableConfigurationSet mIndexTableUtils;
   std::vector<float> mMinR;
@@ -190,7 +229,6 @@ struct TimeFrame {
   bool mUseUPC{false};
 
   float mBz = 5.;
-  unsigned int mNTotalLowPtVertices = 0;
   int mBeamPosWeight = 0;
   std::array<float, 2> mBeamPos = {0.f, 0.f};
   float mBeamPositionVariance = 0.f;
@@ -212,7 +250,9 @@ struct TimeFrame {
   DetectorConfiguration mDetectorConfiguration;
   TimeFrameScratch mScratch;
   CapacityEstimator mCapacityEstimator;
-  void prepareIndexTables(const IndexTableConfigurationSet& indexTableConfigs);
+  // Without host tables (a backend that builds them from the cluster bins)
+  // only the bins and built flags are prepared.
+  void prepareIndexTables(const IndexTableConfigurationSet& indexTableConfigs, bool hostTables = true);
   void prepareClusters(int maxLayers);
   friend class Tracker;
 };

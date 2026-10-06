@@ -13,6 +13,7 @@
 #define ALICEO2_ITSMFT_TRACKING_WORKFLOWSESSION_H_
 
 #include <algorithm>
+#include <format>
 #include <limits>
 #include <string>
 #include <type_traits>
@@ -252,6 +253,11 @@ class WorkflowSession
     const auto& statistics = tracker.getRunStatistics();
     complete(statistics);
     LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms", mDetectorName, frame.getGenericTracks().size(), statistics.elapsedMs);
+    std::string steps;
+    for (int step = 0; step < TrackingStatistics::NSteps; ++step) {
+      steps += std::format("{}{} {:.2f}", step ? ", " : "", TrackingStatistics::StepNames[step], statistics.stepMs[step]);
+    }
+    LOGP(info, "{} CA tracking steps (ms): {}", mDetectorName, steps);
     return true;
   }
 

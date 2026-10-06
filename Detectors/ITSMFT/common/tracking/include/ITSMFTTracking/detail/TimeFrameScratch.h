@@ -82,7 +82,6 @@ class TimeFrameScratch
 
   auto& getCellsLookupTable() { return mCellsLookupTable; }
   auto& getCellsNeighbours() { return mCellsNeighbours; }
-  auto& getCellsNeighboursTopology() { return mCellsNeighboursTopology; }
   auto& getCellsNeighboursLUT() { return mCellsNeighboursLUT; }
   size_t getNumberOfCells() const;
   size_t getNumberOfTracklets() const;
@@ -96,8 +95,10 @@ class TimeFrameScratch
   bounded_vector<float> mEdgeMSAngles;
   std::vector<bounded_vector<Triplet>> mCells;
   std::vector<bounded_vector<int>> mCellsLookupTable;
-  std::vector<bounded_vector<int>> mCellsNeighbours;
-  std::vector<bounded_vector<int>> mCellsNeighboursTopology;
+  // Per target path, sorted by (target cell, source path, source cell); the
+  // lookup table (first neighbour of every cell, plus the total) exists only
+  // for paths with neighbours.
+  std::vector<bounded_vector<CellNeighbour>> mCellsNeighbours;
   std::vector<bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<bounded_vector<o2::MCCompLabel>> mCellLabels;
 

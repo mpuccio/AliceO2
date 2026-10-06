@@ -41,6 +41,12 @@ void requireSupportedTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 enum class VertexSource { Diamond,
                           Truth };
 struct WorkflowOptions {
+  std::string trackletBackend = "cpu";
+  bool validateTracklets = false;
+  bool validateCells = false;
+  bool validateNeighbours = false;
+  bool validateRoads = false;
+  bool validateRefit = false;
   bool useMC = true;
   bool useFullGeometry = false;
   bool writeRootOutput = true;

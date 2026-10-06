@@ -69,7 +69,7 @@ class VertexBase
   GPUhd() float getR() const { return gpu::CAMath::Hypot(mPos.X(), mPos.Y()); }
   GPUd() float getSigmaX2() const { return mCov[kCovXX]; }
   GPUd() float getSigmaY2() const { return mCov[kCovYY]; }
-  GPUd() float getSigmaZ2() const { return mCov[kCovZZ]; }
+  GPUhd() float getSigmaZ2() const { return mCov[kCovZZ]; }
   GPUd() float getSigmaXY() const { return mCov[kCovXY]; }
   GPUd() float getSigmaXZ() const { return mCov[kCovXZ]; }
   GPUd() float getSigmaYZ() const { return mCov[kCovYZ]; }
@@ -160,7 +160,7 @@ class Vertex : public VertexBase
   GPUd() void addContributor() { mNContributors++; }
 
   GPUd() ushort getFlags() const { return mBits; }
-  GPUd() bool isFlagSet(uint f) const { return mBits & (FlagsMask & f); }
+  GPUhd() bool isFlagSet(uint f) const { return mBits & (FlagsMask & f); }
   GPUd() void setFlags(ushort f) { mBits |= FlagsMask & f; }
   GPUd() void resetFlags(ushort f = FlagsMask) { mBits &= ~(FlagsMask & f); }
 
@@ -169,7 +169,7 @@ class Vertex : public VertexBase
 
   GPUhd() const Stamp& getTimeStamp() const { return mTimeStamp; }
   GPUhd() Stamp& getTimeStamp() { return mTimeStamp; }
-  GPUd() void setTimeStamp(const Stamp& v) { mTimeStamp = v; }
+  GPUhd() void setTimeStamp(const Stamp& v) { mTimeStamp = v; }
 
  protected:
   float mChi2 = 0;           ///< chi2 or quality of tracks to vertex attachment

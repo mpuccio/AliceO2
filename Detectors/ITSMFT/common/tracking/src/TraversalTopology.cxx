@@ -117,19 +117,6 @@ TraversalTopologyBuildResult deriveTraversalTopology(const DetectorConfiguration
     }
   }
 
-  topology.pathsByFirstEdgeOffsets.assign(topology.edges.size() + 1, 0);
-  for (const auto& path : topology.paths) {
-    ++topology.pathsByFirstEdgeOffsets[path.first.value() + 1];
-  }
-  for (size_t offset = 1; offset < topology.pathsByFirstEdgeOffsets.size(); ++offset) {
-    topology.pathsByFirstEdgeOffsets[offset] += topology.pathsByFirstEdgeOffsets[offset - 1];
-  }
-  topology.pathsByFirstEdge.resize(topology.paths.size());
-  auto cursor = topology.pathsByFirstEdgeOffsets;
-  for (uint32_t path = 0; path < topology.paths.size(); ++path) {
-    topology.pathsByFirstEdge[cursor[topology.paths[path].first.value()]++] = CellPathId{static_cast<uint16_t>(path)};
-  }
-
   topology.scheduledPaths.reserve(topology.paths.size());
   for (uint32_t path = 0; path < topology.paths.size(); ++path) {
     topology.scheduledPaths.push_back(CellPathId{static_cast<uint16_t>(path)});

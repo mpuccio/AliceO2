@@ -19,6 +19,7 @@
 #include <limits>
 
 #include "ITSMFTTracking/TripletFitting.h"
+#include "ITSMFTTracking/MathUtils.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -324,4 +325,24 @@ BOOST_AUTO_TEST_CASE(CharacterizeAdjacentFactorHostCost)
     static_cast<double>(Repetitions);
   BOOST_TEST_MESSAGE("adjacent triplet-factor fit host cost: " << nanosecondsPerFit << " ns/fit; checksum=" << checksum);
   BOOST_CHECK_GT(checksum, 0.);
+}
+
+BOOST_AUTO_TEST_CASE(SinglePrecisionTripletAndAngleArithmetic)
+{
+  using DualNumber = triplet_detail::DualNumber<0, triplet_detail::NCoordinates>;
+  static_assert(std::is_same_v<decltype(DualNumber{}.value), float>);
+  static_assert(std::is_same_v<decltype(DualNumber{}.derivative)::value_type, float>);
+  for (int i = -8192; i <= 8192; ++i) {
+    const float angle = i * 0.03125f;
+    float sine, cosine;
+    o2::its::math_utils::sinCosFloat(angle, sine, cosine);
+    BOOST_CHECK_SMALL(sine - std::sin(angle), 2.e-7f);
+    BOOST_CHECK_SMALL(cosine - std::cos(angle), 2.e-7f);
+  }
+  for (float boundary : {0.f, o2::constants::math::PI / 2.f, o2::constants::math::PI, o2::constants::math::TwoPI}) {
+    for (float angle : {std::nextafter(boundary, -INFINITY), boundary, std::nextafter(boundary, INFINITY)}) {
+      BOOST_CHECK_SMALL(o2::its::math_utils::sinFloat(angle) - std::sin(angle), 2.e-7f);
+      BOOST_CHECK_SMALL(o2::its::math_utils::cosFloat(angle) - std::cos(angle), 2.e-7f);
+    }
+  }
 }

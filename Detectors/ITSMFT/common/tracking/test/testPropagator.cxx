@@ -1062,7 +1062,7 @@ BOOST_AUTO_TEST_CASE(RefitDriverSkipsHoleSlots)
   float chi2 = 0.f;
   uint32_t acceptedHitCount = 999;
 
-  BOOST_REQUIRE(detail::driveRefitLeg(state, linRef, chi2, acceptedHitCount, slots, catalog, BarrelBz,
+  BOOST_REQUIRE(detail::driveRefitLeg(state, linRef, chi2, acceptedHitCount, {slots.data(), slots.size()}, catalog, BarrelBz,
                                       material::MaterialTraversalDirection::AlongMomentum, false, 100.f));
   BOOST_CHECK_EQUAL(acceptedHitCount, 1u);
 }
@@ -1114,7 +1114,7 @@ BOOST_AUTO_TEST_CASE(FullMFTRefitLegUsesNominalMaterialAtEverySurface)
     float chi2 = 0.f;
     uint32_t acceptedHitCount = 0;
 
-    BOOST_REQUIRE(detail::driveRefitLeg(state, linRef, chi2, acceptedHitCount, slots, catalog, 0.f,
+    BOOST_REQUIRE(detail::driveRefitLeg(state, linRef, chi2, acceptedHitCount, {slots.data(), slots.size()}, catalog, 0.f,
                                         direction, false, 100.f));
     BOOST_CHECK_EQUAL(acceptedHitCount, MFTNLayers);
     BOOST_CHECK_CLOSE(momentumScale / std::abs(state.parameters[4]), expectedMomentum, 1.e-4f);

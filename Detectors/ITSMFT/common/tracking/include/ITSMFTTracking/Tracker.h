@@ -40,7 +40,18 @@ struct TrackerTestAccess;
 /// Statistics for the last successful run. Reset at the start of every run;
 /// remain empty with zero elapsed time if that run fails.
 struct TrackingStatistics {
+  // Wall time of each step of the run, in ms, summed over iterations.
+  enum Step { Preparation,
+              IterationSetup,
+              Tracklets,
+              Cells,
+              Neighbours,
+              Roads,
+              Labels,
+              NSteps };
+  static constexpr std::array<const char*, NSteps> StepNames{"preparation", "iteration setup", "tracklets", "cells", "neighbours", "roads", "MC labels"};
   float elapsedMs{0.f};
+  std::array<float, NSteps> stepMs{};
   // Accepted-result counts are indexed by configured iteration.
   std::vector<std::size_t> acceptedTrackCounts;
 };
@@ -81,7 +92,7 @@ class Tracker
   gsl::span<const gsl::span<const GlobalMeasurement>> prepareTimeFrame(
     TimeFrame& frame, std::array<gsl::span<const GlobalMeasurement>, MaxLayoutSurfaces>& measurements) const;
   void configureBeamPosition(TimeFrame& frame) const;
-  void initializeIteration(IterationContext& context) const;
+  void initializeIteration(IterationContext& context, bool hostIndexTables = true) const;
   void computeTracksMClabels(TimeFrame& frame) const;
   TrackingExecutionPolicy mExecutionPolicy;
   std::vector<IterationConfiguration> mIterations;

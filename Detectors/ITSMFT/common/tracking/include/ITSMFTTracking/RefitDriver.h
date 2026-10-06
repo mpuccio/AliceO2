@@ -14,8 +14,6 @@
 
 #include "GPUCommonDef.h"
 
-#ifndef GPUCA_GPUCODE
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -26,7 +24,9 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/TrackSeed.h"
 #include "ITSMFTTracking/GlobalMeasurement.h"
+#ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/TimeFrame.h"
+#endif
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
@@ -34,6 +34,18 @@
 // Descriptor-driven refit built on Propagator operations.
 namespace o2::itsmft::tracking
 {
+
+template <typename T>
+struct RefitSpan {
+  T* data;
+  size_t count;
+  GPUdi() size_t size() const { return count; }
+  GPUdi() T& operator[](size_t i) const { return data[i]; }
+  GPUdi() T& front() const { return data[0]; }
+  GPUdi() T& back() const { return data[count - 1]; }
+  GPUdi() T* begin() const { return data; }
+  GPUdi() T* end() const { return data + count; }
+};
 
 namespace detail
 {
@@ -46,7 +58,7 @@ struct CircleFitPoint {
 };
 
 // Preserve cancellation in a*b-c*d with two fused multiply-add operations.
-inline float circleDifferenceOfProducts(float a, float b, float c, float d)
+GPUdi() float circleDifferenceOfProducts(float a, float b, float c, float d)
 {
   const float cd = c * d;
   return std::fma(a, b, -cd) + std::fma(-c, d, cd);
@@ -57,7 +69,7 @@ struct CircleFloatDifference {
 };
 
 // Return the rounded difference and its residual; do not reassociate these sums.
-inline CircleFloatDifference circleTwoDiff(float a, float b)
+GPUdi() CircleFloatDifference circleTwoDiff(float a, float b)
 {
   const float hi = a - b;
   const float bv = a - hi;
@@ -68,7 +80,7 @@ inline CircleFloatDifference circleTwoDiff(float a, float b)
 // Compensate coordinate differences and the chord determinant to preserve
 // the small sagitta in float. Cache invariant transforms for the four
 // covariance-reweighting iterations; all fit arithmetic is single precision.
-inline float estimateCircleQOverPt(gsl::span<const CircleFitPoint> points, float bz) noexcept
+GPUdi() float estimateCircleQOverPt(RefitSpan<const CircleFitPoint> points, float bz) noexcept
 {
   const float invalid = std::numeric_limits<float>::quiet_NaN();
   if (points.size() < 3 || points.size() > MaxLayoutSurfaces || std::abs(bz) < MinCircleFitBz) {
@@ -115,7 +127,7 @@ inline float estimateCircleQOverPt(gsl::span<const CircleFitPoint> points, float
   std::array<float, 3> fit{};
   for (int iteration = 0; iteration < 4; ++iteration) {
     float matrix[3][4]{};
-    for (const auto& point : gsl::span<const CachedPoint>{cache.data(), points.size()}) {
+    for (const auto& point : RefitSpan<const CachedPoint>{cache.data(), points.size()}) {
       const float nx = std::fma(-2.f * fit[2], point.x, -fit[1]);
       const float ny = std::fma(-2.f * fit[2], point.y, 1.f);
       const float variance = std::fma(nx * nx, point.xx, std::fma(2.f * nx * ny, point.xy, ny * ny * point.yy));
@@ -177,46 +189,13 @@ struct RefitMeasurementSlot {
   bool present{false};
 };
 
-/// Builds an ordered refit leg; holes remain explicit.
-inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
-  const TrackSeed& seed,
-  const TimeFrame& frame,
-  gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-  int start, int end, int step,
-  gsl::span<RefitMeasurementSlot> out,
-  bool& valid) noexcept
-{
-  valid = layerGlobals.size() <= MaxLayoutSurfaces;
-  int position = 0;
-  for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
-    const int clsIdx = seed.getCluster(surfacePosition);
-    if (clsIdx == o2::its::constants::UnusedIndex) {
-      out[position++] = {};
-      continue;
-    }
-    if (!valid || clsIdx < 0 || static_cast<std::size_t>(clsIdx) >= layerGlobals[surfacePosition].size()) {
-      valid = false;
-      return {};
-    }
-    const auto& global = layerGlobals[surfacePosition][clsIdx];
-    const auto surface = LayerId{static_cast<uint16_t>(surfacePosition)};
-    const auto* measurement = frame.getSurfaceMeasurement(surface, global.clusterId);
-    if (measurement == nullptr) {
-      valid = false;
-      return {};
-    }
-    out[position++] = RefitMeasurementSlot{*measurement, surface, true};
-  }
-  return gsl::span<const RefitMeasurementSlot>(out.data(), position);
-}
-
 // Holes are skipped; present slots must resolve to a descriptor. Commit state,
 // reference, chi2 and count only after the full leg succeeds.
-inline bool driveRefitLeg(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
-                          float& chi2, uint32_t& acceptedHitCount,
-                          gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
-                          float bz, material::MaterialTraversalDirection direction,
-                          bool shiftReferenceToMeasurement, float maxChi2) noexcept
+GPUdi() bool driveRefitLeg(SurfaceTrackState& state, SurfaceTrackParameters& linRef,
+                           float& chi2, uint32_t& acceptedHitCount,
+                           RefitSpan<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
+                           float bz, material::MaterialTraversalDirection direction,
+                           bool shiftReferenceToMeasurement, float maxChi2) noexcept
 {
   if (chi2 < 0.f) {
     return false;
@@ -235,7 +214,12 @@ inline bool driveRefitLeg(SurfaceTrackState& state, SurfaceTrackParameters& linR
         !(slot.surface.value() < surfaceCatalog.nSurfaces)) {
       return false;
     }
-    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(slot.surface);
+    const auto& covariance = slot.measurement.covariance;
+    if (!std::isfinite(covariance.uu) || !std::isfinite(covariance.uv) || !std::isfinite(covariance.vv) ||
+        covariance.uu < 0.f || covariance.vv < 0.f) {
+      return false;
+    }
+    const SurfaceDescriptor& descriptor = surfaceCatalog.surfaces[slot.surface.value()];
     if (!Propagator::propagateToMeasurement(scratchState, scratchLinRef, descriptor, slot.measurement, bz, direction,
                                             scratchAcceptedHitCount >= kChi2GateMinAcceptedHits, maxChi2, scratchChi2,
                                             shiftReferenceToMeasurement)) {
@@ -253,7 +237,7 @@ inline bool driveRefitLeg(SurfaceTrackState& state, SurfaceTrackParameters& linR
 } // namespace detail
 
 // Common first-pass prior for the two position coordinates, direction and q/pT.
-GPUhdi() void resetCovarianceForRefit(SurfaceTrackState& state) noexcept
+GPUdi() void resetCovarianceForRefit(SurfaceTrackState& state) noexcept
 {
   for (auto& element : state.covariance) {
     element = 0.f;
@@ -266,7 +250,7 @@ GPUhdi() void resetCovarianceForRefit(SurfaceTrackState& state) noexcept
 }
 
 // Start a subsequent leg with five times the previous parameter uncertainties.
-GPUhdi() void inflateDiagonalCovarianceForRefit(SurfaceTrackState& state) noexcept
+GPUdi() void inflateDiagonalCovarianceForRefit(SurfaceTrackState& state) noexcept
 {
   constexpr float varianceInflation = 25.f;
   for (int i = 0; i < 5; ++i) {
@@ -278,7 +262,7 @@ GPUhdi() void inflateDiagonalCovarianceForRefit(SurfaceTrackState& state) noexce
 }
 
 // parameters[4] is signed q/pT for both coordinate conventions.
-GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
+GPUdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 {
   float ptInv = std::abs(q2pt);
   if (ptInv < o2::track::MinPTInv) {
@@ -291,28 +275,28 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 }
 
 // Refit inward, outward, then optionally inward again; commit on success.
-inline bool fitTrackSeedLegs(
-  const TrackSeed& seed,
-  const TimeFrame& frame,
-  gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
+GPUdi() bool fitPreparedTrackStateLegs(
+  const SurfaceTrackState& seedState,
+  RefitSpan<const detail::RefitMeasurementSlot> slots,
+  RefitSpan<const detail::CircleFitPoint> points,
   SurfaceCatalogView surfaceCatalog,
   float bz,
   bool shiftReferenceToMeasurement,
   float maxChi2ClusterAttachment,
   float maxChi2NDF,
   bool repeatRefitOut,
-  gsl::span<const float> minPt,
+  float minPtThreshold,
   SurfaceTrackState& outParamIn,
   SurfaceTrackState& outParamOut,
   float& outChi2) noexcept
 {
-  if (layerGlobals.empty() || layerGlobals.size() > MaxLayoutSurfaces) {
+  if (slots.size() == 0 || slots.size() > MaxLayoutSurfaces) {
     return false;
   }
-  // Legs run sequentially; reuse bounded storage without allocating inside
-  // this noexcept refit. Only the active portion is exposed to the assembler.
-  std::array<detail::RefitMeasurementSlot, MaxLayoutSurfaces> slotsBuffer{};
-  const gsl::span<detail::RefitMeasurementSlot> activeSlots{slotsBuffer.data(), layerGlobals.size()};
+  std::array<detail::RefitMeasurementSlot, MaxLayoutSurfaces> reverseSlots{};
+  for (size_t i = 0; i < slots.size(); ++i) {
+    reverseSlots[i] = slots[slots.size() - 1 - i];
+  }
   auto legAcceptable = [](const SurfaceTrackState& state, float chi2, uint32_t acceptedHitCount,
                           float maxQoverPt, float maxChi2NDFValue) noexcept -> bool {
     if (!(std::abs(state.parameters[4]) < maxQoverPt)) {
@@ -322,26 +306,13 @@ inline bool fitTrackSeedLegs(
   };
 
   // Leg A: inward.
-  SurfaceTrackState stateA = seed.state();
+  SurfaceTrackState stateA = seedState;
   if (!std::isfinite(bz)) {
     return false;
   }
   // There is no curvature constraint with the field off; keep the CA seed.
   if (std::abs(bz) >= detail::MinCircleFitBz) {
-    std::array<detail::CircleFitPoint, MaxLayoutSurfaces> points{};
-    std::size_t nPoints = 0;
-    for (int layer = 0; layer < static_cast<int>(layerGlobals.size()); ++layer) {
-      const int cluster = seed.getCluster(layer);
-      if (cluster == o2::its::constants::UnusedIndex) {
-        continue;
-      }
-      if (cluster < 0 || static_cast<std::size_t>(cluster) >= layerGlobals[layer].size()) {
-        return false;
-      }
-      const auto& global = layerGlobals[layer][cluster];
-      points[nPoints++] = {global.x, global.y, global.covariance.xx, global.covariance.xy, global.covariance.yy};
-    }
-    const float qOverPt = detail::estimateCircleQOverPt({points.data(), nPoints}, bz);
+    const float qOverPt = detail::estimateCircleQOverPt(points, bz);
     if (!std::isfinite(qOverPt)) {
       return false;
     }
@@ -351,12 +322,7 @@ inline bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateA);
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
-  const int activeSurfaceCount = static_cast<int>(layerGlobals.size());
-  bool validSlots = false;
-  const auto slotsA = detail::assembleRefitLegSlots(seed, frame, layerGlobals, 0, activeSurfaceCount, 1, activeSlots, validSlots);
-  if (!validSlots) {
-    return false;
-  }
+  const auto slotsA = slots;
   if (!detail::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                              material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                              maxChi2ClusterAttachment)) {
@@ -372,10 +338,7 @@ inline bool fitTrackSeedLegs(
   inflateDiagonalCovarianceForRefit(stateB);
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
-  const auto slotsB = detail::assembleRefitLegSlots(seed, frame, layerGlobals, activeSurfaceCount - 1, -1, -1, activeSlots, validSlots);
-  if (!validSlots) {
-    return false;
-  }
+  const RefitSpan<const detail::RefitMeasurementSlot> slotsB{reverseSlots.data(), slots.size()};
   if (!detail::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                              material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                              maxChi2ClusterAttachment)) {
@@ -385,14 +348,8 @@ inline bool fitTrackSeedLegs(
     return false;
   }
 
-  // MinPt uses the seed's attached-cluster count.
-  const int nClAttached = seed.getHitLayerMask().count();
-  const int minPtSlot = activeSurfaceCount - nClAttached;
-  if (minPtSlot >= 0 && minPtSlot < static_cast<int>(minPt.size())) {
-    const float minPtThreshold = minPt[minPtSlot];
-    if (minPtThreshold > 0.f && ptFromQOverPt(stateB.parameters[4], stateB.absCharge) < minPtThreshold) {
-      return false;
-    }
+  if (minPtThreshold > 0.f && ptFromQOverPt(stateB.parameters[4], stateB.absCharge) < minPtThreshold) {
+    return false;
   }
 
   // Optional leg C: inward again.
@@ -403,10 +360,7 @@ inline bool fitTrackSeedLegs(
     inflateDiagonalCovarianceForRefit(stateC);
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
-    const auto slotsC = detail::assembleRefitLegSlots(seed, frame, layerGlobals, 0, activeSurfaceCount, 1, activeSlots, validSlots);
-    if (!validSlots) {
-      return false;
-    }
+    const auto slotsC = slots;
     if (!detail::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                                material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                maxChi2ClusterAttachment)) {
@@ -424,8 +378,31 @@ inline bool fitTrackSeedLegs(
   return true;
 }
 
-} // namespace o2::itsmft::tracking
+// A seed's refit measurements: one slot per layer (holes stay empty) and the
+// circle-fit points of its hits. Returns the number of slots, 0 if one of its
+// measurements is missing.
+GPUhdi() size_t prepareRefitSlots(const FrameView& frame, const TrackSeed& seed, detail::RefitMeasurementSlot* slots,
+                                  detail::CircleFitPoint* points, size_t& nPoints)
+{
+  nPoints = 0;
+  for (size_t layer = 0; layer < frame.nLayers; ++layer) {
+    const int index = seed.getCluster(static_cast<int>(layer));
+    slots[layer] = {};
+    if (index == o2::its::constants::UnusedIndex) {
+      continue;
+    }
+    const auto* cluster = frame.cluster(static_cast<int>(layer), index);
+    const auto* measurement = cluster ? frame.layers[layer].measurement(cluster->clusterId) : nullptr;
+    if (!measurement) {
+      nPoints = 0;
+      return 0;
+    }
+    slots[layer] = {*measurement, LayerId{static_cast<uint16_t>(layer)}, true};
+    points[nPoints++] = {cluster->x, cluster->y, cluster->covariance.xx, cluster->covariance.xy, cluster->covariance.yy};
+  }
+  return frame.nLayers;
+}
 
-#endif // GPUCA_GPUCODE
+} // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_REFITDRIVER_H_ */

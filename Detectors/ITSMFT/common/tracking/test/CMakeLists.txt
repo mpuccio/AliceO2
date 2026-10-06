@@ -63,3 +63,54 @@ o2_add_test(combined-tracking-composition
 o2_add_common_tracking_test(mft-ca-tracking-configuration testMFTCATrackingConfiguration.cxx)
 
 o2_add_common_tracking_test(workflow-session testWorkflowSession.cxx)
+
+# Explicit GPU-labelled suites require a machine with the selected device.
+foreach(backend CUDA HIP)
+  if(${backend}_ENABLED AND BUILD_TESTING)
+    string(TOLOWER ${backend} backendLower)
+    o2_add_test(tracklets-${backendLower}
+                SOURCES testComputeLayerTrackletsOrchestration.cxx testTrackletKernels.cxx
+                NAME itsmft-tracklets-${backendLower}
+                COMPONENT_NAME itsmft-tracking
+                LABELS "itsmft;tracking;gpu"
+                PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking${backend} O2::ITStracking O2::MFTTracking
+                TARGETVARNAME gpuTestTarget)
+    target_compile_definitions(${gpuTestTarget} PRIVATE TEST_TRACKLETS_${backend})
+    o2_add_test(cells-${backendLower}
+                SOURCES testComputeLayerCellsOrchestration.cxx testCellKernels.cxx
+                NAME itsmft-cells-${backendLower}
+                COMPONENT_NAME itsmft-tracking
+                LABELS "itsmft;tracking;gpu"
+                PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking${backend} O2::ITStracking O2::MFTTracking
+                TARGETVARNAME gpuCellTestTarget)
+    target_compile_definitions(${gpuCellTestTarget} PRIVATE TEST_CELLS_${backend})
+    o2_add_test(neighbours-${backendLower}
+                SOURCES testNeighbourKernels.cxx
+                NAME itsmft-neighbours-${backendLower}
+                COMPONENT_NAME itsmft-tracking
+                LABELS "itsmft;tracking;gpu"
+                PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking${backend}
+                TARGETVARNAME gpuNeighbourTestTarget)
+    target_compile_definitions(${gpuNeighbourTestTarget} PRIVATE TEST_NEIGHBOURS_${backend})
+    o2_add_test(refit-${backendLower}
+                SOURCES testRefitKernels.cxx
+                NAME itsmft-refit-${backendLower}
+                COMPONENT_NAME itsmft-tracking
+                LABELS "itsmft;tracking;gpu"
+                PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking${backend}
+                TARGETVARNAME gpuRefitTestTarget)
+    target_compile_definitions(${gpuRefitTestTarget} PRIVATE TEST_REFIT_${backend})
+    o2_add_test(roads-${backendLower}
+                SOURCES testRoadKernels.cxx
+                NAME itsmft-roads-${backendLower}
+                COMPONENT_NAME itsmft-tracking
+                LABELS "itsmft;tracking;gpu"
+                PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking${backend}
+                TARGETVARNAME gpuRoadTestTarget)
+    target_compile_definitions(${gpuRoadTestTarget} PRIVATE TEST_ROADS_${backend})
+  endif()
+endforeach()
+
+o2_add_test_root_macro(scripts/compareITSTracking.C
+                       PUBLIC_LINK_LIBRARIES ROOT::RIO
+                       LABELS "itsmft;tracking" COMPILE)
