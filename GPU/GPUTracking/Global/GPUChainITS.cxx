@@ -38,7 +38,7 @@ class GPUFrameworkExternalAllocator final : public o2::itsmft::tracking::Externa
  private:
   GPUReconstruction* mFWReco;
 };
-}
+} // namespace
 
 GPUChainITS::~GPUChainITS() = default;
 
