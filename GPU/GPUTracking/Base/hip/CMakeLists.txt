@@ -169,7 +169,7 @@ if(ALIGPU_BUILD_TYPE STREQUAL "O2")
   o2_add_library(
     ${MODULE}
     SOURCES ${SRCS}
-    PUBLIC_LINK_LIBRARIES O2::GPUTracking O2::ITStrackingHIP
+    PUBLIC_LINK_LIBRARIES O2::GPUTracking O2::ITStrackingHIP O2::GTrkTrackingHIP
     PRIVATE_INCLUDE_DIRECTORIES
       ${CMAKE_SOURCE_DIR}/Detectors/Base/src
       ${CMAKE_SOURCE_DIR}/Detectors/TRD/base/src

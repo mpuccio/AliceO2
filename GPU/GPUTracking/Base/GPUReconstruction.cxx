@@ -562,7 +562,7 @@ size_t GPUReconstruction::AllocateRegisteredPermanentMemory()
     GPUError("Must not allocate permanent memory while volatile chunks are allocated");
     throw std::bad_alloc();
   }
-  int32_t total = 0;
+  size_t total = 0;
   for (uint32_t i = 0; i < mMemoryResources.size(); i++) {
     if ((mMemoryResources[i].mType & GPUMemoryResource::MEMORY_PERMANENT) && mMemoryResources[i].mPtr == nullptr) {
       total += AllocateRegisteredMemory(i);
