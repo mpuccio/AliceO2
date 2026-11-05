@@ -43,6 +43,7 @@
   #define GPUhd()                                   // Host and device function, inlined during GPU compilation to avoid symbol clashes in host code
   #define GPUhdi() inline                           // Host and device function, to-be-inlined on host and device
   #define GPUhdni()                                 // Host and device function, not to-be-inlined automatically
+  #define GPUhdnii() inline                         // Host and device function, not-to-be-inlined on device, inlined on host
   #define GPUg() INVALID_TRIGGER_ERROR_NO_GPU_CODE  // GPU kernel
   #define GPUshared()                               // shared memory variable declaration
   #define GPUglobal()                               // global memory variable declaration (only used for kernel input pointers)
@@ -89,6 +90,7 @@
   #define GPUhd() inline
   #define GPUhdi() inline
   #define GPUhdni()
+  #define GPUhdnii() inline
   #define GPUg() __kernel
   #define GPUshared() __local
   #define GPUglobal() __global
@@ -157,6 +159,7 @@
   #define GPUhd() inline
   #define GPUhdi() inline
   #define GPUhdni()
+  #define GPUhdnii() inline
   #define GPUg() kernel
   #define GPUshared() threadgroup
   #define GPUglobal() device
@@ -187,6 +190,7 @@
   #define GPUhd() __host__ __device__ inline
   #define GPUhdi() __host__ __device__ inline
   #define GPUhdni() __host__ __device__
+  #define GPUhdnii() __host__ __device__ inline __attribute__((noinline))
   #define GPUg() __global__
   #define GPUshared() __shared__
   #if defined(GPUCA_GPUCODE_DEVICE) && 0 // TODO: Fix for HIP
@@ -222,6 +226,7 @@
   #define GPUhd() __host__ __device__ inline
   #define GPUhdi() __host__ __device__ inline
   #define GPUhdni() __host__ __device__
+  #define GPUhdnii() __host__ __device__ inline __attribute__((noinline))
   #define GPUg() __global__
   #define GPUshared() __shared__
   #define GPUglobal()
