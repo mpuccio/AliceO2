@@ -16,7 +16,7 @@
 #include <array>
 #include <gsl/gsl>
 
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITSMFTTracking/CapacityEstimator.h"
 #include "ITSMFTTracking/ROFLookupTables.h"
 #include "ITStracking/TrackingTopology.h"

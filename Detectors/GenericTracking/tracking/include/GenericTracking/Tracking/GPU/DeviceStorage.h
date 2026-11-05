@@ -1,0 +1,454 @@
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+/// \file DeviceStorage.h
+/// \brief Typed, non-owning descriptors over DeviceArena storage.
+
+#ifndef GTRK_TRACKING_GPU_DEVICESTORAGE_H_
+#define GTRK_TRACKING_GPU_DEVICESTORAGE_H_
+
+#include "GenericTracking/Base/Columns.h"
+#include "GenericTracking/Tracking/GPU/DeviceArena.h"
+#include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
+
+#include <memlayout/wrapper.h>
+
+#include <cstddef>
+#include <cstring>
+#include <vector>
+#include <memory>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+
+namespace o2::gtrk
+{
+
+namespace device_storage_detail
+{
+template <typename T>
+[[nodiscard]] DeviceAllocation allocateArray(DeviceArena& arena, std::size_t count, ArenaEnd end)
+{
+  static_assert(std::is_trivially_copyable_v<T>);
+  if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+    return arena.allocate(std::numeric_limits<std::size_t>::max(), 256U, end);
+  }
+  return arena.allocate(count * sizeof(T), 256U, end);
+}
+
+/// \a copy(to, from) for each column of \a from and the same column of \a to,
+/// both column views of one record type.
+template <typename From, typename To, typename Copy>
+void forEachColumnPair(const From& from, const To& to, const Copy& copy)
+{
+  from.apply([&](const auto&... source) { to.apply([&](auto... target) { (copy(target, source), ...); }); });
+}
+
+/// The arena of a descriptor, \a what naming it in the error; with \a tag,
+/// also checked live (std::logic_error for storage of a rewound scope).
+[[nodiscard]] inline DeviceArena& requireAllocated(DeviceArena* arena, const char* what, const ArenaTag* tag = nullptr)
+{
+  if (arena == nullptr) {
+    throw std::logic_error(std::string{what} + " has not been allocated");
+  }
+  if (tag != nullptr) {
+    arena->requireLive(*tag);
+  }
+  return *arena;
+}
+} // namespace device_storage_detail
+
+template <typename T>
+class DeviceSpan
+{
+ public:
+  static_assert(std::is_trivially_copyable_v<T>);
+
+  [[nodiscard]] bool allocate(DeviceArena& arena, std::size_t count, ArenaEnd end = ArenaEnd::kBase)
+  {
+    const DeviceAllocation allocation = device_storage_detail::allocateArray<T>(arena, count, end);
+    if (!allocation) {
+      return false;
+    }
+    mArena = &arena;
+    mData = static_cast<T*>(allocation.data);
+    mSize = count;
+    mTag = allocation.tag;
+    return true;
+  }
+
+  [[nodiscard]] T* data()
+  {
+    requireLive();
+    return mData;
+  }
+  [[nodiscard]] const T* data() const
+  {
+    requireLive();
+    return mData;
+  }
+  [[nodiscard]] std::size_t size() const
+  {
+    requireLive();
+    return mSize;
+  }
+  [[nodiscard]] DeviceArena& arena() const { return device_storage_detail::requireAllocated(mArena, "device span"); }
+
+ private:
+  void requireLive() const { static_cast<void>(device_storage_detail::requireAllocated(mArena, "device span", &mTag)); }
+
+  DeviceArena* mArena = nullptr;
+  T* mData = nullptr;
+  std::size_t mSize = 0;
+  ArenaTag mTag;
+};
+
+template <typename T>
+class DeviceObject
+{
+ public:
+  static_assert(std::is_trivially_copyable_v<T>);
+
+  [[nodiscard]] bool allocate(DeviceArena& arena, ArenaEnd end = ArenaEnd::kBase) { return mStorage.allocate(arena, 1U, end); }
+  [[nodiscard]] T* data() { return mStorage.data(); }
+  [[nodiscard]] const T* data() const { return mStorage.data(); }
+  [[nodiscard]] DeviceArena& arena() const { return mStorage.arena(); }
+
+ private:
+  DeviceSpan<T> mStorage;
+};
+
+template <template <template <class> class> class S>
+class DeviceColumns
+{
+ public:
+  using View = memlayout::Wrapper<S, memlayout::pointer, memlayout::Layout::soa>;
+  using ConstView = memlayout::Wrapper<S, memlayout::const_pointer, memlayout::Layout::soa>;
+  using Pointers = S<memlayout::pointer>;
+
+  /// Allocate all columns or none. Successful allocations inherit the parent
+  /// scope's lifetime; a failure rewinds the temporary scope.
+  [[nodiscard]] bool allocate(DeviceArena& arena, std::size_t rows, ArenaEnd end = ArenaEnd::kBase)
+  {
+    auto transaction = arena.scope(end);
+    Pointers pointers{};
+    bool complete = true;
+    pointers.apply([&](auto&... pointer) {
+      const auto allocateOne = [&](auto& out) {
+        if (!complete) {
+          return;
+        }
+        using Element = std::remove_pointer_t<std::remove_reference_t<decltype(out)>>;
+        const DeviceAllocation allocation = device_storage_detail::allocateArray<Element>(arena, rows, end);
+        if (!allocation) {
+          complete = false;
+          return;
+        }
+        out = static_cast<Element*>(allocation.data);
+      };
+      (allocateOne(pointer), ...);
+    });
+    if (!complete) {
+      return false;
+    }
+    transaction.commit();
+    mArena = &arena;
+    mPointers = pointers;
+    mRows = rows;
+    mTag = arena.currentTag(end);
+    return true;
+  }
+
+  [[nodiscard]] std::size_t size() const
+  {
+    requireLive();
+    return mRows;
+  }
+  [[nodiscard]] View view()
+  {
+    requireLive();
+    return View{mPointers};
+  }
+  [[nodiscard]] ConstView view() const
+  {
+    requireLive();
+    return ConstView{mPointers};
+  }
+  [[nodiscard]] DeviceArena& arena() const { return device_storage_detail::requireAllocated(mArena, "device columns"); }
+
+ private:
+  void requireLive() const { static_cast<void>(device_storage_detail::requireAllocated(mArena, "device columns", &mTag)); }
+
+  DeviceArena* mArena = nullptr;
+  Pointers mPointers{};
+  std::size_t mRows = 0;
+  ArenaTag mTag;
+};
+
+template <typename T>
+void upload(const T* source, DeviceSpan<T>& destination, std::size_t count, DeviceStream& stream)
+{
+  if (count > destination.size()) {
+    throw std::out_of_range("device span upload exceeds its destination");
+  }
+  if (count == 0U) {
+    return;
+  }
+  destination.arena().runtime().copyToDevice(destination.data(), source, count * sizeof(T), stream);
+}
+
+template <typename T>
+void download(const DeviceSpan<T>& source, T* destination, std::size_t count, DeviceStream& stream)
+{
+  if (count > source.size()) {
+    throw std::out_of_range("device span download exceeds its source");
+  }
+  if (count == 0U) {
+    return;
+  }
+  source.arena().runtime().copyToHost(destination, source.data(), count * sizeof(T), stream);
+}
+
+/// The same into \a destination, sized to \a count.
+template <typename T>
+void download(const DeviceSpan<T>& source, std::vector<T>& destination, std::size_t count, DeviceStream& stream)
+{
+  destination.resize(count);
+  download(source, destination.data(), count, stream);
+}
+
+template <typename T>
+void uploadObject(const T& source, DeviceObject<T>& destination, DeviceStream& stream)
+{
+  destination.arena().runtime().copyToDevice(destination.data(), &source, sizeof(T), stream);
+}
+
+/// Upload \a rows rows of any host column view -- a DPL message's columns
+/// included, which are not a BoundedColumns. The record type cannot be deduced
+/// through the nested ConstView, so callers name it: `upload<MeasurementT>(...)`.
+template <template <template <class> class> class S>
+void upload(typename DeviceColumns<S>::ConstView source, std::size_t rows, DeviceColumns<S>& destination, DeviceStream& stream)
+{
+  if (rows > destination.size()) {
+    throw std::out_of_range("device column upload exceeds its destination");
+  }
+  if (rows == 0U) {
+    return;
+  }
+  auto& runtime = destination.arena().runtime();
+  device_storage_detail::forEachColumnPair(source, destination.view(),
+                                           [&](auto* to, const auto* from) { runtime.copyToDevice(to, from, rows * sizeof(*to), stream); });
+}
+
+/// Download \a rows rows of \a source into \a destination from row \a
+/// destinationOffset, which must hold them.
+template <template <template <class> class> class S>
+void download(const DeviceColumns<S>& source, BoundedColumns<S>& destination, std::size_t destinationOffset, std::size_t rows, DeviceStream& stream)
+{
+  if (rows > source.size() || destinationOffset > destination.size() || rows > destination.size() - destinationOffset) {
+    throw std::out_of_range("device column download exceeds its source or its destination");
+  }
+  if (rows == 0U) {
+    return;
+  }
+  auto& runtime = source.arena().runtime();
+  device_storage_detail::forEachColumnPair(source.view(), destination.view(),
+                                           [&](auto* to, const auto* from) { runtime.copyToHost(to + destinationOffset, from, rows * sizeof(*to), stream); });
+}
+
+template <template <template <class> class> class S>
+void download(const DeviceColumns<S>& source, BoundedColumns<S>& destination, std::size_t rows, DeviceStream& stream)
+{
+  if (rows > source.size()) {
+    throw std::out_of_range("device column download exceeds its source");
+  }
+  destination.resize(rows);
+  download(source, destination, 0U, rows, stream);
+}
+
+/// Copy \a rows rows of \a source, from row \a sourceOffset, into
+/// \a destination at row \a destinationOffset, on the device: one copy per
+/// column, queued on \a stream.
+template <template <template <class> class> class S>
+void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
+                 DeviceStream& stream)
+{
+  if (sourceOffset > source.size() || rows > source.size() - sourceOffset || destinationOffset > destination.size() ||
+      rows > destination.size() - destinationOffset) {
+    throw std::out_of_range("device column copy exceeds its source or its destination");
+  }
+  if (rows == 0U) {
+    return;
+  }
+  auto& runtime = destination.arena().runtime();
+  device_storage_detail::forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) {
+    runtime.copyOnDevice(to + destinationOffset, from + sourceOffset, rows * sizeof(*to), stream);
+  });
+}
+
+/// Records of a column set kept as chunks, each exactly sized, in the order
+/// they came, and gathered into one column set when they are all there.
+/// The chunks live in the arena scope that was
+/// current on their end when they were appended; gathering them after it
+/// closed throws, as any use of stale device storage does.
+template <template <template <class> class> class S>
+class DeviceColumnChunks
+{
+ public:
+  /// Copy \a rows rows of \a source, from row \a sourceOffset, into a new
+  /// chunk on \a end of \a arena. False, and nothing kept, if the arena refuses.
+  [[nodiscard]] bool append(DeviceArena& arena, ArenaEnd end, const DeviceColumns<S>& source, std::size_t sourceOffset, std::size_t rows, DeviceStream& stream)
+  {
+    if (rows == 0U) {
+      return true;
+    }
+    DeviceColumns<S> chunk;
+    if (!chunk.allocate(arena, rows, end)) {
+      return false;
+    }
+    copyColumns(source, sourceOffset, chunk, 0U, rows, stream);
+    mChunks.push_back(chunk);
+    mRows += rows;
+    return true;
+  }
+
+  /// \a columns, all their rows, as the next chunk, where they were allocated.
+  void adopt(const DeviceColumns<S>& columns)
+  {
+    mChunks.push_back(columns);
+    mRows += columns.size();
+  }
+
+  /// Copy every chunk, in the order appended, into \a destination from row
+  /// \a destinationOffset.
+  void gather(DeviceColumns<S>& destination, std::size_t destinationOffset, DeviceStream& stream) const
+  {
+    std::size_t at = destinationOffset;
+    for (const auto& chunk : mChunks) {
+      copyColumns(chunk, 0U, destination, at, chunk.size(), stream);
+      at += chunk.size();
+    }
+  }
+
+  /// Download every chunk, in the order appended, into \a destination from
+  /// row \a destinationOffset, which must hold them: no gather on the device.
+  void download(BoundedColumns<S>& destination, std::size_t destinationOffset, DeviceStream& stream) const
+  {
+    std::size_t at = destinationOffset;
+    for (const auto& chunk : mChunks) {
+      gtrk::download(chunk, destination, at, chunk.size(), stream);
+      at += chunk.size();
+    }
+  }
+
+  /// Forget the chunks; their storage goes with its scope.
+  void clear() noexcept
+  {
+    mChunks.clear();
+    mRows = 0U;
+  }
+
+  [[nodiscard]] std::size_t rows() const noexcept { return mRows; }
+
+ private:
+  std::vector<DeviceColumns<S>> mChunks;
+  std::size_t mRows = 0U;
+};
+
+/// A FlatObject's bytes as they must land on the device: the object, whose
+/// internal pointers already point into the device buffer, and its buffer.
+struct FlatObjectImage {
+  std::vector<std::byte> object;
+  std::vector<std::byte> buffer;
+};
+
+/// How a FlatObject type is prepared for a device: a specialisation provides
+/// `static std::size_t bufferBytes(const T& source)` and
+/// `static FlatObjectImage image(const T& source, char* futureBuffer)`.
+/// O2 compiles a FlatObject's host methods -- cloning, relocation, even its
+/// constructor -- only outside GPU translation units, so a specialisation is
+/// declared in a header and defined in a host .cxx, usually as
+/// flatObjectBufferBytes<T> and flatObjectImage<T> below; DeviceFlatObject
+/// then works in any translation unit.
+template <typename T>
+struct FlatObjectPort;
+
+/// The size of \a source's flat buffer, for host translation units.
+template <typename T>
+[[nodiscard]] std::size_t flatObjectBufferBytes(const T& source)
+{
+  return static_cast<std::size_t>(source.getFlatBufferSize());
+}
+
+/// FlatObject.h's recipe for a GPU, for host translation units: clone
+/// \a source into a buffer of its flat size, relocate the clone's pointers to
+/// \a futureBuffer with setFutureBufferAddress, and take the bytes of both.
+template <typename T>
+[[nodiscard]] FlatObjectImage flatObjectImage(const T& source, char* futureBuffer)
+{
+  FlatObjectImage image;
+  image.buffer.resize(static_cast<std::size_t>(source.getFlatBufferSize()));
+  auto clone = std::make_unique<T>();
+  // FlatObject speaks char*; the image holds std::byte.
+  clone->cloneFromObject(source, reinterpret_cast<char*>(image.buffer.data())); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+  clone->setFutureBufferAddress(futureBuffer);
+  image.object.resize(sizeof(T));
+  std::memcpy(image.object.data(), static_cast<const void*>(clone.get()), sizeof(T));
+  return image;
+}
+
+/// An O2 FlatObject -- a MatLayerCylSet, a calibration object -- ported to the
+/// device: its image, made by FlatObjectPort<T>
+/// for the device buffer's address, copied as bytes, the buffer first. The
+/// object and its buffer are one allocation, so the upload is all or nothing,
+/// and the object is usable on the device as it lands.
+template <typename T>
+class DeviceFlatObject
+{
+ public:
+  /// Port \a source to \a end of \a arena. False, and the arena as it was, if
+  /// the arena refuses. Returns once the copies are done.
+  [[nodiscard]] bool upload(DeviceArena& arena, const T& source, DeviceStream& stream, ArenaEnd end = ArenaEnd::kBase)
+  {
+    constexpr std::size_t kAlignment = 256U;
+    const std::size_t objectBytes = (sizeof(T) + kAlignment - 1U) / kAlignment * kAlignment;
+    const std::size_t bufferBytes = FlatObjectPort<T>::bufferBytes(source);
+    DeviceSpan<std::byte> storage;
+    if (!storage.allocate(arena, objectBytes + bufferBytes, end)) {
+      return false;
+    }
+    std::byte* const object = storage.data();
+    std::byte* const buffer = object + objectBytes;
+    const FlatObjectImage image = FlatObjectPort<T>::image(source, reinterpret_cast<char*>(buffer)); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+    if (image.object.size() != sizeof(T) || image.buffer.size() != bufferBytes) {
+      throw std::logic_error("a flat object's image does not match its type and buffer size");
+    }
+    auto& runtime = arena.runtime();
+    if (bufferBytes != 0U) {
+      runtime.copyToDevice(buffer, image.buffer.data(), bufferBytes, stream);
+    }
+    runtime.copyToDevice(object, image.object.data(), sizeof(T), stream);
+    stream.synchronize(); // the image goes when this returns
+    mStorage = storage;
+    return true;
+  }
+
+  /// The object on the device.
+  [[nodiscard]] const T* data() const { return reinterpret_cast<const T*>(mStorage.data()); } // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+
+ private:
+  DeviceSpan<std::byte> mStorage;
+};
+
+} // namespace o2::gtrk
+
+#endif // GTRK_TRACKING_GPU_DEVICESTORAGE_H_

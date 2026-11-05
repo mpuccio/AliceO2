@@ -15,7 +15,7 @@
 #include <memory>
 #include <span>
 
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITStracking/ClusterLines.h"
 
 namespace o2::its::line_vertexer

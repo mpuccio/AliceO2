@@ -32,7 +32,7 @@
 #include "ITStracking/Tracklet.h"
 #include "ITStracking/IndexTableUtils.h"
 #include "ITStracking/ExternalAllocator.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITSMFTTracking/ROFLookupTables.h"
 #include "ITStracking/TrackingTopology.h"
 #include "SimulationDataFormat/MCCompLabel.h"

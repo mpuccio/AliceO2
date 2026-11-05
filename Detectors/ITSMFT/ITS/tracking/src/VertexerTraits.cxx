@@ -21,7 +21,7 @@
 #include <oneapi/tbb/combinable.h>
 
 #include "ITStracking/VertexerTraits.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITStracking/ClusterLines.h"
 #include "ITStracking/Definitions.h"
 #include "ITStracking/LineVertexerHelpers.h"

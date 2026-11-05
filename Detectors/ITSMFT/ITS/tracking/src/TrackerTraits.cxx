@@ -35,7 +35,7 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "GPUCommonMath.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITSMFTTracking/MathUtils.h"
 #include "ITStracking/Cell.h"
 #include "ITSMFTTracking/Constants.h"

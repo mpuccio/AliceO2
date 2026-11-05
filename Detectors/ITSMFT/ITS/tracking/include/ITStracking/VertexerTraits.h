@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/ClusterLines.h"
 #include "ITStracking/Configuration.h"

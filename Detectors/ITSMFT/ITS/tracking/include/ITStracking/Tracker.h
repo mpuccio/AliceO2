@@ -33,7 +33,7 @@
 #include "ITStracking/Definitions.h"
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/TrackerTraits.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 
 namespace o2
 {

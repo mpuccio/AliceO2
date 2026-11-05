@@ -37,7 +37,7 @@ o2_add_library(ITSMFTTracking
                        src/Tracker.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
-                       O2::GenericTracking
+                       O2::GTrkBase
                        O2::GPUCommon
                        O2::CommonConstants
                        O2::CommonDataFormat

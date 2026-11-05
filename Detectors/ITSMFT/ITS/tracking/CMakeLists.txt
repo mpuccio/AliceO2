@@ -25,7 +25,7 @@ o2_add_library(ITStracking
                        src/VertexerTraits.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::GPUCommon
-                       O2::GenericTracking
+                       O2::GTrkBase
                        Microsoft.GSL::GSL
                        O2::CommonConstants
                        O2::DataFormatsITSMFT

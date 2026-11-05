@@ -22,7 +22,7 @@
 
 #include "ITStrackingGPU/TimeFrameGPU.h"
 #include "ITSMFTTracking/Constants.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITStrackingGPU/Utils.h"
 #include "ITStracking/ClusterLines.h"
 #include "ITStracking/LineProjection.h"

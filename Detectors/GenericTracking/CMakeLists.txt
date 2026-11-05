@@ -8,8 +8,15 @@
 # In applying this license CERN does not waive the privileges and immunities
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
-o2_add_library(GenericTracking
-               SOURCES src/BoundedAllocator.cxx
-               PRIVATE_LINK_LIBRARIES O2::GPUCommon O2::FrameworkLogger)
+# Every unit that instantiates the header tracker -- the tracking device's, the
+# study library's, the sink's and the benches' -- compiles at -O3 in
+# RelWithDebInfo, where the tracker runs faster than at O2's -O2.
+set(GTRK_TRACKER_OPTIMIZATION "$<$<AND:$<CONFIG:RelWithDebInfo>,$<COMPILE_LANGUAGE:CXX>>:-O3>")
 
-add_subdirectory(test)
+add_subdirectory(base)
+add_subdirectory(tracking)
+add_subdirectory(workflow)
+if(ENABLE_UPGRADES)
+  add_subdirectory(tools)
+  add_subdirectory(study)
+endif()

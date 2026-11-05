@@ -14,7 +14,7 @@
 ///
 
 #include "ITStracking/Vertexer.h"
-#include "GenericTracking/BoundedAllocator.h"
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "ITStracking/VertexerTraits.h"
 #include "ITSMFTTracking/ITSTrackingConfigParam.h"
 
