@@ -484,6 +484,22 @@ GPUhdi() GPUAlwaysInline() void crossingPoint(const IterationParameters<Det>& pa
   point[2] = barrel ? prediction.second : position;
 }
 
+/// The centre of a step's window on \a layer, in the rows' coordinates: the
+/// nominal crossing \a prediction, which is the detector frame's, as its
+/// point's azimuth and second coordinate about the beam line, as the
+/// measurements have theirs (`gridPoint`).
+template <DetectorLayout Det>
+GPUhdi() GPUAlwaysInline() void windowCentre(const IterationParameters<Det>& parameters, LayerID layer, const LayerCrossingPrediction& prediction, Scalar& phi,
+                                             Scalar& second)
+{
+  Scalar point[3]{};
+  crossingPoint(parameters, layer, prediction, point);
+  const Scalar x = point[0] - parameters.beamX;
+  const Scalar y = point[1] - parameters.beamY;
+  phi = azimuth(x, y);
+  second = secondCoordinate<Det>(layer, o2::gpu::CAMath::Hypot(x, y), point[2]);
+}
+
 /// What a follow's observer sees (`FollowStage::follow`); the default sees
 /// nothing and compiles to nothing:
 ///  - each direction's start, and each step: the layer it leaves, its state,
@@ -1345,12 +1361,15 @@ class FollowStage
                                                              const follow::Target& target, PropagationDirection direction, Scalar scale,
                                                              CandidateWindow& window, Scalar (&reach)[2]) const
   {
+    Scalar phiCentre = 0.F;
+    Scalar secondCentre = 0.F;
+    follow::windowCentre(*mParameters, target.layer, target.prediction, phiCentre, secondCentre);
     window = {.earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(mMaxCandidateWidthPS[target.layer]) + 1,
               .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
               .afterPS = box.lower(),
-              .phiCentre = target.prediction.phi,
+              .phiCentre = phiCentre,
               .phiHalfWidth = std::numbers::pi_v<Scalar>,
-              .secondCentre = target.prediction.second,
+              .secondCentre = secondCentre,
               .secondHalfWidth = follow::kOpenBound};
     return follow::predictedWindow<Scaled>(mPropagator, *mParameters, *mGeometry, *mMaterial, state, factors, target.layer, direction, target.prediction,
                                            window, scale, reach);

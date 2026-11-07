@@ -1086,12 +1086,15 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
           out << std::format("S {} nopred\n", static_cast<int>(target));
           break;
         }
+        Scalar phiCentre = 0.F;
+        Scalar secondCentre = 0.F;
+        follow::windowCentre(parameters, target, prediction, phiCentre, secondCentre);
         CandidateWindow window{.earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(widest[target]) + 1,
                                .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
                                .afterPS = box.lower(),
-                               .phiCentre = prediction.phi,
+                               .phiCentre = phiCentre,
                                .phiHalfWidth = std::numbers::pi_v<Scalar>,
-                               .secondCentre = prediction.second,
+                               .secondCentre = secondCentre,
                                .secondHalfWidth = 1.e4F};
         follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window,
                                        1.F);

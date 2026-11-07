@@ -7162,13 +7162,17 @@ class CompleteAnatomy
     const auto link = direction == PropagationDirection::kBackward ? linkOf<Det>(target, step.layer) : linkOf<Det>(step.layer, target);
     const auto point = frame.measurement(row);
     const Scalar second = secondCoordinate<Det>(target, point.r, point.z);
+    // The window's centre as the follow has it: about the beam line.
+    Scalar phiCentre = 0.F;
+    Scalar secondCentre = 0.F;
+    follow::windowCentre(parameters, target, nominal, phiCentre, secondCentre);
     const auto inside = [&](Scalar phiHalfWidth, Scalar secondHalfWidth) {
       const CandidateWindow window{.earliestPS = 0,
                                    .latestPS = 0,
                                    .afterPS = 0U,
-                                   .phiCentre = nominal.phi,
+                                   .phiCentre = phiCentre,
                                    .phiHalfWidth = phiHalfWidth,
-                                   .secondCentre = nominal.second,
+                                   .secondCentre = secondCentre,
                                    .secondHalfWidth = secondHalfWidth};
       return spatiallyCompatible(window, point.phi, second);
     };
@@ -7178,15 +7182,15 @@ class CompleteAnatomy
       CandidateWindow window{.earliestPS = 0,
                              .latestPS = 0,
                              .afterPS = 0U,
-                             .phiCentre = nominal.phi,
+                             .phiCentre = phiCentre,
                              .phiHalfWidth = std::numeric_limits<Scalar>::infinity(),
-                             .secondCentre = nominal.second,
+                             .secondCentre = secondCentre,
                              .secondHalfWidth = std::numeric_limits<Scalar>::infinity()};
       follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window, 1.F);
       if (ratios != nullptr) {
-        const Scalar dPhi = std::remainder(point.phi - nominal.phi, 2.F * std::numbers::pi_v<Scalar>);
+        const Scalar dPhi = std::remainder(point.phi - phiCentre, 2.F * std::numbers::pi_v<Scalar>);
         (*ratios)[0] = static_cast<float>(std::abs(dPhi) / window.phiHalfWidth);
-        (*ratios)[1] = static_cast<float>(std::abs(second - nominal.second) / window.secondHalfWidth);
+        (*ratios)[1] = static_cast<float>(std::abs(second - secondCentre) / window.secondHalfWidth);
         (*ratios)[2] = static_cast<float>((step.state.qOverP() < 0.F ? -dPhi : dPhi) / window.phiHalfWidth);
         (*ratios)[3] = static_cast<float>(window.phiHalfWidth * point.r * 1.e4F);
       }
