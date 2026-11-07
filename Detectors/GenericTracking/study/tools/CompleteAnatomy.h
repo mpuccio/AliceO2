@@ -696,6 +696,17 @@ class CompleteAnatomy
           mOutStop[index] = stopReason(replay->outward.front(), ownRow, outside, particle, mStopDetail[index]);
           mOutStepKink[index] = kinkBin(largestKink(particle, outside, gap));
           mOutStopLayer[index] = gap;
+          if (mOutStop[index] == kWindow || mOutStop[index] == kNotQueried) {
+            const auto& out = replay->outward.front();
+            const auto step = std::ranges::find(out.steps, outside, &Step::layer);
+            if (step != out.steps.end()) {
+              std::array<float, 4> offsets{};
+              const auto kind = mOutStop[index] == kWindow ? 0U : 1U;
+              ++mOutWindowAudit[kind][windowAudit(*step, ownRow, gap, parameters, frame, geometry, material, propagator, PropagationDirection::kForward,
+                                                  &offsets)];
+              mOutWindowOffsets[kind].push_back(offsets);
+            }
+          }
           if (mOutStop[index] == kRefitFailed) {
             const auto& out = replay->outward.front();
             ++mRefitFailures[std::format("{} / pass {} / layer {}", static_cast<int>(out.refitStatus), static_cast<int>(out.refitFailedPass),
@@ -814,7 +825,8 @@ class CompleteAnatomy
       if (mStop[index] == kWindow || mStop[index] == kNotQueried) {
         const auto step = std::ranges::find(replay->steps, static_cast<LayerID>(target + 1U), &Step::layer);
         if (step != replay->steps.end()) {
-          ++mWindowAudit[mStop[index] == kWindow ? 0U : 1U][windowAudit(*step, row, target, parameters, frame, geometry, material, propagator)];
+          ++mWindowAudit[mStop[index] == kWindow ? 0U : 1U]
+                        [windowAudit(*step, row, target, parameters, frame, geometry, material, propagator, PropagationDirection::kBackward)];
         }
       }
     }
@@ -2385,15 +2397,34 @@ class CompleteAnatomy
     }
     if (followed) {
       for (std::size_t kind = 0; kind < 2U; ++kind) {
-        std::cout << std::format("  {}, the row against the windows (pair window / covariance window at nSigma / at the gate's sqrt(chi2 max)): ",
-                                 kind == 0U ? "outside the window" : "not queried");
-        for (std::size_t flags = 0; flags < 8U; ++flags) {
-          if (mWindowAudit[kind][flags] != 0U) {
-            std::cout << std::format("{}{}{} {}; ", (flags & 1U) != 0U ? "P" : "p", (flags & 2U) != 0U ? "N" : "n", (flags & 4U) != 0U ? "G" : "g",
-                                     mWindowAudit[kind][flags]);
+        for (std::size_t direction = 0; direction < 2U; ++direction) {
+          const auto& audit = direction == 0U ? mWindowAudit[kind] : mOutWindowAudit[kind];
+          std::cout << std::format("  {}{}, the row against the windows (pair window / covariance window at nSigma / at the gate's sqrt(chi2 max)): ",
+                                   direction == 0U ? "" : "outward, ", kind == 0U ? "outside the window" : "not queried");
+          for (std::size_t flags = 0; flags < 8U; ++flags) {
+            if (audit[flags] != 0U) {
+              std::cout << std::format("{}{}{} {}; ", (flags & 1U) != 0U ? "P" : "p", (flags & 2U) != 0U ? "N" : "n", (flags & 4U) != 0U ? "G" : "g",
+                                       audit[flags]);
+            }
           }
+          std::cout << "(capital: inside)\n";
         }
-        std::cout << "(capital: inside)\n";
+        // How far outside the gate's window the outward rows lie, per axis.
+        auto offsets = mOutWindowOffsets[kind];
+        if (!offsets.empty()) {
+          std::string offsetLine = std::format("  outward, {}, the row's offset from the window's centre over the gate window's half-width, 50/90/99 % (1/50/99 % signed):",
+                                         kind == 0U ? "outside the window" : "not queried");
+          for (std::size_t axis = 0; axis < 4U; ++axis) {
+            std::ranges::sort(offsets, {}, [axis](const std::array<float, 4>& offset) { return offset[axis]; });
+            const auto quantile = [&](double q) {
+              return offsets[std::min(offsets.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(offsets.size())))][axis];
+            };
+            constexpr std::array<const char*, 4> kAxes{"azimuth", "second", "azimuth times the charge's sign", "azimuth half-width [um]"};
+            const bool signedAxis = axis == 2U;
+            offsetLine += std::format(" {} {:.2f} {:.2f} {:.2f};", kAxes[axis], quantile(signedAxis ? 0.01 : 0.5), quantile(signedAxis ? 0.5 : 0.9), quantile(0.99));
+          }
+          std::cout << offsetLine << '\n';
+        }
       }
     }
     line = "  not found (the last iteration's cuts):";
@@ -7113,19 +7144,22 @@ class CompleteAnatomy
   /// it at the update gate's sqrt(chi2 max) (4) -- the covariance windows
   /// unclipped by the pair window. The window's sigma is the gate's,
   /// sqrt(clusterChi2Max), so a scaled copy of the parameters sets it.
+  /// The step walks in \a direction. With \a offsets, the row's distance
+  /// from the window's centre in azimuth and in the second coordinate, each
+  /// over the gate window's half-width (above 1: outside it on that axis);
+  /// the azimuth's signed by the track's charge; the azimuth half-width
+  /// along r phi [um].
   template <typename Material>
   [[nodiscard]] std::size_t windowAudit(const Step& step, std::uint32_t row, LayerID target, const IterationParameters<Det>& parameters,
                                         const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material,
-                                        const Propagator& propagator) const
+                                        const Propagator& propagator, PropagationDirection direction, std::array<float, 4>* offsets = nullptr) const
   {
-    const auto nominal = predictLayerCrossing(propagator, parameters, geometry.planeOf(step.state), step.state, target, PropagationDirection::kBackward);
+    const auto nominal = predictLayerCrossing(propagator, parameters, geometry.planeOf(step.state), step.state, target, direction);
     if (nominal.status != PropagationStatus::kOk) {
       return 0U;
     }
-    const auto link = linkOf<Det>(target, step.layer);
-    if (link == kNoLink) {
-      return 0U;
-    }
+    // The link from the inner of the two layers to the outer.
+    const auto link = direction == PropagationDirection::kBackward ? linkOf<Det>(target, step.layer) : linkOf<Det>(step.layer, target);
     const auto point = frame.measurement(row);
     const Scalar second = secondCoordinate<Det>(target, point.r, point.z);
     const auto inside = [&](Scalar phiHalfWidth, Scalar secondHalfWidth) {
@@ -7138,7 +7172,7 @@ class CompleteAnatomy
                                    .secondHalfWidth = secondHalfWidth};
       return spatiallyCompatible(window, point.phi, second);
     };
-    const auto covariance = [&](Scalar sigma) {
+    const auto covariance = [&](Scalar sigma, std::array<float, 4>* ratios = nullptr) {
       auto scaled = std::make_unique<IterationParameters<Det>>(parameters);
       scaled->clusterChi2Max = sigma * sigma;
       CandidateWindow window{.earliestPS = 0,
@@ -7148,14 +7182,20 @@ class CompleteAnatomy
                              .phiHalfWidth = std::numeric_limits<Scalar>::infinity(),
                              .secondCentre = nominal.second,
                              .secondHalfWidth = std::numeric_limits<Scalar>::infinity()};
-      follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, PropagationDirection::kBackward, nominal,
-                                     window, 1.F);
+      follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window, 1.F);
+      if (ratios != nullptr) {
+        const Scalar dPhi = std::remainder(point.phi - nominal.phi, 2.F * std::numbers::pi_v<Scalar>);
+        (*ratios)[0] = static_cast<float>(std::abs(dPhi) / window.phiHalfWidth);
+        (*ratios)[1] = static_cast<float>(std::abs(second - nominal.second) / window.secondHalfWidth);
+        (*ratios)[2] = static_cast<float>((step.state.qOverP() < 0.F ? -dPhi : dPhi) / window.phiHalfWidth);
+        (*ratios)[3] = static_cast<float>(window.phiHalfWidth * point.r * 1.e4F);
+      }
       return inside(window.phiHalfWidth, window.secondHalfWidth);
     };
     std::size_t flags = 0U;
-    flags |= inside(parameters.windows[link].phiHalfWidth, parameters.windows[link].secondHalfWidth) ? 1U : 0U;
+    flags |= link != kNoLink && inside(parameters.windows[link].phiHalfWidth, parameters.windows[link].secondHalfWidth) ? 1U : 0U;
     flags |= covariance(parameters.pairCut.nSigma) ? 2U : 0U;
-    flags |= covariance(std::sqrt(parameters.clusterChi2Max)) ? 4U : 0U;
+    flags |= covariance(std::sqrt(parameters.clusterChi2Max), offsets) ? 4U : 0U;
     return flags;
   }
 
@@ -8460,6 +8500,8 @@ class CompleteAnatomy
   std::size_t mOutAgree = 0U;                                    ///< of them, agreeing with the iteration's kept rows
   std::array<std::size_t, 65> mLayersFound{};                    ///< good tracks of the findable, by the mask's layers they hold
   std::array<std::array<std::size_t, 8>, 2> mWindowAudit{};      ///< window, not queried; by windowAudit's flags
+  std::array<std::array<std::size_t, 8>, 2> mOutWindowAudit{};   ///< the same of the outward stops
+  std::array<std::vector<std::array<float, 4>>, 2> mOutWindowOffsets; ///< their rows' offsets (`windowAudit`)
   std::array<TripletTargetBounds, kLayers> mBounds{};            ///< each layer's largest variances in the frame
   mutable std::size_t mAuditDecisions = 0U;                      ///< the graph audit's triplet and neighbour decisions
   mutable std::map<std::string, std::size_t> mCurvatureTriplets; ///< the graph audit's curvature refusals by the triplet's layers
