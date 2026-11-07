@@ -90,6 +90,14 @@ void DeviceArena::reset() noexcept
   }
 }
 
+void DeviceArena::rebind(DeviceBlock block) noexcept
+{
+  reset();
+  mBase = block.data;
+  mCapacity = block.bytes;
+  mPeak = 0U;
+}
+
 ArenaTag DeviceArena::currentTag(ArenaEnd end) const noexcept
 {
   const auto& scopes = mScopes[static_cast<std::size_t>(end)];

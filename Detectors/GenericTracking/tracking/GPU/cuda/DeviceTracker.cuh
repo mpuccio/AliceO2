@@ -16,7 +16,8 @@
 /// What lives where in the arena:
 ///
 ///   run        the iterations' parameters, the geometry, the material, until
-///              configureRun again; the arena itself
+///              configureRun again or detach; the arena itself, over the
+///              attached block
 ///   timeframe  base end: the measurement columns, the grid offsets, the used
 ///              mask, the TimeFrame over them and the plan's device part,
 ///              until the next beginTimeframe
@@ -71,6 +72,7 @@
 #include <string>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -409,6 +411,20 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mStream.synchronize();
     closeFrom(Scope::kRun);
   }
+
+  void attach(DeviceBlock block) final
+  {
+    detach();
+    mArena.rebind(block);
+  }
+
+  void detach() noexcept final
+  {
+    // Work still queued reads the block: finish it before the block goes.
+    mStream.synchronize();
+    closeFrom(Scope::kRun);
+    mArena.rebind({});
+  }
   DeviceTrackerImpl(const DeviceTrackerImpl&) = delete;
   DeviceTrackerImpl& operator=(const DeviceTrackerImpl&) = delete;
   DeviceTrackerImpl(DeviceTrackerImpl&&) = delete;
@@ -428,7 +444,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // The sensors by place, once, where an iteration follows.
     mSensorCells = {};
     if (std::ranges::any_of(iterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd; })) {
-      const SensorCells<Det> cells(geometry);
+      // Built on the host once per geometry: configureRun runs every timeframe.
+      if (!mHostCells || std::memcmp(mHostCellsGeometry.data(), static_cast<const void*>(&geometry), sizeof(geometry)) != 0) {
+        mHostCells.emplace(geometry);
+        std::memcpy(mHostCellsGeometry.data(), static_cast<const void*>(&geometry), sizeof(geometry));
+      }
+      const SensorCells<Det>& cells = *mHostCells;
       if (!mCellLayers.allocate(mArena, cells.layers().size()) || !mCellOffsets.allocate(mArena, cells.offsets().size()) ||
           !mCellSensors.allocate(mArena, std::max<std::size_t>(cells.sensors().size(), 1U))) {
         closeFrom(Scope::kRun);
@@ -1390,6 +1411,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceSpan<std::uint32_t> mCellOffsets;
   DeviceSpan<std::uint32_t> mCellSensors;
   SensorCellsView mSensorCells;
+  /// The sensor cells on the host and the geometry they were built from.
+  std::optional<SensorCells<Det>> mHostCells;
+  std::array<std::byte, sizeof(TrackingGeometry<Det>)> mHostCellsGeometry{};
   Propagator mPropagator;
   std::size_t mIterationCount = 0U;
   bool mConfigured = false;

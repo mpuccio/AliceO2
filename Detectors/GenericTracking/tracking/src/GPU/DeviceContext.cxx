@@ -16,6 +16,7 @@
 
 #include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
 #include "GPUChainGenericTracking.h"
+#include "GPUMemoryResource.h"
 #include "GPUReconstruction.h"
 #include "GPUSettings.h"
 
@@ -32,7 +33,8 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
 {
   std::string type{backend};
   std::ranges::transform(type, type.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-  mReconstruction.reset(o2::gpu::GPUReconstruction::CreateInstance(type.c_str(), true));
+  mOwned.reset(o2::gpu::GPUReconstruction::CreateInstance(type.c_str(), true));
+  mReconstruction = mOwned.get();
   if (mReconstruction == nullptr) {
     throw std::runtime_error(std::format("GPU backend {}: no GPU reconstruction", type));
   }
@@ -60,10 +62,57 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
   mRuntime = factory(device);
 }
 
+DeviceContext::DeviceContext(o2::gpu::GPUReconstruction& reconstruction) : mReconstruction(&reconstruction)
+{
+  if (!reconstruction.IsGPU()) {
+    throw std::runtime_error("GenericTracking: the GPU reconstruction to borrow from runs on no GPU");
+  }
+  const auto& processing = reconstruction.GetProcessingSettings();
+  if (processing.memoryAllocationStrategy != o2::gpu::GPUMemoryResource::ALLOCATION_GLOBAL || processing.keepDisplayMemory || processing.disableMemoryReuse) {
+    throw std::runtime_error("GenericTracking: the GPU reconstruction's pool cannot lend its memory (it needs the global allocation, without keepDisplayMemory or disableMemoryReuse)");
+  }
+  const std::string type = o2::gpu::gpudatatypes::DEVICE_TYPE_NAMES[reconstruction.GetDeviceType()];
+  const auto factory = runtimeFactory(type);
+  if (factory == nullptr) {
+    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} does not link GTrkTracking{})", type, type, type));
+  }
+  mRuntime = factory(reconstruction.GetDeviceId());
+}
+
 DeviceContext::~DeviceContext() = default;
+
+DeviceContext::Borrowed::Borrowed(o2::gpu::GPUReconstruction& reconstruction, std::uint64_t tag) : mReconstruction(&reconstruction), mTag(tag)
+{
+  mReconstruction->PushNonPersistentMemory(mTag);
+  // All of the free memory, measured first: the allocation cannot fail. None
+  // if nothing is free (a zero-size one still moves the pool's end).
+  const std::size_t bytes = mReconstruction->DeviceMemoryGap();
+  if (bytes == 0U) {
+    return;
+  }
+  try {
+    mBlock = {.data = mReconstruction->AllocateDirectMemory(bytes, o2::gpu::GPUMemoryResource::MEMORY_GPU | o2::gpu::GPUMemoryResource::MEMORY_STACK), .bytes = bytes};
+  } catch (...) {
+    mReconstruction->PopNonPersistentMemory(o2::gpu::gpudatatypes::RecoStep::GenericTracking, mTag);
+    throw;
+  }
+}
+
+DeviceContext::Borrowed::~Borrowed() { mReconstruction->PopNonPersistentMemory(o2::gpu::gpudatatypes::RecoStep::GenericTracking, mTag); }
+
+std::unique_ptr<DeviceContext::Borrowed> DeviceContext::borrow(std::uint64_t tag) const
+{
+  if (mOwned != nullptr) {
+    throw std::logic_error("GenericTracking: borrow on a GPU reconstruction of its own");
+  }
+  return std::unique_ptr<Borrowed>{new Borrowed(*mReconstruction, tag)};
+}
 
 DeviceBlock DeviceContext::block(std::size_t index) const
 {
+  if (mChain == nullptr) {
+    throw std::logic_error("GenericTracking: no blocks on a borrowed GPU reconstruction");
+  }
   const auto block = mChain->GetBlock(index);
   return {.data = block.data, .bytes = block.bytes};
 }

@@ -11,7 +11,8 @@
 
 /// \file TrackerITS.cxx
 /// \brief The ITS's tracking device (TrackerDevice.h): one unit per detector,
-///        each instantiating the tracker.
+///        each instantiating the tracker, and its tracking inside the GPU
+///        reconstruction (GPURecoTracking.h).
 
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Workflow/Conditions.h"
@@ -21,5 +22,6 @@ namespace o2::gtrk
 {
 
 template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::ITS>(bool withVertices);
+template std::unique_ptr<workflow::GPURecoTracking> workflow::makeGPURecoTrackingOf<detectors::ITS>();
 
 } // namespace o2::gtrk

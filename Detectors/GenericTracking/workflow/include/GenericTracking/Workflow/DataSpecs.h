@@ -102,9 +102,32 @@ inline constexpr std::string_view kVertexSeeds{"VTX"};
 /// Each of those vertices' contributors, a std::uint32_t per vertex.
 inline constexpr std::string_view kVertexContributors{"VTXCONTR"};
 
+/// Detector \a Det's name in lower case: "its", "mft", "trk".
+template <DetectorLayout Det>
+[[nodiscard]] std::string detectorName()
+{
+  auto det = detectorOrigin<Det>().template as<std::string>();
+  for (auto& c : det) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return det;
+}
+
+/// Detector \a Det's input binding \a name, "<det>_<name>": two detectors'
+/// tracking inputs in one device (the GPU reconstruction) do not collide.
+template <DetectorLayout Det>
+[[nodiscard]] std::string inputBinding(std::string_view name)
+{
+  return detectorName<Det>() + "_" + std::string{name};
+}
+
 /// The input binding of the measurement message's part \a part: a
 /// gtrk::MeasurementColumn, or the grid's prefix offsets (`kColGridOffsets`).
-[[nodiscard]] inline std::string columnBinding(std::uint32_t part) { return "col" + std::to_string(part); }
+template <DetectorLayout Det>
+[[nodiscard]] std::string columnBinding(std::uint32_t part)
+{
+  return inputBinding<Det>("col" + std::to_string(part));
+}
 
 /// Detector \a Det's description of \a kind.
 template <DetectorLayout Det>
@@ -124,11 +147,11 @@ template <DetectorLayout Det>
   std::vector<o2::framework::InputSpec> inputs;
   inputs.reserve(kNMeasurementParts + 2U);
   for (std::uint32_t part = 0; part < kNMeasurementParts; ++part) {
-    inputs.emplace_back(columnBinding(part), gDataOrigin, description<Det>(kMeasurements), part, Lifetime::Timeframe);
+    inputs.emplace_back(columnBinding<Det>(part), gDataOrigin, description<Det>(kMeasurements), part, Lifetime::Timeframe);
   }
-  inputs.emplace_back("measurementGeometry", gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
+  inputs.emplace_back(inputBinding<Det>("measurementGeometry"), gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
   if (withVertices) {
-    inputs.emplace_back("vertices", gDataOrigin, description<Det>(kVertices), 0, Lifetime::Timeframe);
+    inputs.emplace_back(inputBinding<Det>("vertices"), gDataOrigin, description<Det>(kVertices), 0, Lifetime::Timeframe);
   }
   return inputs;
 }
@@ -151,11 +174,11 @@ template <DetectorLayout Det>
 [[nodiscard]] TimeframeInput<Det> readTimeframe(o2::framework::ProcessingContext& pc, bool withVertices)
 {
   auto& inputs = pc.inputs();
-  const auto offsets = inputs.get<gsl::span<std::uint32_t>>(columnBinding(kColGridOffsets).c_str());
-  const auto seeds = withVertices ? inputs.get<gsl::span<VertexSeed>>("vertices") : gsl::span<const VertexSeed>{};
-  return {.shipped = inputs.get<MeasurementGeometry<Det>>("measurementGeometry"),
+  const auto offsets = inputs.get<gsl::span<std::uint32_t>>(columnBinding<Det>(kColGridOffsets).c_str());
+  const auto seeds = withVertices ? inputs.get<gsl::span<VertexSeed>>(inputBinding<Det>("vertices").c_str()) : gsl::span<const VertexSeed>{};
+  return {.shipped = inputs.get<MeasurementGeometry<Det>>(inputBinding<Det>("measurementGeometry").c_str()),
           .columns = makeMeasurementColumns<MessageSpan>([&]<class T>(std::type_identity<T>, MeasurementColumn column) {
-            return inputs.get<gsl::span<T>>(columnBinding(static_cast<std::uint32_t>(column)).c_str());
+            return inputs.get<gsl::span<T>>(columnBinding<Det>(static_cast<std::uint32_t>(column)).c_str());
           }),
           .offsets = {offsets.data(), offsets.size()},
           .seeds = {seeds.data(), seeds.size()}};
@@ -165,11 +188,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] std::string deviceName(std::string_view role)
 {
-  auto det = detectorOrigin<Det>().template as<std::string>();
-  for (auto& c : det) {
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  }
-  return "gtrk-" + det + "-" + std::string{role};
+  return "gtrk-" + detectorName<Det>() + "-" + std::string{role};
 }
 
 } // namespace o2::gtrk::workflow

@@ -11,7 +11,8 @@
 
 /// \file TrackerMFT.cxx
 /// \brief The MFT's tracking device (TrackerDevice.h): one unit per detector,
-///        each instantiating the tracker.
+///        each instantiating the tracker, and its tracking inside the GPU
+///        reconstruction (GPURecoTracking.h).
 
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Workflow/Conditions.h"
@@ -21,5 +22,6 @@ namespace o2::gtrk
 {
 
 template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::MFT>(bool withVertices);
+template std::unique_ptr<workflow::GPURecoTracking> workflow::makeGPURecoTrackingOf<detectors::MFT>();
 
 } // namespace o2::gtrk

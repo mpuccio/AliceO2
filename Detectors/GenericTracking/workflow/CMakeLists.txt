@@ -15,7 +15,7 @@
 # unit, ALICE 3's (TRK.cxx) with the upgrades, and the tracking device
 # (TrackerDevice.h), one unit per detector, each instantiating the tracker.
 set(sources src/Clusters.cxx src/Placement.cxx src/RecoParam.cxx src/ITS.cxx src/MFT.cxx src/TrackerITS.cxx src/TrackerMFT.cxx src/AdaptorITS.cxx
-            src/AdaptorMFT.cxx)
+            src/AdaptorMFT.cxx src/GPURecoTracking.cxx)
 set(trackerUnits src/TrackerITS.cxx src/TrackerMFT.cxx)
 set(publicLibraries O2::GTrkTracking O2::Framework O2::CommonUtils O2::DataFormatsCalibration O2::DetectorsBase
                     O2::DataFormatsITSMFT O2::ITSBase O2::MFTBase O2::DetectorsRaw ROOT::Core)

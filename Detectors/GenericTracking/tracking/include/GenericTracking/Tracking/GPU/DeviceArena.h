@@ -105,6 +105,10 @@ class DeviceArena
   [[nodiscard]] ArenaScope scope(ArenaEnd end = ArenaEnd::kBase);
   /// Rewind both ends and close every scope; the block stays.
   void reset() noexcept;
+  /// Work in \a block from now on: both ends rewound, every scope closed and
+  /// every allocation's tag dead, the peak zero. The arena object stays where
+  /// it is, for those that hold it.
+  void rebind(DeviceBlock block) noexcept;
   void resetPeak() noexcept { mPeak = used(); }
   /// The peak becomes at least \a peak: closes a window `resetPeak` opened.
   void raisePeak(std::size_t peak) noexcept { mPeak = std::max(mPeak, peak); }

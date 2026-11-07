@@ -25,6 +25,9 @@
 /// - `Conditions(inputs)` declares its condition inputs at construction;
 /// - `init(ic)` in the device's init, `checkUpdates(pc)` at the top of its
 ///   run, `finaliseCCDB(matcher, obj)` forwarded from the device's;
+/// - held by the GPU reconstruction (`ConditionsHolder::kGPUReco`), only the
+///   detector's own: the GRPECS, the field and the ITS's LUT are that
+///   device's (a second GRPGeomHelper request is fatal);
 /// - `frameTiming()`; `measurementDepthsCM()`, empty for 0 on every layer;
 ///   `origin()`, the detector's data origin; `kMeanVertex`, whether the
 ///   detector's beam line is the run's MeanVertex (`GLO/Calib/MeanVertex`);
@@ -65,6 +68,7 @@
 #include <fairlogger/Logger.h>
 
 #include <concepts>
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <stdexcept>
@@ -75,56 +79,84 @@
 namespace o2::gtrk::workflow
 {
 
+/// Who holds a `Conditions`: a device of its own, which requests the run's
+/// GRPECS and field itself (GRPGeomHelper), or the GPU reconstruction, whose
+/// device requests them -- and GLO/Param/MatLUT, the ITS's material LUT --
+/// for everything it runs, and fetches and finalises them.
+enum class ConditionsHolder : std::uint8_t { kOwnDevice,
+                                             kGPUReco };
+
 /// The conditions a device of \a Det reads (see above); with \a WithMaterial
-/// also the material LUT.
-template <DetectorLayout Det, bool WithMaterial = false>
+/// also the material LUT; held by \a Holder.
+template <DetectorLayout Det, bool WithMaterial = false, ConditionsHolder Holder = ConditionsHolder::kOwnDevice>
 class Conditions;
 
-/// The material LUT's condition a `Conditions` holds: the LUT's, or none.
-template <DetectorLayout Det, bool WithMaterial>
-using MaterialConditionOf = std::conditional_t<WithMaterial, MaterialCondition<Det>, NoMaterialCondition>;
+/// The material LUT's condition a `Conditions` holds: the LUT's, GRPGeomHelper's
+/// for the ITS inside the GPU reconstruction, or none.
+template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder = ConditionsHolder::kOwnDevice>
+using MaterialConditionOf = std::conditional_t<!WithMaterial, NoMaterialCondition,
+                                               std::conditional_t<Holder == ConditionsHolder::kGPUReco && std::same_as<Det, detectors::ITS>,
+                                                                  GRPGeomMaterialCondition, MaterialCondition<Det>>>;
 
 /// The ITS's and the MFT's.
-template <DetectorLayout Det, bool WithMaterial>
+template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder>
   requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::MFT>
-class Conditions<Det, WithMaterial>
+class Conditions<Det, WithMaterial, Holder>
 {
   static constexpr bool kITS = std::same_as<Det, detectors::ITS>;
+  static constexpr bool kOwnDevice = Holder == ConditionsHolder::kOwnDevice;
 
  public:
   explicit Conditions(std::vector<o2::framework::InputSpec>& inputs)
-    : mRequest(std::make_shared<o2::base::GRPGeomRequest>(false, true, false, true, false, o2::base::GRPGeomRequest::None, inputs))
   {
+    if constexpr (kOwnDevice) {
+      mRequest = std::make_shared<o2::base::GRPGeomRequest>(false, true, false, true, false, o2::base::GRPGeomRequest::None, inputs);
+    }
     const auto detector = origin().template as<std::string>();
-    inputs.emplace_back("geomTGeo", origin(), "GEOMTGEO", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/Geometry"));
-    inputs.emplace_back("alpideParam", origin(), "ALPIDEPARAM", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/AlpideParam"));
-    MaterialConditionOf<Det, WithMaterial>::declare(inputs);
+    inputs.emplace_back(inputBinding<Det>("geomTGeo"), origin(), "GEOMTGEO", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/Geometry"));
+    inputs.emplace_back(inputBinding<Det>("alpideParam"), origin(), "ALPIDEPARAM", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/AlpideParam"));
+    MaterialConditionOf<Det, WithMaterial, Holder>::declare(inputs);
   }
 
   static constexpr bool kMeanVertex = true;
 
   [[nodiscard]] static o2::header::DataOrigin origin() { return detectorOrigin<Det>(); }
 
-  void init(o2::framework::InitContext& /*ic*/) { o2::base::GRPGeomHelper::instance().setRequest(mRequest); }
+  void init(o2::framework::InitContext& /*ic*/)
+  {
+    if constexpr (kOwnDevice) {
+      o2::base::GRPGeomHelper::instance().setRequest(mRequest);
+    }
+  }
 
   void checkUpdates(o2::framework::ProcessingContext& pc) const
   {
-    o2::base::GRPGeomHelper::instance().checkUpdates(pc);
-    pc.inputs().get<GeometryTGeoType*>("geomTGeo");
-    pc.inputs().get<AlpideParam*>("alpideParam"); // the CCDB fetcher updates the singleton
-    MaterialConditionOf<Det, WithMaterial>::checkUpdates(pc);
+    if constexpr (kOwnDevice) {
+      o2::base::GRPGeomHelper::instance().checkUpdates(pc);
+    }
+    pc.inputs().get<GeometryTGeoType*>(inputBinding<Det>("geomTGeo").c_str());
+    pc.inputs().get<AlpideParam*>(inputBinding<Det>("alpideParam").c_str()); // the CCDB fetcher updates the singleton
+    MaterialConditionOf<Det, WithMaterial, Holder>::checkUpdates(pc);
   }
 
-  void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
+  /// Whether \a matcher was one of these conditions, then taken.
+  bool finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
   {
     // The material first: the ITS's LUT is GLO/MATLUT, GRPGeomHelper's description.
-    if (mMaterial.finaliseCCDB(matcher, obj) || o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
-      return;
+    if (mMaterial.finaliseCCDB(matcher, obj)) {
+      return true;
+    }
+    if constexpr (kOwnDevice) {
+      if (o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
+        return true;
+      }
     }
     if (matcher == o2::framework::ConcreteDataMatcher(origin(), "GEOMTGEO", 0)) {
       GeometryTGeoType::adopt(static_cast<GeometryTGeoType*>(obj));
       LOGP(info, "{} GeometryTGeo from the CCDB adopted", Det::name);
+      return true;
     }
+    return false;
   }
 
   /// The readout frames of the run's `DPLAlpideParam`, as O2's ITS tracker
@@ -166,8 +198,8 @@ class Conditions<Det, WithMaterial>
   using GeometryTGeoType = std::conditional_t<kITS, o2::its::GeometryTGeo, o2::mft::GeometryTGeo>;
   using AlpideParam = o2::itsmft::DPLAlpideParam<kITS ? o2::detectors::DetID::ITS : o2::detectors::DetID::MFT>;
 
-  std::shared_ptr<o2::base::GRPGeomRequest> mRequest;
-  [[no_unique_address]] MaterialConditionOf<Det, WithMaterial> mMaterial;
+  std::shared_ptr<o2::base::GRPGeomRequest> mRequest; ///< the run-wide conditions' request, in a device of its own
+  [[no_unique_address]] MaterialConditionOf<Det, WithMaterial, Holder> mMaterial;
 };
 
 } // namespace o2::gtrk::workflow

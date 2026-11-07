@@ -19,6 +19,9 @@
 /// IR-frame writers (unless `--disable-root-output`, or without the adaptor).
 /// With `--vertices-from-upstream` the tracker takes the native vertex seeds
 /// (GTRK/ITSVERTICES) from the workflow before it in the pipe.
+/// With the tracking inside o2-gpu-reco-workflow (`--output-type
+/// gtrk-its-tracks`), this workflow twice: `--tracking-in-gpu-reco` before it
+/// in the pipe (the converter and the producer), `--adaptor-only` after it.
 
 #include "RecoWorkflow.h"
 
@@ -63,7 +66,8 @@ WorkflowSpec defineDataProcessing(const ConfigContext& context)
   using Det = o2::gtrk::detectors::ITS;
   const bool useMC = !context.options().get<bool>("disable-mc");
   auto specs = gw::trackingChain<Det>(context, {o2::itsmft::getITSClusterReaderSpec(useMC, false, true, false)});
-  if (!context.options().get<bool>("disable-adaptor")) {
+  // The adaptor reads the tracks: after the GPU reconstruction when the tracking runs inside it.
+  if (!context.options().get<bool>("disable-adaptor") && !gw::trackingInGPUReco(context)) {
     specs.push_back(gw::getAdaptorSpec<Det>(useMC));
     if (!context.options().get<bool>("disable-root-output")) {
       specs.push_back(o2::its::getTrackWriterSpec(useMC));

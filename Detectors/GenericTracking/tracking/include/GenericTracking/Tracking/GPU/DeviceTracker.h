@@ -111,6 +111,8 @@ struct DeviceIterationDownload {
 /// The tracker on a device, for a detector and its material (the tests' UniformMaterial,
 /// o2::base::MatLayerCylSet). Its calls follow a lifecycle of nested scopes:
 ///
+///   attach            the device memory to work in, the tracker's only one
+///                     until detach: nothing of an earlier block stays
 ///   configureRun      the run: parameters, geometry, material, propagator
 ///   beginTimeframe    a timeframe: measurements, offsets, the plan, used mask
 ///   beginIteration    an iteration: its slices' records kept as they come
@@ -120,6 +122,11 @@ struct DeviceIterationDownload {
 ///   downloadTracks    every iteration's tracks so far
 ///   endTimeframe      the timeframe closed: the host frame and plan no
 ///                     longer read
+///   detach            the queued work finished and the block let go: the
+///                     run and the timeframe gone with it
+///
+/// The tracking device attaches and configures every timeframe: its block may
+/// be another one each time (the GPU reconstruction's pool after the TPC).
 ///
 /// A timeframe as the tracking device runs it, the vertexer's pass first if
 /// the run has one: `findTimeframeVertices`, then `trackTimeframe`.
@@ -169,6 +176,13 @@ class DeviceTracker
   DeviceTracker& operator=(const DeviceTracker&) = delete;
   DeviceTracker(DeviceTracker&&) = delete;
   DeviceTracker& operator=(DeviceTracker&&) = delete;
+
+  /// Work in \a block: what the tracker held goes (detach), configureRun is
+  /// due before the next timeframe.
+  virtual void attach(DeviceBlock block) = 0;
+  /// Finish the queued work, then close the run and every scope inside it and
+  /// let go of the block: it may be reused once this returns.
+  virtual void detach() noexcept = 0;
 
   /// Rebuild the run: every open scope closed, the arena reset, then every
   /// iteration's parameters, the geometry and the material uploaded and the

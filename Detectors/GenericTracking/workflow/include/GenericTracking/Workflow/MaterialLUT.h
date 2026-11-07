@@ -36,6 +36,7 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
 
+#include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/MatLayerCylSet.h"
 #include "Framework/CCDBParamSpec.h"
 #include "Framework/ConcreteDataMatcher.h"
@@ -77,11 +78,11 @@ class MaterialCondition
   /// constructor, so that the LUT's input follows the others.
   static void declare(std::vector<o2::framework::InputSpec>& inputs)
   {
-    inputs.emplace_back(kBinding, materialLutOrigin<Det>(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>()));
+    inputs.emplace_back(inputBinding<Det>(kBinding), materialLutOrigin<Det>(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>()));
   }
 
   /// At the top of the device's run: delivers a new one through finaliseCCDB.
-  static void checkUpdates(o2::framework::ProcessingContext& pc) { pc.inputs().get<o2::base::MatLayerCylSet*>(kBinding); }
+  static void checkUpdates(o2::framework::ProcessingContext& pc) { pc.inputs().get<o2::base::MatLayerCylSet*>(inputBinding<Det>(kBinding).c_str()); }
 
   /// Whether \a matcher is the LUT, which is then taken.
   bool finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
@@ -101,6 +102,17 @@ class MaterialCondition
   static constexpr const char* kBinding = "gtrkMatLUT";
 
   const o2::base::MatLayerCylSet* mLut = nullptr;
+};
+
+/// The ITS's material LUT inside the GPU reconstruction: GLO/Param/MatLUT,
+/// which the reconstruction's device requests and GRPGeomHelper holds,
+/// rectified. No input of its own.
+struct GRPGeomMaterialCondition {
+  static void declare(std::vector<o2::framework::InputSpec>& /*inputs*/) {}
+  static void checkUpdates(o2::framework::ProcessingContext& /*pc*/) {}
+  static bool finaliseCCDB(o2::framework::ConcreteDataMatcher& /*matcher*/, void* /*obj*/) { return false; }
+  /// Null before the first timeframe.
+  [[nodiscard]] static const o2::base::MatLayerCylSet* lut() { return o2::base::GRPGeomHelper::instance().getMatLUT(); }
 };
 
 /// What a `Conditions` without the material LUT holds in its place: no

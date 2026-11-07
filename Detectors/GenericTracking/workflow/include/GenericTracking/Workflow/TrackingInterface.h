@@ -147,10 +147,30 @@ class TrackingInterface
     }
     const std::array<std::size_t, 1> arena{mDeviceOptions.arenaMB << 20U};
     mContext = std::make_unique<DeviceContext>(mDeviceOptions.backend, mDeviceOptions.device, arena);
+    mBlock = mContext->block(0U);
     const auto& properties = mContext->runtime().properties();
     LOGP(info, "the tracking on {} device {}: {} ({}), arena {} MB", mContext->runtime().backend(), mDeviceOptions.device, properties.name,
          properties.architecture, mDeviceOptions.arenaMB);
   }
+
+  /// The tracking on \a reconstruction's GPU, which its owner initialised
+  /// (the GPU reconstruction workflow's): a borrowing context, and each
+  /// timeframe's device memory from `useBlock`.
+  void initDevice(o2::gpu::GPUReconstruction& reconstruction)
+  {
+    mContext = std::make_unique<DeviceContext>(reconstruction);
+    mDeviceOptions = {.backend = std::string{mContext->runtime().backend()}};
+    const auto& properties = mContext->runtime().properties();
+    LOGP(info, "the tracking on {} inside the GPU reconstruction: {} ({}), in the pool's free memory after the TPC", mContext->runtime().backend(), properties.name,
+         properties.architecture);
+  }
+
+  /// The next timeframe's device memory, on a borrowed reconstruction: set
+  /// before its vertices and tracking, valid until its end.
+  void useBlock(DeviceBlock block) { mBlock = block; }
+
+  /// The GPU's context; a GPU backend's only.
+  [[nodiscard]] const DeviceContext& context() const { return *mContext; }
 
   /// The GPU released, the device tracker before its context: at the end
   /// of the processing, not at the process's exit.
@@ -295,7 +315,9 @@ class TrackingInterface
       mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS),
                                        param.sliceHaloPS);
       const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-      mDeviceTimeframe = true;
+      if (!beginDeviceTimeframe()) {
+        return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
+      }
       const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine),
                                                          mDeviceFound, mDeviceReport);
       const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -343,8 +365,11 @@ class TrackingInterface
   /// after.
   void endTimeframe() noexcept
   {
+    mLastArenaPeak = 0U;
     if (mDeviceTimeframe) {
       mDevice->endTimeframe();
+      mLastArenaPeak = mDevice->arenaPeakBytes();
+      mDevice->detach();
       mDeviceTracks.setMemoryResource(mDevicePool.get());
       mDevicePlan = {};
       mDeviceTrackingPlan = {};
@@ -389,6 +414,8 @@ class TrackingInterface
   [[nodiscard]] const typename Device::TimeframeReport& deviceReport() const { return mDeviceReport; }
   [[nodiscard]] const DeviceProperties& deviceProperties() const { return mContext->runtime().properties(); }
   [[nodiscard]] std::size_t deviceArenaPeakBytes() const { return mDevice->arenaPeakBytes(); }
+  /// The device arena's peak in the last timeframe that ended, 0 before one.
+  [[nodiscard]] std::size_t lastArenaPeakBytes() const { return mLastArenaPeak; }
 
   [[nodiscard]] Controller& tracker() { return *mTracker; }
   [[nodiscard]] const Controller& tracker() const { return *mTracker; }
@@ -433,13 +460,14 @@ class TrackingInterface
     }
   }
 
-  /// The device tracker, made once, configured as the host tracker -- whose
-  /// iterations it takes, \a settings their windows -- with the pass last if
-  /// the own vertexer runs: on the first timeframe and on every new beam line.
+  /// The device tracker, made once, and the run it is configured with every
+  /// timeframe (beginDeviceTimeframe): the host tracker's iterations, \a
+  /// settings their windows, with the pass last if the own vertexer runs. On
+  /// the first timeframe and on every new beam line.
   void configureDevice(const std::vector<IterationSettings>& settings)
   {
     if (!mDevice) {
-      mDevice = mContext->runtime().makeTracker<Det>(mContext->block(0U));
+      mDevice = mContext->runtime().makeTracker<Det>(DeviceBlock{});
       mDevicePool = trackerMemoryPool(recoParam<Det>());
       mDeviceTracks.setMemoryResource(mDevicePool.get());
     }
@@ -453,9 +481,20 @@ class TrackingInterface
       mDeviceIterations.push_back(mVertexing->passParameters());
       mDeviceWindows.push_back(vertexingPassSettings(recoParam<Det>()).windows);
     }
-    if (const auto status = mDevice->configureRun(mDeviceIterations, *mTracking, *mMaterial, propagator()); status != StageStatus::kComplete) {
-      LOGP(fatal, "the device tracker's arena of {} MB does not hold the run (status {}): a larger --gtrk-gpu-arena-mb", mDeviceOptions.arenaMB, static_cast<int>(status));
+  }
+
+  /// The timeframe's device work begun, once per timeframe: the block
+  /// attached and the run configured on it. False if the timeframe is dropped:
+  /// the block does not hold the run (dropTFUponFailure).
+  [[nodiscard]] bool beginDeviceTimeframe()
+  {
+    if (mDeviceTimeframe) {
+      return true;
     }
+    mDeviceTimeframe = true; // endTimeframe detaches
+    mDevice->attach(mBlock);
+    const auto status = mDevice->configureRun(mDeviceIterations, *mTracking, *mMaterial, propagator());
+    return status == StageStatus::kComplete || !dropOrFail(status, "the run's data on the device");
   }
 
   /// The tracking on the device: with the own vertexer, the tracking's plan
@@ -468,9 +507,13 @@ class TrackingInterface
     const std::size_t iterations = mTracker->iterationCount();
     mDeviceTrackingPlan = replaced ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS)
                                    : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
-    mDeviceTimeframe = true;
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    if (!beginDeviceTimeframe()) {
+      tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+      tracked.dropped = true;
+      return tracked;
+    }
     tracked.result.status = mDevice->trackTimeframe(frame, mDeviceTrackingPlan, iterations, replaced, mDeviceTracks, mDeviceReport);
     tracked.result.tracks = &mDeviceTracks;
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -511,6 +554,7 @@ class TrackingInterface
   std::string mTrackerLabel;
   TrackingDevice mDeviceOptions;
   std::unique_ptr<DeviceContext> mContext;                 ///< the GPU, on a GPU backend: its reconstruction, the arena's block and the runtime
+  DeviceBlock mBlock;                                      ///< the device memory each timeframe attaches
   std::unique_ptr<Device> mDevice;                         ///< the device tracker, on the context; released before it
   std::vector<IterationParameters<Det>> mDeviceIterations; ///< as configured on the device: the host tracker's, then the pass
   std::vector<SearchWindowParams> mDeviceWindows;          ///< the same iterations' windows
@@ -527,6 +571,7 @@ class TrackingInterface
   bool mVertexed = false;        ///< the vertexer ran this timeframe
   bool mTracked = false;         ///< the tracker ran this timeframe
   std::size_t mDropped = 0U;
+  std::size_t mLastArenaPeak = 0U;
 };
 
 } // namespace o2::gtrk::workflow

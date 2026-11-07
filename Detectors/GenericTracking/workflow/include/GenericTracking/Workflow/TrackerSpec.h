@@ -24,6 +24,8 @@
 
 #include "Framework/DataProcessorSpec.h"
 
+#include <memory>
+
 namespace o2::gtrk::workflow
 {
 
@@ -36,6 +38,13 @@ using TrackRecord = typename TrackRefit<Det>::Tracks::Record;
 /// an input.
 template <DetectorLayout Det>
 o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices);
+
+class GPURecoTracking;
+
+/// \a Det's tracking inside the GPU reconstruction (GPURecoTracking.h), the
+/// same timeframe as the device's.
+template <DetectorLayout Det>
+std::unique_ptr<GPURecoTracking> makeGPURecoTrackingOf();
 
 } // namespace o2::gtrk::workflow
 
