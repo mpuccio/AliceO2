@@ -205,6 +205,7 @@ class GPUReconstruction
 
   // Getters / setters for parameters
   DeviceType GetDeviceType() const;
+  virtual int32_t GetDeviceId() const { return -1; } // The device the backend selected, -1 without one
   bool IsGPU() const { return GetDeviceType() != DeviceType::INVALID_DEVICE && GetDeviceType() != DeviceType::CPU; }
   const GPUParam& GetParam() const;
   const GPUConstantMem& GetConstantMem() const { return *mHostConstantMem; }
@@ -226,6 +227,8 @@ class GPUReconstruction
   GPUOutputControl& OutputControl() { return mOutputControl; }
   uint32_t NStreams() const { return mNStreams; }
   const void* DeviceMemoryBase() const { return mDeviceMemoryBase; }
+  // The device pool's free memory between its two ends, both aligned inwards to GPU_MEMALIGN; 0 if none
+  size_t DeviceMemoryGap() const;
   virtual const GPUDefParameters& getGPUParameters(bool doGPU) const = 0;
 
   RecoStepField GetRecoSteps() const { return mRecoSteps.steps; }

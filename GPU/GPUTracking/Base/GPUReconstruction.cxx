@@ -1305,6 +1305,13 @@ void GPUReconstruction::SetOutputControl(void* ptr, size_t size)
 
 void GPUReconstruction::SetInputControl(void* ptr, size_t size) { mInputControl.set(ptr, size); }
 GPUReconstruction::DeviceType GPUReconstruction::GetDeviceType() const { return (DeviceType)GetDeviceBackendSettings().deviceType; }
+
+size_t GPUReconstruction::DeviceMemoryGap() const
+{
+  const size_t low = GPUProcessor::nextMultipleOf<constants::GPU_MEMALIGN>((size_t)mDeviceMemoryPool);
+  const size_t high = (size_t)mDeviceMemoryPoolEnd - GPUProcessor::getAlignmentMod<constants::GPU_MEMALIGN>((size_t)mDeviceMemoryPoolEnd);
+  return mDeviceMemoryPool == nullptr || high <= low ? 0 : high - low;
+}
 const GPUParam& GPUReconstruction::GetParam() const { return mHostConstantMem->param; }
 void GPUReconstruction::SetResetTimers(bool reset) { mProcessingSettings->resetTimers = reset; }
 void GPUReconstruction::SetDebugLevelTmp(int32_t level) { mProcessingSettings->debugLevel = level; }

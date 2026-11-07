@@ -28,6 +28,7 @@ class GPUReconstructionDeviceBase : public GPUReconstructionCPU
   ~GPUReconstructionDeviceBase() override;
 
   const GPUParam* DeviceParam() const;
+  int32_t GetDeviceId() const override { return mDeviceId; }
   struct deviceConstantMemRegistration {
     deviceConstantMemRegistration(void* (*reg)())
     {

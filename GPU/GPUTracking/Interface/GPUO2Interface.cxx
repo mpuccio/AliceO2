@@ -236,6 +236,8 @@ int32_t GPUO2Interface::RunTracking(GPUTrackingInOutPointers* data, GPUInterface
 
 void GPUO2Interface::Clear(bool clearOutputs, uint32_t iThread) { mCtx[iThread].mRec->ClearAllocatedMemory(clearOutputs); }
 
+GPUReconstruction* GPUO2Interface::GetReconstruction(uint32_t iThread) const { return mNContexts > iThread ? mCtx[iThread].mRec.get() : nullptr; }
+
 int32_t GPUO2Interface::registerMemoryForGPU(const void* ptr, size_t size)
 {
   return mCtx[0].mRec->registerMemoryForGPU(ptr, size);

@@ -91,6 +91,7 @@ class GPUO2Interface
   void setErrorCodeOutput(std::vector<std::array<uint32_t, 4>>* v);
 
   const GPUO2InterfaceConfiguration& getConfig() const { return *mConfig; }
+  GPUReconstruction* GetReconstruction(uint32_t iThread = 0) const;
 
  private:
   GPUO2Interface(const GPUO2Interface&);
