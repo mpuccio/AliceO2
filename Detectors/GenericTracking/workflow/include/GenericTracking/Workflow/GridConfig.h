@@ -119,6 +119,17 @@ inline void checkRecoParam(const RecoSettings& param)
       throw std::invalid_argument(std::format("GTRKReco<DET>.frameMarginBC holds {}: a margin widens a frame", margin));
     }
   }
+  if (!std::isfinite(param.beamZReachNSigma) || !(param.beamZReachNSigma > 0.) || !(param.windowNSigma > 0.)) {
+    throw std::invalid_argument(std::format("GTRKReco<DET>.beamZReachNSigma is {} and windowNSigma {}: both must be positive", param.beamZReachNSigma,
+                                            param.windowNSigma));
+  }
+}
+
+/// The trackers' beam spot from \a beam, reaching `beamZReachNSigma` of its z
+/// width (BeamLine.h).
+[[nodiscard]] inline VertexConstraint beamSpotConstraint(const BeamLine& beam, const RecoSettings& param)
+{
+  return beamSpotConstraint(beam, param.beamZReachNSigma, param.windowNSigma);
 }
 
 /// The tracker's memory pool: bounded at `memoryLimitGB` if that is positive,
@@ -378,7 +389,7 @@ template <DetectorLayout Det>
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationClusterMinPtGeV has {} slots per iteration, and {}'s chains reach {} clusters",
                                             IterationSettings::kClusterSlots, Det::name, maxChainLayers<Det>));
   }
-  const auto windows = gridLayerWindows<Det>(iterations, beamSpotConstraint(beam));
+  const auto windows = gridLayerWindows<Det>(iterations, beamSpotConstraint(beam, param));
   GridGeometry<Det> geometry{timeframeDurationPS(orbitsPerTimeframe), gridParams(param, frames), windows};
   if (geometry.overflows()) {
     throw std::invalid_argument("GTRKReco<DET>'s grid has more cells or buckets than its 32-bit numbering holds: wider time blocks");

@@ -77,6 +77,11 @@ struct RecoSettings {
   double clusterSystematicSigmaCM = 0.;
   /// The windows' and the cuts' nSigma, the run's (every iteration's).
   double windowNSigma = 3.;
+  /// How many sigma of the beam's z width the tracking reaches about the
+  /// beam's z (`beamSpotConstraint`): the z range it is to be efficient in,
+  /// for the beam-line windows and pair cut, the vertexing pass, the grid and
+  /// the vertex-list iterations alike.
+  double beamZReachNSigma = 3.;
 
   /// The own vertexer: before the tracking, a pass at
   /// the beam line on the three innermost layers, one slice over the

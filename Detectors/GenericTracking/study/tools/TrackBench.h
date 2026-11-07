@@ -1651,7 +1651,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       floors.push_back(iteration.windows.minPtGeV);
     }
     completeAnatomy->setIterationFloors(std::move(floors));
-    completeAnatomy->setBeamLine(vertexSeed(workflow::beamSpotConstraint(input.beamLine)));
+    completeAnatomy->setBeamLine(vertexSeed(workflow::beamSpotConstraint(input.beamLine, param)));
     if (!options.anatomyBeamLine.empty()) {
       completeAnatomy->keepBeamLine();
     }
@@ -1880,7 +1880,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       for (const auto& iteration : settings) {
         minPtGeV.push_back(iteration.windows.minPtGeV);
       }
-      funnel.emplace(frame, truth->rows, truth->particles, comparison, vertexSeed(workflow::beamSpotConstraint(input.beamLine)), std::move(minPtGeV));
+      funnel.emplace(frame, truth->rows, truth->particles, comparison, vertexSeed(workflow::beamSpotConstraint(input.beamLine, param)), std::move(minPtGeV));
       funnel->setRoadFit(tracking, *material, propagator);
       funnel->keepReportInputs(!options.fakesOut.empty());
     }

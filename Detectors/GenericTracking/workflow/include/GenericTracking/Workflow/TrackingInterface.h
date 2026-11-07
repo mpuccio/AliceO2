@@ -225,7 +225,7 @@ class TrackingInterface
     if (first) {
       configureMaterial(conditions.material);
     }
-    const auto beamSpot = beamSpotConstraint(mBeamLine);
+    const auto beamSpot = beamSpotConstraint(mBeamLine, param);
     const auto chunkSize = static_cast<typename Controller::Index>(std::max(param.trackletChunkSize, 1));
     // The tracker takes each iteration's configured source.
     std::vector<IterationSettings> settings;
@@ -318,7 +318,7 @@ class TrackingInterface
       if (!beginDeviceTimeframe()) {
         return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
       }
-      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine),
+      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param),
                                                          mDeviceFound, mDeviceReport);
       const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (status != StageStatus::kComplete) {

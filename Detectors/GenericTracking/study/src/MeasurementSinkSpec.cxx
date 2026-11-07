@@ -3277,7 +3277,7 @@ class MeasurementSinkTask : public Task
         return;
       }
     }
-    const auto beamSpot = workflow::beamSpotConstraint(mInterface.beamLine());
+    const auto beamSpot = workflow::beamSpotConstraint(mInterface.beamLine(), param);
     const Propagator propagator = mInterface.propagator();
     // The MC hits behind the truth's particles, for the lost pairs' and the
     // incomplete tracks' anatomy.

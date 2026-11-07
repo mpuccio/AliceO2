@@ -59,10 +59,17 @@ struct BeamLine {
 }
 
 /// The trackers' constraint: z and its width, and across the beam the larger
-/// of the two widths, since the pair test's beam term is a bound.
-[[nodiscard]] inline VertexConstraint beamSpotConstraint(const BeamLine& beam)
+/// of the two widths, since the pair test's beam term is a bound. The windows
+/// and cuts admit \a windowNSigma of the constraint's z width; that width is
+/// the beam's taken \a zReachNSigma / \a windowNSigma times, so that they
+/// reach \a zReachNSigma of the beam's.
+[[nodiscard]] inline VertexConstraint beamSpotConstraint(const BeamLine& beam, double zReachNSigma, double windowNSigma)
 {
-  return {.z = beam.z, .sigmaZ = beam.sigmaZ, .sigmaTransverse = std::max(beam.sigmaX, beam.sigmaY), .x = beam.x, .y = beam.y};
+  return {.z = beam.z,
+          .sigmaZ = beam.sigmaZ * zReachNSigma / windowNSigma,
+          .sigmaTransverse = std::max(beam.sigmaX, beam.sigmaY),
+          .x = beam.x,
+          .y = beam.y};
 }
 
 [[nodiscard]] inline std::string describe(const BeamLine& beam)
