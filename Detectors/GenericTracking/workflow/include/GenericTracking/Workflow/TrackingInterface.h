@@ -244,18 +244,20 @@ class TrackingInterface
       return;
     }
     mVertexing.reset();
+    // One pool for the vertexer and the tracker: memoryLimitGB bounds what
+    // both hold at once (the vertexer's pass stays while the tracking runs).
+    mPool = trackerMemoryPool(param);
     if (param.vertexer) {
-      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, mScattering, trackerMemoryPool(param), chunkSize,
+      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, mScattering, mPool, chunkSize,
                                                std::max(param.threads, 0));
       LOGP(info, "the vertexer: a pass at {} GeV on layers 0-2, window {} um, claim {} um, at least {} contributors", param.vertexerMinPtGeV,
            param.vertexerWindowUM, param.vertexerClaimUM, param.vertexerMinContributors);
     }
     mTrackerSource = iterationSettings(param, 0).vertexSource;
     mTrackerLabel = sourceLabel(settings);
-    mPool = trackerMemoryPool(param);
     mTracker = std::make_unique<Controller>(settings, beamSpot, mScattering, mPool, chunkSize, std::max(param.threads, 0));
     if (param.memoryLimitGB > 0.) {
-      LOGP(info, "the tracker's memory limited to {:.3f} GB per tracker (GTRKReco<DET>.memoryLimitGB)", param.memoryLimitGB);
+      LOGP(info, "the tracker's memory, its vertexer's included, limited to {:.3f} GB (GTRKReco<DET>.memoryLimitGB)", param.memoryLimitGB);
     }
     // The road fit and the refit: the sensors, the material LUT, the field.
     if (!mTracking) {

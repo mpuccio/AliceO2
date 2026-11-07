@@ -152,6 +152,8 @@ int run(int argc, char** argv)
      "the last run's iteration whose triplets the vertex study takes, its vertexer against the truth and its replay; -1 for none") //
     ("vertices-only", bpo::bool_switch(&options.verticesOnly),
      "the vertexing pass alone (GTRKReco<DET>.vertexer), no tracking: every run timed, the first's vertices against the MC collisions") //
+    ("score-sources", bpo::value(&options.scoreSources)->multitoken(),
+     "the score again over the particles of these MC sources alone (the collisions added to a mixed timeframe), against every track") //
     ("vertex-list", bpo::value(&options.vertexList)->default_value(""),
      "the vertex study's vertexer vertices here, one CSV line each with its collision and makeup, for tools/vertexMakeup.py") //
     ("vertex-prior", bpo::value(&options.vertexPrior)->default_value(""),

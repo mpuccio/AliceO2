@@ -113,6 +113,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool funnel = false;
   int vertexStudy = -1;
   bool verticesOnly = false; ///< --vertices-only: the vertexing pass alone, its vertices against the truth
+  std::vector<int> scoreSources; ///< --score-sources: the score again over these MC sources' particles only; empty for none
   double beamWidthCM = 0.;  ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
   std::string vertexList;   ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
   std::string vertexReplay; ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
@@ -1789,6 +1790,29 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     return std::pair{std::move(score), scoreSeconds};
   };
+  // --score-sources: the particles of those MC sources alone (a mixed
+  // timeframe's added collisions), against every track.
+  std::optional<study::ParticleTable> sourceParticles;
+  if (truth && !options.scoreSources.empty()) {
+    sourceParticles.emplace();
+    for (const auto& [id, particle] : truth->particles) {
+      const int source = workflow::labelOfParticle(id).getSourceID();
+      if (std::ranges::find(options.scoreSources, source) != options.scoreSources.end()) {
+        sourceParticles->emplace(id, particle);
+      }
+    }
+    std::cout << std::format("--score-sources: {} of {} particles\n", sourceParticles->size(), truth->particles.size());
+  }
+  const auto scoreSources = [&](const study::TrackRows& rows) -> std::optional<study::TrackScore> {
+    if (!sourceParticles) {
+      return std::nullopt;
+    }
+    auto score = study::scoreTracks(truth->rows, *sourceParticles, rows, comparison);
+    for (const auto& line : study::describeScore(score, comparison, "GTRK, the --score-sources particles")) {
+      std::cout << line << '\n';
+    }
+    return score;
+  };
 
   std::vector<double> walls;
   std::vector<std::uint64_t> digests;
@@ -1892,7 +1916,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       funnel->keepReportInputs(!options.fakesOut.empty());
     }
     // --vertices-only keeps the first run's claims, which its score takes.
+    // The pool's peak over the vertexing, which shares the tracker's pool
+    // (TrackingInterface): with the run's peak, what the timeframe takes.
+    pool->resetPeakMemory();
     const auto vertexed = interface.vertices(frame, input.vertices, options.verticesOnly && repetition == 0U);
+    const std::size_t vertexerPoolPeak = pool->getPeakMemory();
     if (vertexed.dropped) {
       throw std::runtime_error("the vertexing pass ran out of memory");
     }
@@ -1900,8 +1928,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     const double vertexSeconds = !device ? vertexed.seconds : 0.;
     if (vertexing && !device) {
       const auto& found = *vertexed.found;
-      std::cout << std::format("vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s\n", found.vertices.size(), found.candidates,
-                               found.triplets, vertexSeconds);
+      std::cout << std::format("vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s, pool peak {:.1f} MB\n", found.vertices.size(),
+                               found.candidates, found.triplets, vertexSeconds, static_cast<double>(vertexerPoolPeak) / 1.e6);
       std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(found.vertices, found.contributors));
     }
     if (options.verticesOnly) {
@@ -1994,6 +2022,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
           report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
       const auto score = scoreAndPrint(trackRows(deviceTracks));
+      const auto sourceScore = scoreSources(trackRows(deviceTracks));
       if (json.is_open()) {
         json << std::format(R"({{"input":"{}",{}"run":{},"backend":"{}","device":"{}","planSeconds":{:.9f},"runSeconds":{:.9f},"uploadSeconds":{:.9f},)"
                             R"("downloadSeconds":{:.9f},"arenaPeakBytes":{},"maxRssBytes":{},"digest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)"
@@ -2027,6 +2056,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         json << ']';
         if (score) {
           json << R"(,"score":)" << jsonScore(score->first, comparison, score->second);
+        }
+        if (sourceScore) {
+          json << R"(,"scoreSources":)" << jsonScore(*sourceScore, comparison, 0.);
         }
         json << "}\n";
         json.flush();
@@ -2132,6 +2164,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     const auto hostRows = trackRows(*result.tracks);
     const auto score = scoreAndPrint(hostRows);
+    const auto sourceScore = scoreSources(hostRows);
     if (truth && last && (!options.breakdown.empty() || !options.breakdownParticles.empty())) {
       const auto view = result.tracks->view();
       const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison,
@@ -2209,9 +2242,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     if (json.is_open()) {
       json << std::format(
-        R"({{"input":"{}",{}"run":{},"threads":{},"chunkSize":{},"planSeconds":{:.9f},"runSeconds":{:.9f},"maxRssBytes":{},"poolPeakBytes":{},)"
+        R"({{"input":"{}",{}"run":{},"threads":{},"chunkSize":{},"planSeconds":{:.9f},"runSeconds":{:.9f},"maxRssBytes":{},"poolPeakBytes":{},"vertexerPoolPeakBytes":{},)"
         R"("digest":"{:016x}","clusterDigest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)",
-        options.input, gridJson, repetition, threads, chunkSize, planSeconds, runSeconds, maxRssBytes(), result.profile[profile::Phase::kRun].peakBytes, digest,
+        options.input, gridJson, repetition, threads, chunkSize, planSeconds, runSeconds, maxRssBytes(), result.profile[profile::Phase::kRun].peakBytes, vertexerPoolPeak, digest,
         clusterDigest(result, frame, tracker.used()), tracksClusterDigest<Det>(*result.tracks, frame), result.tracks->size());
       json << R"("iterations":[)";
       for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
@@ -2236,6 +2269,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       study::writeJson(json, profiled);
       if (score) {
         json << R"(,"score":)" << jsonScore(score->first, comparison, score->second);
+      }
+      if (sourceScore) {
+        json << R"(,"scoreSources":)" << jsonScore(*sourceScore, comparison, 0.);
       }
       json << "}\n";
       json.flush();
