@@ -79,6 +79,7 @@
 #include "DetectorsRaw/RDHUtils.h"
 #include "ITStracking/TrackingInterface.h"
 #include "ITSMFTTracking/ITSTrackingConfigParam.h"
+#include "GenericTracking/Workflow/GPURecoTracking.h"
 #include "GPUWorkflowInternal.h"
 #include "GPUDataTypesQA.h"
 // #include "Framework/ThreadPool.h"
@@ -127,6 +128,7 @@ GPURecoWorkflowSpec::GPURecoWorkflowSpec(GPURecoWorkflowSpec::CompletionPolicyDa
   if (mSpecConfig.enableDoublePipeline == 1 && gPolicyOrder) {
     *gPolicyOrder = &mPolicyOrder;
   }
+  createGenericTracking();
 }
 
 GPURecoWorkflowSpec::~GPURecoWorkflowSpec() = default;
@@ -304,6 +306,7 @@ void GPURecoWorkflowSpec::init(InitContext& ic)
     if (mSpecConfig.runITSTracking) {
       initFunctionITS(ic);
     }
+    initFunctionGenericTracking(ic);
   }
 
   if (mSpecConfig.enableDoublePipeline) {
@@ -366,6 +369,9 @@ void GPURecoWorkflowSpec::init(InitContext& ic)
 void GPURecoWorkflowSpec::stop()
 {
   LOGF(info, "GPU Reconstruction total timing: Cpu: %.3e Real: %.3e s in %d slots", mTimer->CpuTime(), mTimer->RealTime(), mTimer->Counter() - 1);
+  for (auto& tracking : mGenericTracking) {
+    tracking->stop();
+  }
   handlePipelineStop();
 }
 
@@ -373,6 +379,9 @@ void GPURecoWorkflowSpec::endOfStream(EndOfStreamContext& ec)
 {
   if (mSpecConfig.runITSTracking && mITSTrackingInterface != nullptr) {
     mITSTrackingInterface->printSummary();
+  }
+  for (auto& tracking : mGenericTracking) {
+    tracking->endOfStream();
   }
   handlePipelineEndOfStream(ec);
 }
@@ -383,6 +392,11 @@ void GPURecoWorkflowSpec::finaliseCCDB(o2::framework::ConcreteDataMatcher& match
     finaliseCCDBTPC(matcher, obj);
     if (mSpecConfig.runITSTracking) {
       finaliseCCDBITS(matcher, obj);
+    }
+    for (auto& tracking : mGenericTracking) {
+      if (tracking->finaliseCCDB(matcher, obj)) {
+        return;
+      }
     }
   }
   if (GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
@@ -517,6 +531,10 @@ int32_t GPURecoWorkflowSpec::runMain(o2::framework::ProcessingContext* pc, GPUTr
     if (retVal == 0 && mSpecConfig.runITSTracking) {
       retVal = runITSTracking(*pc);
     }
+  }
+  if (!mGenericTracking.empty()) {
+    // After the TPC (and O2's ITS), before the pool is cleared; its products empty if the TPC failed.
+    runGenericTracking(*pc, mConfParam->dump < 2 && retVal == 0);
   }
 
   if (!mSpecConfig.enableDoublePipeline) { // TODO: Why is this needed for double-pipeline?
@@ -1339,6 +1357,9 @@ Inputs GPURecoWorkflowSpec::inputs()
     }
   }
 
+  for (auto& tracking : mGenericTracking) {
+    tracking->appendInputs(inputs);
+  }
   return inputs;
 };
 
@@ -1415,12 +1436,16 @@ Outputs GPURecoWorkflowSpec::outputs()
     }
   }
 
+  for (auto& tracking : mGenericTracking) {
+    tracking->appendOutputs(outputSpecs);
+  }
   return outputSpecs;
 };
 
 void GPURecoWorkflowSpec::deinitialize()
 {
   ExitPipeline();
+  mGenericTracking.clear(); // its GPU before the reconstruction's
   mQA.reset(nullptr);
   mDisplayFrontend.reset(nullptr);
   mGPUReco.reset(nullptr);

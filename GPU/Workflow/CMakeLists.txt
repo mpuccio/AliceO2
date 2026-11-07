@@ -13,6 +13,7 @@ o2_add_library(GPUWorkflow
                SOURCES src/GPUWorkflowSpec.cxx
                        src/GPUWorkflowTPC.cxx
                        src/GPUWorkflowITS.cxx
+                       src/GPUWorkflowGenericTracking.cxx
                        src/GPUWorkflowPipeline.cxx
                TARGETVARNAME targetName
                PUBLIC_LINK_LIBRARIES O2::Framework
@@ -28,6 +29,7 @@ o2_add_library(GPUWorkflow
                                      O2::DataFormatsTRD
                PRIVATE_LINK_LIBRARIES O2::GPUTracking
                                       O2::ITSTrackingInterface
+                                      O2::GTrkWorkflow
                                       $<$<BOOL:${ENABLE_UPGRADES}>:O2::ITS3TrackingInterface>)
 
 o2_add_executable(reco-workflow

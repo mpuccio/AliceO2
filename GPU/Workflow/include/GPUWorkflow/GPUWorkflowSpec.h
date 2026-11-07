@@ -63,6 +63,11 @@ class TimeFrame;
 class ITSTrackingInterface;
 } // namespace its
 
+namespace gtrk::workflow
+{
+class GPURecoTracking;
+} // namespace gtrk::workflow
+
 namespace itsmft
 {
 class TopologyDictionary;
@@ -128,6 +133,8 @@ class GPURecoWorkflowSpec : public o2::framework::Task
     bool readTRDtracklets = false;
     bool outputErrorQA = false;
     bool runITSTracking = false;
+    bool runGenericTrackingITS = false; // GenericTracking's ITS tracking after the TPC's, on its GPU
+    bool runGenericTrackingMFT = false; // GenericTracking's MFT tracking after the TPC's, on its GPU
     bool itsStaggered = false;
     bool itsOverrBeamEst = false;
     bool tpcTriggerHandling = false;
@@ -186,6 +193,9 @@ class GPURecoWorkflowSpec : public o2::framework::Task
 
   int32_t runMain(o2::framework::ProcessingContext* pc, GPUTrackingInOutPointers* ptrs, GPUInterfaceOutputs* outputRegions, int32_t threadIndex = 0, GPUInterfaceInputUpdate* inputUpdateCallback = nullptr);
   int32_t runITSTracking(o2::framework::ProcessingContext& pc);
+  void createGenericTracking();
+  void initFunctionGenericTracking(o2::framework::InitContext& ic);
+  void runGenericTracking(o2::framework::ProcessingContext& pc, bool reconstructed);
 
   int32_t handlePipeline(o2::framework::ProcessingContext& pc, GPUTrackingInOutPointers& ptrs, gpurecoworkflow_internals::GPURecoWorkflowSpec_TPCZSBuffers& tpcZSmeta, o2::gpu::GPUTrackingInOutZS& tpcZS, std::unique_ptr<gpurecoworkflow_internals::GPURecoWorkflow_QueueObject>& context);
   void RunReceiveThread();
@@ -221,6 +231,7 @@ class GPURecoWorkflowSpec : public o2::framework::Task
   std::vector<int32_t> mClusterOutputIds;
   std::vector<int32_t> mTPCSectors;
   std::unique_ptr<o2::its::ITSTrackingInterface> mITSTrackingInterface;
+  std::vector<std::unique_ptr<o2::gtrk::workflow::GPURecoTracking>> mGenericTracking; // GenericTracking's detectors, the ITS first
   std::unique_ptr<gpurecoworkflow_internals::GPURecoWorkflowSpec_PipelineInternals> mPipeline;
   o2::its::TimeFrame<7>* mITSTimeFrame = nullptr;
   std::vector<fair::mq::RegionInfo> mRegionInfos;

@@ -52,7 +52,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
 
   std::vector<ConfigParamSpec> options{
     {"input-type", VariantType::String, "digits", {"digits, zsraw, zsonthefly, clusters, compressed-clusters-root, compressed-clusters-flat, trd-tracklets, its-clusters, its-mean-vertex"}},
-    {"output-type", VariantType::String, "tracks", {"cluster, tracks, compressed-clusters-root, compressed-clusters-flat, qa, error-qa, no-shared-cluster-map, send-clusters-per-sector, trd-tracks, tpc-triggers, its-tracks"}},
+    {"output-type", VariantType::String, "tracks", {"cluster, tracks, compressed-clusters-root, compressed-clusters-flat, qa, error-qa, no-shared-cluster-map, send-clusters-per-sector, trd-tracks, tpc-triggers, its-tracks, gtrk-its-tracks, gtrk-mft-tracks"}},
     {"disable-root-input", VariantType::Bool, true, {"disable root-files input reader"}},
     {"disable-mc", VariantType::Bool, false, {"disable sending of MC information"}},
     {"ignore-dist-stf", VariantType::Bool, false, {"do not subscribe to FLP/DISTSUBTIMEFRAME/0 message (no lost TF recovery)"}},
@@ -110,7 +110,9 @@ enum struct ioType { Digits,
                      ITSClusters,
                      ITSTracks,
                      MeanVertex,
-                     TPCTriggers };
+                     TPCTriggers,
+                     GenericTrackingITSTracks,
+                     GenericTrackingMFTTracks };
 
 static const std::unordered_map<std::string, ioType> InputMap{
   {"digits", ioType::Digits},
@@ -135,7 +137,9 @@ static const std::unordered_map<std::string, ioType> OutputMap{
   {"send-clusters-per-sector", ioType::SendClustersPerSector},
   {"trd-tracks", ioType::TRDTracks},
   {"its-tracks", ioType::ITSTracks},
-  {"tpc-triggers", ioType::TPCTriggers}};
+  {"tpc-triggers", ioType::TPCTriggers},
+  {"gtrk-its-tracks", ioType::GenericTrackingITSTracks},
+  {"gtrk-mft-tracks", ioType::GenericTrackingMFTTracks}};
 
 WorkflowSpec defineDataProcessing(ConfigContext const& cfgc)
 {
@@ -184,9 +188,18 @@ WorkflowSpec defineDataProcessing(ConfigContext const& cfgc)
   cfg.runTRDTracking = isEnabled(outputTypes, ioType::TRDTracks);
   cfg.tpcTriggerHandling = isEnabled(outputTypes, ioType::TPCTriggers) || cfg.caClusterer;
   cfg.enableDoublePipeline = cfgc.options().get<bool>("enableDoublePipeline");
+  if (cfg.enableDoublePipeline && (isEnabled(outputTypes, ioType::GenericTrackingITSTracks) || isEnabled(outputTypes, ioType::GenericTrackingMFTTracks))) {
+    throw std::invalid_argument("gtrk-its-tracks and gtrk-mft-tracks need the processing context of the single pipeline (no enableDoublePipeline)");
+  }
   cfg.tpcDeadMapSources = cfgc.options().get<int32_t>("tpc-deadMap-sources");
   cfg.tpcUseMCTimeGain = cfgc.options().get<bool>("tpc-mc-time-gain");
   cfg.runITSTracking = isEnabled(outputTypes, ioType::ITSTracks);
+  // GenericTracking's tracking on the TPC's GPU: its measurements from o2-gtrk-<det>-reco-workflow --tracking-in-gpu-reco
+  cfg.runGenericTrackingITS = isEnabled(outputTypes, ioType::GenericTrackingITSTracks);
+  cfg.runGenericTrackingMFT = isEnabled(outputTypes, ioType::GenericTrackingMFTTracks);
+  if (cfg.runGenericTrackingITS && cfg.runITSTracking) {
+    throw std::invalid_argument("its-tracks and gtrk-its-tracks: one ITS tracking");
+  }
   cfg.itsStaggered = o2::itsmft::DPLAlpideParamInitializer::isITSStaggeringEnabled(cfgc);
   cfg.itsOverrBeamEst = isEnabled(inputTypes, ioType::MeanVertex);
   cfg.useFilteredOutputSpecs = cfgc.options().get<bool>("filtered-output-specs");
