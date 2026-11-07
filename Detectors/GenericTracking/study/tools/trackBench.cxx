@@ -150,6 +150,8 @@ int run(int argc, char** argv)
      "the beam's transverse width the windows and the vertexer take [cm], instead of the dump's beam line's; 0 for the dump's") //
     ("vertex-study", bpo::value(&options.vertexStudy)->default_value(-1),
      "the last run's iteration whose triplets the vertex study takes, its vertexer against the truth and its replay; -1 for none") //
+    ("vertices-only", bpo::bool_switch(&options.verticesOnly),
+     "the vertexing pass alone (GTRKReco<DET>.vertexer), no tracking: every run timed, the first's vertices against the MC collisions") //
     ("vertex-list", bpo::value(&options.vertexList)->default_value(""),
      "the vertex study's vertexer vertices here, one CSV line each with its collision and makeup, for tools/vertexMakeup.py") //
     ("vertex-prior", bpo::value(&options.vertexPrior)->default_value(""),

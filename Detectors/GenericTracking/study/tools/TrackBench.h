@@ -112,6 +112,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool digestStages = false;
   bool funnel = false;
   int vertexStudy = -1;
+  bool verticesOnly = false; ///< --vertices-only: the vertexing pass alone, its vertices against the truth
   double beamWidthCM = 0.;  ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
   std::string vertexList;   ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
   std::string vertexReplay; ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
@@ -1607,6 +1608,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     throw std::runtime_error("--vertex-study needs the MC truth, the host tracker and one of the configured iterations");
   }
   std::optional<study::VertexStudy<Det, Controller>> vertexStudy;
+  if (options.verticesOnly && (!truth || device || !param.vertexer)) {
+    throw std::runtime_error("--vertices-only needs the MC truth, the host and GTRKReco<DET>.vertexer");
+  }
   if (options.digestStages || !options.fitInputs.empty() || options.funnel || options.vertexStudy >= 0) {
     tracker.setSliceObserver([&](const Controller& observed, const typename Controller::SliceObservation& slice) {
       if (options.digestStages) {
@@ -1884,7 +1888,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       funnel->setRoadFit(tracking, *material, propagator);
       funnel->keepReportInputs(!options.fakesOut.empty());
     }
-    const auto vertexed = interface.vertices(frame, input.vertices, false);
+    // --vertices-only keeps the first run's claims, which its score takes.
+    const auto vertexed = interface.vertices(frame, input.vertices, options.verticesOnly && repetition == 0U);
     if (vertexed.dropped) {
       throw std::runtime_error("the vertexing pass ran out of memory");
     }
@@ -1895,6 +1900,31 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       std::cout << std::format("vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s\n", found.vertices.size(), found.candidates,
                                found.triplets, vertexSeconds);
       std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(found.vertices, found.contributors));
+    }
+    if (options.verticesOnly) {
+      // The pass alone: every run timed, the first scored against the MC
+      // collisions (VertexQA.h), as the sink's vertex QA line.
+      const auto& found = *vertexed.found;
+      const auto vertexListDigest = vertexDigest(found.vertices, found.contributors);
+      walls.push_back(vertexSeconds);
+      digests.push_back(vertexListDigest);
+      std::optional<VertexScore> score;
+      if (repetition == 0U) {
+        score = scoreVertices<Det>(truth->rows, truth->particles, vertexed.pass->claims, found);
+        std::cout << describe(*score) << '\n';
+      }
+      if (json.is_open()) {
+        json << std::format(R"({{"input":"{}","run":{},"threads":{},"planSeconds":0,"runSeconds":{:.9f},"maxRssBytes":{},"digest":"{:016x}","vertices":{})",
+                            options.input, repetition, threads, vertexSeconds, maxRssBytes(), vertexListDigest, found.vertices.size());
+        if (score) {
+          json << std::format(R"(,"score":{{"vertices":{{"vertices":{},"collisions":{},"found":{},"findable":{},"covered":{},"fakes":{},"splits":{},"merged":{}}}}})",
+                              score->vertices, score->collisions, score->found, score->findable, score->covered, score->fakes, score->splits, score->merged);
+        }
+        json << "}\n";
+        json.flush();
+      }
+      tracker.endTimeframe();
+      continue;
     }
     profile::Profile planProfile;
     std::optional<TimeframePlan<Det>> plan;
