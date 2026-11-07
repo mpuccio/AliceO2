@@ -35,10 +35,12 @@
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <map>
 #include <span>
 #include <string>
@@ -60,6 +62,16 @@ struct VertexScore {
   std::size_t merged = 0U;
   std::vector<double> residualsUM; ///< |z - z_true| of each found collision's vertex [um]
   std::vector<double> pulls;       ///< (z - z_true) / its sigma z, the same vertices
+  /// A collision no vertex is the best of, and where its triplets went.
+  struct Missed {
+    double z = 0.;              ///< the median production z of its primaries [cm]
+    std::uint32_t findable = 0U;
+    std::uint32_t triplets = 0U; ///< the pass's triplets of one of its primaries, in the slices owning their frames
+    std::uint32_t cut = 0U;      ///< of those, none (kNone: cut, degenerate or deduplicated)
+    std::uint32_t free = 0U;     ///< a candidate no vertex claimed (kFree)
+    std::uint32_t other = 0U;    ///< claimed by a vertex another collision (or none) is the majority of
+  };
+  std::vector<Missed> missed;
 };
 
 /// The shared majority, best-vertex, split and merge rule. Ordered maps
@@ -164,6 +176,15 @@ template <DetectorLayout Det>
     auto& collision = collisions[c];
     score.findable += collision.findable;
     if (best[c] < 0) {
+      VertexScore::Missed miss{.z = median(collision.productionZ), .findable = collision.findable};
+      for (const auto& [vertex, count] : wentTo[c]) {
+        if (vertex == VertexerResult::kNotOwned) {
+          continue; // a halo's copy, counted in the slice that owns its frame
+        }
+        miss.triplets += count;
+        (vertex == VertexerResult::kNone ? miss.cut : vertex == VertexerResult::kFree ? miss.free : miss.other) += count;
+      }
+      score.missed.push_back(miss);
       continue;
     }
     ++score.found;
@@ -192,6 +213,30 @@ template <DetectorLayout Det>
     score.vertices, score.found, score.collisions, score.covered, score.findable,
     100. * static_cast<double>(score.covered) / std::max(1., static_cast<double>(score.findable)), score.fakes, score.splits, score.merged, at(0.68), at(0.95),
     at(0.99), residuals.empty() ? 0. : residuals.back());
+}
+
+/// \a score's missed collisions by their findable primaries: per bin the
+/// collisions, their findable primaries and where their triplets went.
+[[nodiscard]] inline std::string describeMissed(const VertexScore& score)
+{
+  constexpr std::array<std::uint32_t, 7> kLow{0U, 1U, 5U, 10U, 20U, 50U, 100U};
+  std::string line = "vertex QA, the missed collisions by findable primaries (collisions, findable; their triplets: none / free / another's):";
+  for (std::size_t bin = 0; bin < kLow.size(); ++bin) {
+    const auto high = bin + 1U < kLow.size() ? kLow[bin + 1U] : std::numeric_limits<std::uint32_t>::max();
+    std::uint64_t collisions = 0U, findable = 0U, cut = 0U, free = 0U, other = 0U;
+    for (const auto& miss : score.missed) {
+      if (miss.findable >= kLow[bin] && miss.findable < high) {
+        ++collisions;
+        findable += miss.findable;
+        cut += miss.cut;
+        free += miss.free;
+        other += miss.other;
+      }
+    }
+    line += std::format(" [{}{}] {}, {}; {} / {} / {}", kLow[bin], high == std::numeric_limits<std::uint32_t>::max() ? "+" : std::format("-{}", high - 1U),
+                        collisions, findable, cut, free, other);
+  }
+  return line;
 }
 
 /// \a score's pulls, (z - z_true) / sigma z of each found collision's vertex,

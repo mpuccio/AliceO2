@@ -1911,7 +1911,13 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       std::optional<VertexScore> score;
       if (repetition == 0U) {
         score = scoreVertices<Det>(truth->rows, truth->particles, vertexed.pass->claims, found);
-        std::cout << describe(*score) << '\n';
+        std::cout << describe(*score) << '\n' << describeMissed(*score) << '\n';
+        for (const auto& miss : score->missed) {
+          if (miss.findable > 0U) {
+            std::cout << std::format("  missed: z {:+.3f} cm, {} findable, {} triplets: {} none, {} free, {} another's\n", miss.z, miss.findable, miss.triplets,
+                                     miss.cut, miss.free, miss.other);
+          }
+        }
       }
       if (json.is_open()) {
         json << std::format(R"({{"input":"{}","run":{},"threads":{},"planSeconds":0,"runSeconds":{:.9f},"maxRssBytes":{},"digest":"{:016x}","vertices":{})",
