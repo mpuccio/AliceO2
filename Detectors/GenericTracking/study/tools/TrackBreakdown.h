@@ -11,9 +11,9 @@
 
 /// \file TrackBreakdown.h
 /// \brief Where a run's tracks sit: the tracks by
-///        their number of measurements, and the findable physical primaries
-///        found complete, incomplete or not, with where an incomplete one's
-///        missing measurements went.
+///        their number of measurements, and the findable particles of one
+///        origin found complete, incomplete or not, with where an incomplete
+///        one's missing measurements went.
 ///
 /// Under the score's rules (TrackComparison.h): a track is good when every
 /// row carries one particle, a fake otherwise; a particle's good track with
@@ -22,8 +22,9 @@
 /// one on. Per track length: the tracks, the fakes, the clones, and the
 /// best tracks of a complete particle.
 ///
-/// The class is the score's `originFindable` physical primaries (a chain of
-/// `minLayers`, the score's pT floor). An incomplete particle's missing
+/// The class is the score's `originFindable` particles of one origin, the
+/// physical primaries or the decay daughters (a chain of `minLayers`, the
+/// score's pT floor). An incomplete particle's missing
 /// layers are the layers it has a row on that its best track has none on.
 /// Each missing layer's rows are looked up in the tracks: in another good
 /// track of the same particle (a split), in a fake labelled with the
@@ -39,7 +40,9 @@
 /// Per particle of the class (`writeParticles`, a CSV): its truth, its layers,
 /// its status, its best track's layers and iteration, and its missing layers
 /// by fate and place, a bit per layer -- for splits by layer pattern, pT or
-/// the pass that found it (tools/incompleteParticles.py). Its inbound layers:
+/// the pass that found it (tools/incompleteParticles.py). A particle not
+/// found has every layer's fate, no place: whether a later pass could still
+/// take its rows. Its inbound layers:
 /// those whose rows all lie past the turning point -- each nearer the axis
 /// than a row before it along the path, the rows ordered by |z - vz| (a
 /// primary's longitudinal distance grows along its helix). Rows within the
@@ -107,10 +110,11 @@ class TrackBreakdown
     std::uint64_t inbound = 0U;
   };
 
-  /// \a tracks of one run scored against \a rows and \a truth under \a comparison;
-  /// \a iterations, the iteration of each track, for the particles' records.
+  /// \a tracks of one run scored against \a rows and \a truth under \a comparison,
+  /// the class's particles those of \a origin; \a iterations, the iteration of
+  /// each track, for the particles' records.
   TrackBreakdown(std::span<const study::TruthRow> rows, const study::ParticleTable& truth, const study::TrackRows& tracks,
-                 const study::ComparisonSettings& comparison, std::span<const std::uint8_t> iterations)
+                 const study::ComparisonSettings& comparison, study::ParticleOrigin origin, std::span<const std::uint8_t> iterations)
   {
     const auto length = [](std::size_t size) { return std::min(size, kLengths - 1U); };
     std::vector<std::uint64_t> good(tracks.size(), study::kNoTrackParticle);
@@ -144,8 +148,15 @@ class TrackBreakdown
         }
       }
     }
-    // Every particle's rows, for the missing layers.
+    // Every particle's rows, for the missing layers, and a row's fate for
+    // particle \a id in track \a t.
     auto rowsOf = study::rowsOfParticles(rows);
+    const auto fateIn = [&](std::uint64_t id, std::uint32_t t) -> std::uint8_t {
+      return good[t] == id                        ? kSplit
+             : good[t] != study::kNoTrackParticle ? kOtherGood
+             : majority[t] == id                  ? kOwnFake
+                                                  : kFake;
+    };
     const auto layers = study::particleLayers(rows, comparison);
     for (const auto& [particle, top] : best) {
       if (layersOf[top] == layers.at(particle).layers) {
@@ -154,7 +165,7 @@ class TrackBreakdown
     }
     for (const auto& [id, mine] : layers) {
       const auto found = truth.find(id);
-      if (found == truth.end() || found->second.origin != study::ParticleOrigin::kPhysicalPrimary ||
+      if (found == truth.end() || found->second.origin != origin ||
           !study::isFindable(found->second.pt, mine, comparison)) {
         continue;
       }
@@ -171,6 +182,18 @@ class TrackBreakdown
         });
         ++(withFake ? mFakeOnly : mNotFound);
         record.status = withFake ? kFakeOnly : kNotFound;
+        std::array<std::uint8_t, kMaxLayers> fate{};
+        fate.fill(kFree);
+        for (const auto row : rowsOf[id]) {
+          for (const auto t : tracksOfRow[row]) {
+            fate[rows[row].layer] = std::min(fate[rows[row].layer], fateIn(id, t));
+          }
+        }
+        for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {
+          if (((mine.layers >> layer) & 1U) != 0U) {
+            record.fates[fate[layer]] |= std::uint64_t{1} << layer;
+          }
+        }
         continue;
       }
       const auto covered = layersOf[at->second];
@@ -208,11 +231,7 @@ class TrackBreakdown
         }
         where[layer] = std::min(where[layer], distance(row));
         for (const auto t : tracksOfRow[row]) {
-          const auto kind = good[t] == id                        ? kSplit
-                            : good[t] != study::kNoTrackParticle ? kOtherGood
-                            : majority[t] == id                  ? kOwnFake
-                                                                 : kFake;
-          fate[layer] = std::min<std::uint8_t>(fate[layer], kind);
+          fate[layer] = std::min(fate[layer], fateIn(id, t));
         }
       }
       for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {

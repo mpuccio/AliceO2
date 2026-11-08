@@ -156,6 +156,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string fateOut;            ///< --fate-out: the CSV of every class particle's fate
   std::string breakdown;          ///< --breakdown: where the last run's tracks sit, a JSON line
   std::string breakdownParticles; ///< --breakdown-particles: the same per particle of the class, a CSV
+  std::string breakdownOrigin;    ///< --breakdown-origin: the class's origin, primary or decay
   std::string inwardHistory;      ///< --inward-history: the CSV of the inward refit's states
   std::string endDecisions;       ///< --end-decisions: the CSV of every follow walk's end
   std::string endEdits;           ///< --end-edits: with it, the CSV of each track's truth-free end edits
@@ -2167,7 +2168,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     const auto sourceScore = scoreSources(hostRows);
     if (truth && last && (!options.breakdown.empty() || !options.breakdownParticles.empty())) {
       const auto view = result.tracks->view();
-      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison,
+      const auto origin = options.breakdownOrigin == "decay" ? study::ParticleOrigin::kDecay : study::ParticleOrigin::kPhysicalPrimary;
+      if (options.breakdownOrigin != "decay" && options.breakdownOrigin != "primary") {
+        throw std::runtime_error("--breakdown-origin " + options.breakdownOrigin + ": primary or decay");
+      }
+      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison, origin,
                                             std::span<const std::uint8_t>{view.iteration, result.tracks->size()});
       if (!options.breakdown.empty()) {
         breakdown.write(options.breakdown);
