@@ -44,6 +44,8 @@ class NoRuntime final : public DeviceRuntime
   void copyToHost(void* /*to*/, const void* /*from*/, std::size_t /*bytes*/, DeviceStream& /*stream*/) final { fail(); }
   void copyOnDevice(void* /*to*/, const void* /*from*/, std::size_t /*bytes*/, DeviceStream& /*stream*/) final { fail(); }
   void fill(void* /*to*/, std::uint8_t /*value*/, std::size_t /*bytes*/, DeviceStream& /*stream*/) final { fail(); }
+  void registerHost(void* /*host*/, std::size_t /*bytes*/) final { fail(); }
+  void unregisterHost(void* /*host*/) noexcept final {}
 
  protected:
   [[nodiscard]] void* createStreamHandle() final { fail(); }

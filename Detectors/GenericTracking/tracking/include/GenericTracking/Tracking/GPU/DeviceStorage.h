@@ -21,14 +21,19 @@
 
 #include <memlayout/wrapper.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 #include <vector>
 #include <memory>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+
+#include <unistd.h>
 
 namespace o2::gtrk
 {
@@ -364,13 +369,40 @@ class DeviceColumnChunks
   std::size_t mRows = 0U;
 };
 
+/// Host memory in whole pages of its own, page-aligned: a block a device can
+/// page-lock (DeviceRuntime::registerHost) without touching a page that
+/// anything else uses.
+template <typename T>
+struct PageAllocator {
+  using value_type = T;
+  PageAllocator() = default;
+  template <typename U>
+  explicit PageAllocator(const PageAllocator<U>& /*other*/) noexcept
+  {
+  }
+  [[nodiscard]] T* allocate(std::size_t count)
+  {
+    const std::size_t page = pageBytes();
+    const std::size_t bytes = ((count * sizeof(T)) + page - 1U) / page * page;
+    void* memory = std::aligned_alloc(page, std::max(bytes, page));
+    if (memory == nullptr) {
+      throw std::bad_alloc();
+    }
+    return static_cast<T*>(memory);
+  }
+  void deallocate(T* memory, std::size_t /*count*/) noexcept { std::free(memory); } // NOLINT(cppcoreguidelines-no-malloc): aligned_alloc's
+  [[nodiscard]] static std::size_t pageBytes() { return static_cast<std::size_t>(sysconf(_SC_PAGESIZE)); }
+  friend bool operator==(const PageAllocator& /*a*/, const PageAllocator& /*b*/) noexcept { return true; }
+};
+
 /// A FlatObject's bytes as they must land on the device: the object, whose
 /// internal pointers already point into the device buffer, and its buffer.
 /// Kept between ports of the same source: the clone behind the bytes is
 /// re-targeted when the device buffer moves, not made again.
 struct FlatObjectImage {
   std::vector<std::byte> object;
-  std::vector<std::byte> buffer;
+  std::vector<std::byte, PageAllocator<std::byte>> buffer; ///< whole pages: DeviceFlatObject page-locks it
+
   const void* source = nullptr; ///< the object the image is of
   char* future = nullptr;       ///< the device buffer its pointers name
   std::shared_ptr<void> clone;  ///< the source's clone over `buffer`, the object's bytes taken from it
@@ -434,11 +466,18 @@ void flatObjectImage(const T& source, char* futureBuffer, FlatObjectImage& image
 /// object and its buffer are one allocation, so the upload is all or nothing,
 /// and the object is usable on the device as it lands. The image stays on the
 /// host for the next upload of the same source, only re-targeted where the
-/// device buffer moved.
+/// device buffer moved, its buffer page-locked for the copies while it stays.
 template <typename T>
 class DeviceFlatObject
 {
  public:
+  DeviceFlatObject() = default;
+  DeviceFlatObject(const DeviceFlatObject&) = delete;
+  DeviceFlatObject& operator=(const DeviceFlatObject&) = delete;
+  DeviceFlatObject(DeviceFlatObject&&) = delete;
+  DeviceFlatObject& operator=(DeviceFlatObject&&) = delete;
+  ~DeviceFlatObject() { unlock(); }
+
   /// Port \a source to \a end of \a arena. False, and the arena as it was, if
   /// the arena refuses. Returns once the copies are done.
   [[nodiscard]] bool upload(DeviceArena& arena, const T& source, DeviceStream& stream, ArenaEnd end = ArenaEnd::kBase)
@@ -452,11 +491,21 @@ class DeviceFlatObject
     }
     std::byte* const object = storage.data();
     std::byte* const buffer = object + objectBytes;
+    auto& runtime = arena.runtime();
+    if (mImage.source != &source) {
+      unlock(); // the image is made again: its buffer may go
+    }
     FlatObjectPort<T>::image(source, reinterpret_cast<char*>(buffer), mImage); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
     if (mImage.object.size() != sizeof(T) || mImage.buffer.size() != bufferBytes) {
       throw std::logic_error("a flat object's image does not match its type and buffer size");
     }
-    auto& runtime = arena.runtime();
+    if (mLocked == nullptr && bufferBytes != 0U) {
+      runtime.registerHost(mImage.buffer.data(), bufferBytes);
+      mLocked = mImage.buffer.data();
+      mRuntime = &runtime;
+    } else if (mLocked != nullptr && mLocked != mImage.buffer.data()) {
+      throw std::logic_error("a flat object's page-locked image buffer moved");
+    }
     if (bufferBytes != 0U) {
       runtime.copyToDevice(buffer, mImage.buffer.data(), bufferBytes, stream);
     }
@@ -474,8 +523,19 @@ class DeviceFlatObject
   [[nodiscard]] const T* data() const { return reinterpret_cast<const T*>(mStorage.data()); } // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 
  private:
+  /// The image's buffer released from its page lock.
+  void unlock() noexcept
+  {
+    if (mLocked != nullptr) {
+      mRuntime->unregisterHost(mLocked);
+      mLocked = nullptr;
+    }
+  }
+
   DeviceSpan<std::byte> mStorage;
   FlatObjectImage mImage;
+  std::byte* mLocked = nullptr; ///< the image's buffer as page-locked
+  DeviceRuntime* mRuntime = nullptr;
 };
 
 } // namespace o2::gtrk

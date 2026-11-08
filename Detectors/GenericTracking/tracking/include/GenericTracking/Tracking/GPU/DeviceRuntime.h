@@ -74,6 +74,11 @@ class DeviceRuntime
   virtual void copyToHost(void* to, const void* from, std::size_t bytes, DeviceStream& stream) = 0;
   virtual void copyOnDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) = 0;
   virtual void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) = 0;
+  /// Page-lock the \a bytes of host memory at \a host for this device's
+  /// copies, which then run without staging: whole pages no other
+  /// registration shares (`PageAllocator`), until unregisterHost.
+  virtual void registerHost(void* host, std::size_t bytes) = 0;
+  virtual void unregisterHost(void* host) noexcept = 0;
 
   /// Backend launchers use this to recover cudaStream_t/hipStream_t without
   /// exposing either type in a public header.

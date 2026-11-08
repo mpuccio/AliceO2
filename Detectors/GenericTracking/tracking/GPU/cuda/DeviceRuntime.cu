@@ -78,6 +78,9 @@ class Runtime final : public DeviceRuntime
     GPUChkErrS(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream)));
   }
 
+  void registerHost(void* host, std::size_t bytes) final { GPUChkErrS(cudaHostRegister(host, bytes, cudaHostRegisterDefault)); }
+  void unregisterHost(void* host) noexcept final { GPUChkErrSI(cudaHostUnregister(host)); }
+
  protected:
   [[nodiscard]] void* createStreamHandle() final
   {
