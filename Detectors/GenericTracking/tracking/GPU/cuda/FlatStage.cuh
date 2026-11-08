@@ -141,12 +141,24 @@ constexpr std::uint32_t fillLanes()
   }
 }
 
+/// The candidates of each listed element, and the 0 after the last that
+/// makes the scan's last offset the total.
 template <typename Adapter>
 struct CountElements {
   Adapter adapter;
   const std::uint32_t* listed;
+  std::uint32_t listedCount;
   std::uint32_t* counts;
-  GPUdi() void operator()(std::uint32_t i) const { counts[i] = adapter.count(elementAt(listed, i)); }
+  GPUdi() void operator()(std::uint32_t i) const { counts[i] = i < listedCount ? adapter.count(elementAt(listed, i)) : 0U; }
+};
+
+/// A run's words on the device, one block: zeroed by one fill, the sum and
+/// the largest read back by one copy.
+struct FlatWords {
+  Counter sum;            ///< the list's length in 64 bits (ReduceCounts)
+  std::uint32_t largest;  ///< its longest element (ReduceCounts)
+  std::uint32_t range[2]; ///< a chunk's elements (chunkRangeKernel)
+  std::uint32_t overflow; ///< an element past the output's limit (AddCounts)
 };
 
 /// The chunk's elements: [0] the first listed position whose candidates reach
@@ -307,38 +319,31 @@ template <template <template <class> class> class S, typename Adapter>
   // The list's offsets: the candidates of each listed element, counted and scanned.
   DeviceSpan<std::uint32_t> candidateCounts;
   DeviceSpan<std::uint32_t> offsets;
-  DeviceSpan<std::uint32_t> words; // [0] the chunk's first element, [1] its end, [2] the overflow flag
+  DeviceSpan<detail::FlatWords> words;
   if (!candidateCounts.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) || !offsets.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) ||
-      !words.allocate(arena, 3U, ArenaEnd::kScratch)) {
+      !words.allocate(arena, 1U, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
-  runtime.fill(candidateCounts.data() + listedCount, 0U, sizeof(std::uint32_t), stream);
-  runtime.fill(words.data(), 0U, 3U * sizeof(std::uint32_t), stream);
-  algorithms::forEach(runtime, stream, listedCount, detail::CountElements<Adapter>{adapter, listed, candidateCounts.data()});
+  detail::FlatWords* const device = words.data();
+  runtime.fill(device, 0U, sizeof(detail::FlatWords), stream);
+  algorithms::forEach(runtime, stream, listedCount + 1U, detail::CountElements<Adapter>{adapter, listed, listedCount, candidateCounts.data()});
   StageStatus status = algorithms::exclusiveScan(runtime, arena, stream, candidateCounts.data(), offsets.data(), std::size_t{listedCount} + 1U);
   if (status != StageStatus::kComplete) {
     return status;
   }
   // The list's length in 64 bits -- the 32-bit offsets must hold it -- and
   // its longest element; one readback.
-  DeviceSpan<Counter> sum;
-  DeviceSpan<std::uint32_t> largest;
-  if (!sum.allocate(arena, 1U, ArenaEnd::kScratch) || !largest.allocate(arena, 1U, ArenaEnd::kScratch)) {
-    return StageStatus::kOutOfMemory;
-  }
-  runtime.fill(sum.data(), 0U, sizeof(Counter), stream);
-  runtime.fill(largest.data(), 0U, sizeof(std::uint32_t), stream);
   // A few thousand threads, each over its stride of the counts: two atomics each.
-  algorithms::forEach(runtime, stream, std::min<std::uint32_t>(listedCount, 2048U), detail::ReduceCounts{candidateCounts.data(), listedCount, sum.data(), largest.data()});
-  Counter length = 0U;
-  download(sum, &length, 1U, stream);
-  download(largest, &report.largest, 1U, stream);
+  algorithms::forEach(runtime, stream, std::min<std::uint32_t>(listedCount, 2048U), detail::ReduceCounts{candidateCounts.data(), listedCount, &device->sum, &device->largest});
+  detail::FlatWords host{};
+  download(words, &host, 1U, stream);
   stream.synchronize();
   ++report.readbacks;
-  if (length > std::numeric_limits<std::uint32_t>::max()) {
+  report.largest = host.largest;
+  if (host.sum > std::numeric_limits<std::uint32_t>::max()) {
     return StageStatus::kIndexOverflow;
   }
-  const auto total = static_cast<std::uint32_t>(length);
+  const auto total = static_cast<std::uint32_t>(host.sum);
   report.candidates = total;
 
   // The chunks: a pair, the select's index, flag and output for it (9 bytes),
@@ -369,9 +374,9 @@ template <template <template <class> class> class S, typename Adapter>
       range[0] = 0U;
       range[1] = listedCount;
       if (listedCount > 0U && !(a == 0U && b == total)) {
-        detail::chunkRangeKernel<><<<1, 1, 0U, nativeStream(runtime, stream)>>>(offsets.data(), listedCount, a, b, words.data());
+        detail::chunkRangeKernel<><<<1, 1, 0U, nativeStream(runtime, stream)>>>(offsets.data(), listedCount, a, b, device->range);
         checkLaunch();
-        download(words, range, 2U, stream);
+        runtime.copyToHost(range, device->range, sizeof(range), stream);
         stream.synchronize();
         ++report.readbacks;
       }
@@ -388,15 +393,17 @@ template <template <template <class> class> class S, typename Adapter>
     const std::uint32_t sourceBegin = range[0];
     const std::uint32_t sourceCount = range[1] > range[0] ? range[1] - range[0] : 0U;
 
+    // The run bounds of the chunk's elements, starts then ends, in one block.
     DeviceSpan<CandidatePair> pairs;
-    DeviceSpan<std::uint32_t> runStart;
-    DeviceSpan<std::uint32_t> runEnd;
-    if (!pairs.allocate(arena, std::max<std::size_t>(b - a, 1U), ArenaEnd::kScratch) || !runStart.allocate(arena, std::max<std::size_t>(sourceCount, 1U), ArenaEnd::kScratch) ||
-        !runEnd.allocate(arena, std::max<std::size_t>(sourceCount, 1U), ArenaEnd::kScratch) || !adapter.beginChunk(arena, sourceBegin, sourceCount, b - a)) {
+    DeviceSpan<std::uint32_t> runBounds;
+    const std::size_t boundCount = std::max<std::size_t>(sourceCount, 1U);
+    if (!pairs.allocate(arena, std::max<std::size_t>(b - a, 1U), ArenaEnd::kScratch) || !runBounds.allocate(arena, 2U * boundCount, ArenaEnd::kScratch) ||
+        !adapter.beginChunk(arena, sourceBegin, sourceCount, b - a)) {
       return StageStatus::kOutOfMemory;
     }
-    runtime.fill(runStart.data(), 0U, sourceCount * sizeof(std::uint32_t), stream);
-    runtime.fill(runEnd.data(), 0U, sourceCount * sizeof(std::uint32_t), stream);
+    std::uint32_t* const runStart = runBounds.data();
+    std::uint32_t* const runEnd = runBounds.data() + boundCount;
+    runtime.fill(runBounds.data(), 0U, 2U * boundCount * sizeof(std::uint32_t), stream);
     const detail::FillElements<Adapter> fill{adapter, listed, offsets.data(), sourceBegin, pairs.data(), a, b};
     if constexpr (detail::fillLanes<Adapter>() > 1U) {
       algorithms::forEachGroup<detail::fillLanes<Adapter>()>(runtime, stream, sourceCount, fill);
@@ -420,9 +427,9 @@ template <template <template <class> class> class S, typename Adapter>
     }
     algorithms::forEach(runtime, stream, selectedCount,
                         detail::EmitPairs<S, Adapter>{adapter, listed, pairs.data(), selectedCount > 0U ? selected.data() : nullptr, selectedCount, sourceBegin,
-                                                      accepted.view(), runStart.data(), runEnd.data()});
+                                                      accepted.view(), runStart, runEnd});
     algorithms::forEach(runtime, stream, sourceCount,
-                        detail::AddCounts{listed, sourceBegin, runStart.data(), runEnd.data(), counts, words.data() + 2U,
+                        detail::AddCounts{listed, sourceBegin, runStart, runEnd, counts, &device->overflow,
                                           static_cast<std::uint32_t>(DeviceStageOutput<S>::kMaxPerElement)});
     chunks.adopt(accepted);
     a = b;
@@ -436,11 +443,11 @@ template <template <template <class> class> class S, typename Adapter>
   if (status != StageStatus::kComplete) {
     return status;
   }
-  std::uint32_t hostWords[3]{0U, 0U, 0U};
-  download(words, hostWords, 3U, stream);
+  std::uint32_t overflow = 0U;
+  runtime.copyToHost(&overflow, &device->overflow, sizeof(overflow), stream);
   stream.synchronize();
   ++report.readbacks;
-  if (hostWords[2] != 0U) {
+  if (overflow != 0U) {
     return StageStatus::kOrdinalOverflow;
   }
   if (chunks.rows() > std::numeric_limits<Index>::max()) {

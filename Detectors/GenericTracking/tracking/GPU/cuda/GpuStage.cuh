@@ -52,6 +52,13 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 namespace stage_detail
 {
 
+/// A run's words on the device, one block: zeroed by one fill, read back by
+/// one copy.
+struct StageWords {
+  Counter counter;               ///< the records emitted, past capacity too
+  std::uint32_t ordinalOverflow; ///< an element past its ordinal limit
+};
+
 /// Where a generator's records wait for placement, as a kernel sees it.
 template <template <template <class> class> class S>
 struct StagingState {
@@ -258,32 +265,33 @@ class GpuStage
   {
     const Index elements = output.elementCount();
     auto scratch = mArena->scope(ArenaEnd::kScratch);
-    DeviceSpan<Counter> counter;
-    DeviceSpan<std::uint32_t> ordinalOverflow;
+    DeviceSpan<stage_detail::StageWords> words;
     DeviceColumns<S> staged;
     DeviceSpan<Index> element;
     DeviceSpan<Ordinal> ordinal;
-    if (!counter.allocate(*mArena, 1U, ArenaEnd::kScratch) || !ordinalOverflow.allocate(*mArena, 1U, ArenaEnd::kScratch) ||
-        !staged.allocate(*mArena, mCapacity, ArenaEnd::kScratch) || !element.allocate(*mArena, mCapacity, ArenaEnd::kScratch) ||
-        !ordinal.allocate(*mArena, mCapacity, ArenaEnd::kScratch)) {
+    if (!words.allocate(*mArena, 1U, ArenaEnd::kScratch) || !staged.allocate(*mArena, mCapacity, ArenaEnd::kScratch) ||
+        !element.allocate(*mArena, mCapacity, ArenaEnd::kScratch) || !ordinal.allocate(*mArena, mCapacity, ArenaEnd::kScratch)) {
       return StageStatus::kOutOfMemory;
     }
     auto* counts = output.counts().data();
-    mRuntime->fill(counter.data(), 0U, sizeof(Counter), *mStream);
-    mRuntime->fill(ordinalOverflow.data(), 0U, sizeof(std::uint32_t), *mStream);
-    mRuntime->fill(counts + elements, 0U, sizeof(Index), *mStream);
+    stage_detail::StageWords* const device = words.data();
+    mRuntime->fill(device, 0U, sizeof(stage_detail::StageWords), *mStream);
+    // The count after the last element, 0: the scan's last offset is the total.
+    if constexpr (!Listed) {
+      mRuntime->fill(counts + elements, 0U, sizeof(Index), *mStream);
+    }
 
     const stage_detail::StagingState<S> state{.records = staged.view(),
                                               .element = element.data(),
                                               .ordinal = ordinal.data(),
-                                              .counter = counter.data(),
-                                              .ordinalOverflow = ordinalOverflow.data(),
+                                              .counter = &device->counter,
+                                              .ordinalOverflow = &device->ordinalOverflow,
                                               .capacity = static_cast<Counter>(mCapacity)};
     const NativeStream stream = nativeStream(*mRuntime, *mStream);
     constexpr bool kLayered = stage_detail::LayeredGenerate<Generate>;
     if constexpr (Listed) {
       static_assert(!kLayered, "a layered generate runs over every element");
-      mRuntime->fill(counts, 0U, std::size_t{elements} * sizeof(Index), *mStream);
+      mRuntime->fill(counts, 0U, (std::size_t{elements} + 1U) * sizeof(Index), *mStream);
       if (listedCount != 0U) {
         const auto generateShape = launchFor(listedCount);
         stage_detail::generateListedKernel<S><<<generateShape.blocks, generateShape.threads, 0U, stream>>>(generate, state, listed, listedCount, counts);
@@ -306,11 +314,11 @@ class GpuStage
 
     // The one read-back of a stage: the counter is the total, since every
     // emission counted in both its element and here.
-    Counter emitted = 0U;
-    std::uint32_t overflowed = 0U;
-    download(counter, &emitted, 1U, *mStream);
-    download(ordinalOverflow, &overflowed, 1U, *mStream);
+    stage_detail::StageWords host{};
+    download(words, &host, 1U, *mStream);
     mStream->synchronize();
+    const Counter emitted = host.counter;
+    const std::uint32_t overflowed = host.ordinalOverflow;
     mStaged = emitted;
 
     // Failures in the serial reference's order.
