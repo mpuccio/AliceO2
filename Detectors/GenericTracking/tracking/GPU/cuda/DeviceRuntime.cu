@@ -54,7 +54,8 @@ constexpr std::string_view kBackend = "CUDA";
 #endif
 
 /// The copies of one copyEachOnDevice launch, each in units of 2^unitShift
-/// bytes: the widest of 16, 8, 4 or 1 dividing both addresses and the bytes.
+/// bytes, the widest of 16, 8, 4 or 1 dividing both addresses, and the
+/// `tail` bytes after the last whole unit.
 struct CopyBatch {
   static constexpr std::size_t kCopies = 32U;
   struct Copy {
@@ -62,6 +63,7 @@ struct CopyBatch {
     const std::byte* from;
     std::size_t units;
     unsigned unitShift;
+    unsigned tail;
   };
   Copy copies[kCopies];
 };
@@ -77,11 +79,16 @@ GPUdi() void copyUnit(const CopyBatch::Copy& copy, std::size_t unit)
   reinterpret_cast<CopyUnit<Bytes>*>(copy.to)[unit] = reinterpret_cast<const CopyUnit<Bytes>*>(copy.from)[unit];
 }
 
-/// Copy blockIdx.y of \a batch, one unit a thread.
+/// Copy blockIdx.y of \a batch, one unit a thread, the first `tail` threads
+/// also a byte of the tail.
 GPUg() void GTRK_KERNEL_BOUNDS copyEachKernel(CopyBatch batch)
 {
   const CopyBatch::Copy& copy = batch.copies[blockIdx.y];
   const std::size_t unit = (std::size_t{blockIdx.x} * blockDim.x) + threadIdx.x;
+  if (unit < copy.tail) {
+    const std::size_t at = (copy.units << copy.unitShift) + unit;
+    copy.to[at] = copy.from[at];
+  }
   if (unit >= copy.units) {
     return;
   }
@@ -138,12 +145,14 @@ class Runtime final : public DeviceRuntime
         if (copy.bytes == 0U) {
           continue;
         }
-        const auto bits = reinterpret_cast<std::uintptr_t>(copy.to) | reinterpret_cast<std::uintptr_t>(copy.from) | copy.bytes;
-        const int zeros = std::min(std::countr_zero(bits), 4);
+        const auto bits = reinterpret_cast<std::uintptr_t>(copy.to) | reinterpret_cast<std::uintptr_t>(copy.from) | (std::uintptr_t{1} << 4U);
+        const int zeros = std::countr_zero(bits);
         const unsigned shift = zeros >= 2 ? static_cast<unsigned>(zeros) : 0U; // no 2-byte unit
+        const std::size_t units = copy.bytes >> shift;
+        const auto tail = static_cast<unsigned>(copy.bytes - (units << shift));
         batch.copies[taken] = {
-          .to = static_cast<std::byte*>(copy.to), .from = static_cast<const std::byte*>(copy.from), .units = copy.bytes >> shift, .unitShift = shift};
-        largest = std::max(largest, batch.copies[taken].units);
+          .to = static_cast<std::byte*>(copy.to), .from = static_cast<const std::byte*>(copy.from), .units = units, .unitShift = shift, .tail = tail};
+        largest = std::max({largest, units, std::size_t{tail}});
         ++taken;
       }
       if (taken == 0U) {
