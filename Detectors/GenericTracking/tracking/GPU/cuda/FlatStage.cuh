@@ -147,6 +147,10 @@ struct FillElements {
   GPUdi() void operator()(std::uint32_t j) const
   {
     const std::uint32_t position = sourceBegin + j;
+    // A source without candidates: no pair of it, so no test or record reads its context.
+    if (offsets[position] == offsets[position + 1U]) {
+      return;
+    }
     Sink sink{.pairs = pairs, .next = offsets[position], .chunkBegin = chunkBegin, .chunkEnd = chunkEnd};
     adapter.fill(elementAt(listed, position), position, sink);
   }
