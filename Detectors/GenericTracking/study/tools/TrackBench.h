@@ -1868,8 +1868,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     std::cout << std::format("holding {} clusters of {} from {}\n", held, frame.size(), options.holdClusters);
   }
-  if (!options.saveState.empty() && device) {
-    throw std::runtime_error("--save-state runs the host tracker");
+  if (!options.saveState.empty() && (device || options.verticesOnly)) {
+    throw std::runtime_error("--save-state runs the host tracker, not --vertices-only");
   }
   for (unsigned repetition = 0; repetition < std::max(options.repeat, 1U); ++repetition) {
     const bool last = repetition + 1U == std::max(options.repeat, 1U);
@@ -2015,8 +2015,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
           "  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} readbacks; arena peak {:.1f} MB\n", iteration,
           report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
-      const auto score = scoreAndPrint(trackRows(deviceTracks));
-      const auto sourceScore = scoreSources(trackRows(deviceTracks));
+      const auto deviceRows = trackRows(deviceTracks);
+      const auto score = scoreAndPrint(deviceRows);
+      const auto sourceScore = scoreSources(deviceRows);
       if (json.is_open()) {
         json << std::format(R"({{"input":"{}",{}"run":{},"backend":"{}","device":"{}","planSeconds":{:.9f},"runSeconds":{:.9f},"uploadSeconds":{:.9f},)"
                             R"("downloadSeconds":{:.9f},"arenaPeakBytes":{},"maxRssBytes":{},"digest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)"
