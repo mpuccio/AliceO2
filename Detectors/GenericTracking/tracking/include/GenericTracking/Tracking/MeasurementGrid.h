@@ -726,11 +726,11 @@ class MeasurementGrid
   /// twice when different runs clamp to or overlap the same grid cell.
   template <typename Visitor>
   GPUhdi() void visitCandidates(LayerID target, const CandidateWindow& window, const SecondRun* secondRuns, std::uint32_t secondRunCount, BlockRange blocks,
-                                Visitor visit, Lanes lanes = {}) const
+                                Visitor visit) const
   {
     const auto span = querySpan(target, window, blocks);
     for (auto block = span.blocks.begin; block < span.blocks.end; ++block) {
-      forEachPhiBin(span, [&](std::int32_t phiBin) { visitRuns(target, block, phiBin, span, secondRuns, secondRunCount, visit, lanes); });
+      forEachPhiBin(span, [&](std::int32_t phiBin) { visitRuns(target, block, phiBin, span, secondRuns, secondRunCount, visit); });
     }
   }
 
@@ -823,7 +823,7 @@ class MeasurementGrid
 
   template <typename Visitor>
   GPUhdi() GPUAlwaysInline() void visitRuns(LayerID target, std::int32_t block, std::int32_t phiBin, const CellSpan& span, const SecondRun* secondRuns,
-                                            std::uint32_t secondRunCount, Visitor& visit, Lanes lanes) const
+                                            std::uint32_t secondRunCount, Visitor& visit) const
   {
     std::int32_t previousLast = -1;
     for (std::uint32_t i = 0; i < secondRunCount; ++i) {
@@ -832,7 +832,7 @@ class MeasurementGrid
       const auto last = mGrid.secondBinOf(target, run.high);
       first = first > previousLast ? first : previousLast + 1;
       if (first <= last) {
-        visitSecondRun(target, block, phiBin, first, last, span, visit, lanes);
+        visitSecondRun(target, block, phiBin, first, last, span, visit, Lanes{});
       }
       previousLast = last > previousLast ? last : previousLast;
     }

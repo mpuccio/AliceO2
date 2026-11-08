@@ -498,14 +498,9 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
   // Four stages, the tracklet launch's list, permutation, the chained count and (with a download)
   // the chained list, starts, offsets: 10; a flat run
   // reads back three -- the list's length, the selected count, the
-  // limit flag -- for the staging's one: the triplets' on every backend, the tracklets' where a
-  // thread walks a source alone (not on a wave of 64, which keeps the lane kernel); and the
+  // limit flag -- for the staging's one: the tracklets' and the triplets'; and the
   // count of the triplets kept on a path.
-#ifdef GTRK_TEST_HIP
-  BOOST_TEST(report.readbacks == 13U);
-#else
   BOOST_TEST(report.readbacks == 15U);
-#endif
   BOOST_REQUIRE(output.roads.size() == 1U);
   BOOST_TEST(output.roads[0] == 1U);
   BOOST_TEST(output.successorAbove[0] == 0U);

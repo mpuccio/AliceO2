@@ -86,13 +86,6 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 namespace tracker_detail
 {
 
-/// The lanes that walk one source's candidates together in the tracklet
-/// stage, by the architecture the
-/// backend compiles for (`kWarpSize`, from GPUCA_GPUTYPE_*): 8 where a
-/// wavefront is 64 lanes wide, 1 -- the one-thread kernel -- where a warp is
-/// 32, where a group of lanes does not pay.
-inline constexpr std::uint32_t kTrackletLanes = kWarpSize == 64 ? 8U : 1U;
-
 /// The lanes that follow one track together, on every iteration: a step's
 /// window holds many
 /// candidates, each an update, and the kink step confirms every row it admits
@@ -829,26 +822,17 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
         if (selected != StageStatus::kComplete) {
           return selected;
         }
-        // The flat run: the sources'
-        // candidates listed, tested one a thread -- where one thread walks a
-        // source; where a wave of 64 walks it eight lanes at a time (HIP) the
-        // lane kernel stays, faster there than the flat run's one-thread
-        // walks.
-        if constexpr (tracker_detail::kTrackletLanes != 1U) {
-          return runStage(mTrackletStage, tracklets, LaneGroups<std::remove_const_t<decltype(bound)>, tracker_detail::kTrackletLanes>{bound}, listed.data(),
-                          listedCount);
-        } else {
-          std::uint32_t queriesPerSource = 1U;
-          for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
-            queriesPerSource = std::max(queriesPerSource, hostParameters.outLinkOffsets[layer + 1U] - hostParameters.outLinkOffsets[layer]);
-          }
-          if (queriesPerSource > (1U << tracker_detail::FlatTracklets<decltype(bound)>::kQueryBits)) {
-            throw std::logic_error("a layer has more out-links than a flat pair's key numbers");
-          }
-          mReport.trackletSources = listedCount;
-          return runFlat(listedCount > 0U ? listed.data() : nullptr, listedCount,
-                         tracker_detail::FlatTracklets<decltype(bound)>{.stage = bound, .queriesPerSource = queriesPerSource}, tracklets, mReport.trackletRun);
+        // The flat run: the sources' candidates listed, tested one a thread.
+        std::uint32_t queriesPerSource = 1U;
+        for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+          queriesPerSource = std::max(queriesPerSource, hostParameters.outLinkOffsets[layer + 1U] - hostParameters.outLinkOffsets[layer]);
         }
+        if (queriesPerSource > (1U << tracker_detail::FlatTracklets<decltype(bound)>::kQueryBits)) {
+          throw std::logic_error("a layer has more out-links than a flat pair's key numbers");
+        }
+        mReport.trackletSources = listedCount;
+        return runFlat(listedCount > 0U ? listed.data() : nullptr, listedCount,
+                       tracker_detail::FlatTracklets<decltype(bound)>{.stage = bound, .queriesPerSource = queriesPerSource}, tracklets, mReport.trackletRun);
       });
     });
     if (status != StageStatus::kComplete) {

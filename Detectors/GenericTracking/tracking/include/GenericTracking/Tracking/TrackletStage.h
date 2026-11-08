@@ -245,22 +245,16 @@ class TrackletStage
     Scalar directHigh = std::numeric_limits<Scalar>::infinity();
   };
 
-  /// With \a lanes, this lane's share of every query's candidates (`Lanes`):
-  /// lanes walking one source together emit its tracklets between them, in
-  /// another order than one thread would. The order does not matter: each
-  /// source's tracklets are sorted by (link, lambda, target) afterwards, a
-  /// key no two of them share.
-  ///
   /// The source's work: `prepare` once, a query per out-link, and per
   /// candidate `cheap`, then `expensive`; a device runs the candidates apart
   /// (`forEachCandidate`, `testCandidate`, `record`).
   template <typename Emitter>
-  GPUhdi() void operator()(Index sourceElement, Emitter& emitter, Lanes lanes = {}) const
+  GPUhdi() void operator()(Index sourceElement, Emitter& emitter) const
   {
     const auto test = [&](const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query,
                           const SecondRange* intervals, const MeasurementView& columns,
                           Index targetRow) { expensive(source, cachedVertices, between, query, intervals, columns, targetRow, emitter); };
-    forEachCandidate(sourceElement, test, lanes);
+    forEachCandidate(sourceElement, test);
   }
 
   /// The candidates of \a sourceElement that pass `cheap`, counted without
@@ -278,9 +272,8 @@ class TrackletStage
   /// targetRow) for every candidate of \a sourceElement that passes `cheap`,
   /// in the serial order -- the out-links in order, each query's rows in the
   /// grid walk's order: the one traversal the stage's forms share.
-  /// With \a lanes, this lane's share of it.
   template <typename Body>
-  GPUhdi() void forEachCandidate(Index sourceElement, Body& body, Lanes lanes = {}) const
+  GPUhdi() void forEachCandidate(Index sourceElement, Body& body) const
   {
     SourceContext source;
     CompatibleVertex cachedVertices[kVertexCapacity];
@@ -304,18 +297,18 @@ class TrackletStage
         };
       };
       if constexpr (BeamLine) {
-        mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr), lanes);
+        mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr));
       } else {
         const bool fallback = source.uncachedRange.begin != source.vertexRange.end;
         if (mParameters->vertexSource == VertexSource::kBeamLine || fallback) {
-          mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr), lanes);
+          mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr));
           return false;
         }
 
         SecondRange intervals[kVertexCapacity];
         SecondRun runs[kVertexCapacity];
         const std::uint32_t runCount = vertexRuns(source, cachedVertices, query, intervals, runs);
-        mFrame->grid().visitCandidates(query.targetLayer, query.window, runs, runCount, mTargetBlocks, visitTarget(intervals), lanes);
+        mFrame->grid().visitCandidates(query.targetLayer, query.window, runs, runCount, mTargetBlocks, visitTarget(intervals));
       }
       return false;
     });
