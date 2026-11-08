@@ -162,26 +162,29 @@ struct CountOnPath {
   }
 };
 
-struct OnPath {
-  TripletConstView triplets;
-  TrackletPathBounds paths;
-  GPUdi() bool operator()(Index edge) const { return paths.onPath(triplets.first[edge], triplets.second[edge]); }
-};
-
-/// to[i] = from[indices[i]], every triplet column.
-struct GatherTriplets {
+/// Each permuted element's triplets on a triplet path, in their order, every
+/// column, from the element's scanned offset (`CountOnPath`'s counts).
+struct EmitOnPath {
   TripletConstView from;
-  const Index* indices;
+  const Index* offsets;
+  TrackletPathBounds paths;
+  const Index* keptOffsets;
   DeviceColumns<TripletT>::View to;
-  GPUdi() void operator()(Index i) const
+  GPUdi() void operator()(Index element) const
   {
-    const Index edge = indices[i];
-    to.first[i] = from.first[edge];
-    to.second[i] = from.second[edge];
-    to.curvature[i] = from.curvature[edge];
-    to.varCurvature[i] = from.varCurvature[edge];
-    to.level[i] = from.level[edge];
-    to.kinked[i] = from.kinked[edge];
+    Index at = keptOffsets[element];
+    for (Index edge = offsets[element]; edge < offsets[element + 1U]; ++edge) {
+      if (!paths.onPath(from.first[edge], from.second[edge])) {
+        continue;
+      }
+      to.first[at] = from.first[edge];
+      to.second[at] = from.second[edge];
+      to.curvature[at] = from.curvature[edge];
+      to.varCurvature[at] = from.varCurvature[edge];
+      to.level[at] = from.level[edge];
+      to.kinked[at] = from.kinked[edge];
+      ++at;
+    }
   }
 };
 
@@ -283,7 +286,8 @@ template <DetectorLayout Det>
 /// \a triplets kept where they are on a triplet path of \a paths, in arena
 /// order, into \a kept with their elements' counts and offsets, and the
 /// bounds' layer ranges of triplets moved to them: the host's filter before
-/// the place (`Tracker::OnPathTriplets`). One readback, the kept count.
+/// the place (`Tracker::OnPathTriplets`). One readback, the kept count (the
+/// scan's last offset).
 [[nodiscard]] inline StageStatus onPathTriplets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletPathBounds paths,
                                                 const DeviceStageOutput<TripletT>& triplets, DeviceStageOutput<TripletT>& kept, DevicePathBounds& bounds)
 {
@@ -298,17 +302,16 @@ template <DetectorLayout Det>
   if (status != StageStatus::kComplete) {
     return status;
   }
-  auto scratch = arena.scope(ArenaEnd::kScratch);
-  DeviceSpan<std::uint32_t> indices;
   std::uint32_t total = 0U;
-  status = algorithms::selectIndices(runtime, arena, stream, triplets.size(), path_detail::OnPath{view, paths}, indices, total, ArenaEnd::kScratch);
-  if (status != StageStatus::kComplete) {
-    return status;
-  }
+  runtime.copyToHost(&total, std::as_const(kept.offsets()).data() + elements, sizeof(total), stream);
+  stream.synchronize();
   if (!kept.allocateOutput(arena, total)) {
     return StageStatus::kOutOfMemory;
   }
-  algorithms::forEach(runtime, stream, total, path_detail::GatherTriplets{view, indices.data(), kept.view()});
+  if (total != 0U) {
+    algorithms::forEach(runtime, stream, elements,
+                        path_detail::EmitOnPath{view, triplets.offsets().data(), paths, std::as_const(kept.offsets()).data(), kept.view()});
+  }
   kept.setSize(total);
   algorithms::forEach(runtime, stream, static_cast<std::uint32_t>(bounds.layerElements.size()),
                       path_detail::LayerTriplets{bounds.layerElements.data(), kept.offsets().data(), bounds.layerTriplets.data()});
