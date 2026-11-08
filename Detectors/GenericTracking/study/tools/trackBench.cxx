@@ -134,13 +134,13 @@ int run(int argc, char** argv)
     ("anatomy-pdg", bpo::value(&options.anatomyPdg)->default_value(0),
      "with --complete-anatomy: the class's species, |PDG code|; 0, every species") //
     ("breakdown", bpo::value(&options.breakdown)->default_value(""),
-     "a JSON line appended: the last run's tracks by length (fakes, clones, complete), the findable particles of --breakdown-origin complete, incomplete "
+     "a JSON line appended: the last run's tracks by length (fakes, clones, complete), the findable particles of --breakdown-population complete, incomplete "
      "and where the missing layers' rows went") //
     ("breakdown-particles", bpo::value(&options.breakdownParticles)->default_value(""),
      "a CSV appended: --breakdown's findable particles one by one, their layers, status, best track (layers, iteration) and missing layers by fate and "
      "place; a particle not found, every layer's fate") //
-    ("breakdown-origin", bpo::value(&options.breakdownOrigin)->default_value("primary"),
-     "--breakdown's class: primary (physical primaries) or decay (decay daughters)") //
+    ("breakdown-population", bpo::value(&options.breakdownPopulation)->default_value("primary"),
+     "--breakdown's class: primary (physical primaries), decay (decay daughters), v0 (those of a K0S or a hyperon)") //
     ("fate-out", bpo::value(&options.fateOut)->default_value(""),
      "with --complete-anatomy: a CSV of every class particle's fate after the last iteration, for a comparison between runs") //
     ("complete-anatomy", bpo::bool_switch(&options.completeAnatomy),

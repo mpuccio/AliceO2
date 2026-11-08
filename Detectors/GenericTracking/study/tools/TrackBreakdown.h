@@ -22,9 +22,9 @@
 /// one on. Per track length: the tracks, the fakes, the clones, and the
 /// best tracks of a complete particle.
 ///
-/// The class is the score's `originFindable` particles of one origin, the
-/// physical primaries or the decay daughters (a chain of `minLayers`, the
-/// score's pT floor). An incomplete particle's missing
+/// The class is the score's findable particles of one population (the
+/// physical primaries, the decay daughters or the V0s'; a chain of
+/// `minLayers`, the score's pT floor). An incomplete particle's missing
 /// layers are the layers it has a row on that its best track has none on.
 /// Each missing layer's rows are looked up in the tracks: in another good
 /// track of the same particle (a split), in a fake labelled with the
@@ -111,10 +111,10 @@ class TrackBreakdown
   };
 
   /// \a tracks of one run scored against \a rows and \a truth under \a comparison,
-  /// the class's particles those of \a origin; \a iterations, the iteration of
-  /// each track, for the particles' records.
+  /// the class's particles those of \a population; \a iterations, the
+  /// iteration of each track, for the particles' records.
   TrackBreakdown(std::span<const study::TruthRow> rows, const study::ParticleTable& truth, const study::TrackRows& tracks,
-                 const study::ComparisonSettings& comparison, study::ParticleOrigin origin, std::span<const std::uint8_t> iterations)
+                 const study::ComparisonSettings& comparison, study::Population population, std::span<const std::uint8_t> iterations)
   {
     const auto length = [](std::size_t size) { return std::min(size, kLengths - 1U); };
     std::vector<std::uint64_t> good(tracks.size(), study::kNoTrackParticle);
@@ -148,15 +148,8 @@ class TrackBreakdown
         }
       }
     }
-    // Every particle's rows, for the missing layers, and a row's fate for
-    // particle \a id in track \a t.
+    // Every particle's rows, for the missing layers.
     auto rowsOf = study::rowsOfParticles(rows);
-    const auto fateIn = [&](std::uint64_t id, std::uint32_t t) -> std::uint8_t {
-      return good[t] == id                        ? kSplit
-             : good[t] != study::kNoTrackParticle ? kOtherGood
-             : majority[t] == id                  ? kOwnFake
-                                                  : kFake;
-    };
     const auto layers = study::particleLayers(rows, comparison);
     for (const auto& [particle, top] : best) {
       if (layersOf[top] == layers.at(particle).layers) {
@@ -165,7 +158,7 @@ class TrackBreakdown
     }
     for (const auto& [id, mine] : layers) {
       const auto found = truth.find(id);
-      if (found == truth.end() || found->second.origin != origin ||
+      if (found == truth.end() || !study::inPopulation(found->second, population) ||
           !study::isFindable(found->second.pt, mine, comparison)) {
         continue;
       }
@@ -182,43 +175,34 @@ class TrackBreakdown
         });
         ++(withFake ? mFakeOnly : mNotFound);
         record.status = withFake ? kFakeOnly : kNotFound;
-        std::array<std::uint8_t, kMaxLayers> fate{};
-        fate.fill(kFree);
-        for (const auto row : rowsOf[id]) {
-          for (const auto t : tracksOfRow[row]) {
-            fate[rows[row].layer] = std::min(fate[rows[row].layer], fateIn(id, t));
-          }
+      } else {
+        record.best = layersOf[at->second];
+        record.bestIteration = iterations[at->second];
+        record.goodTracks = static_cast<std::uint32_t>(tracksOf[id].size());
+        if ((mine.layers & ~record.best) == 0U) {
+          ++mComplete[std::min(layerCount, kMaxLayers - 1U)];
+          record.status = kComplete;
+          continue;
         }
-        for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {
-          if (((mine.layers >> layer) & 1U) != 0U) {
-            record.fates[fate[layer]] |= std::uint64_t{1} << layer;
-          }
-        }
-        continue;
+        record.status = kIncomplete;
+        ++mIncomplete[std::min(layerCount, kMaxLayers - 1U)];
+        ++mMissingCount[std::min(static_cast<std::size_t>(std::popcount(mine.layers & ~record.best)), kLengths - 1U)];
       }
-      const auto covered = layersOf[at->second];
-      const auto missing = mine.layers & ~covered;
-      record.best = covered;
-      record.bestIteration = iterations[at->second];
-      record.goodTracks = static_cast<std::uint32_t>(tracksOf[id].size());
-      if (missing == 0U) {
-        ++mComplete[std::min(layerCount, kMaxLayers - 1U)];
-        record.status = kComplete;
-        continue;
-      }
-      record.status = kIncomplete;
-      ++mIncomplete[std::min(layerCount, kMaxLayers - 1U)];
-      ++mMissingCount[std::min(static_cast<std::size_t>(std::popcount(missing)), kLengths - 1U)];
-      // The best track's span along the particle's path, by the distance
-      // from the beam axis at its production z.
+      // The missing layers -- every layer of a particle not found -- and,
+      // against a best track, their place along the particle's path, by the
+      // distance from the beam axis at its production z.
+      const auto missing = mine.layers & ~record.best;
+      const bool placed = at != best.end();
       const auto distance = [&](std::uint32_t row) {
         return std::hypot(static_cast<double>(rows[row].r), static_cast<double>(rows[row].z) - static_cast<double>(found->second.vz));
       };
       double first = std::numeric_limits<double>::infinity();
       double last = 0.;
-      for (const auto row : tracks[at->second]) {
-        first = std::min(first, distance(row));
-        last = std::max(last, distance(row));
+      if (placed) {
+        for (const auto row : tracks[at->second]) {
+          first = std::min(first, distance(row));
+          last = std::max(last, distance(row));
+        }
       }
       std::array<std::uint8_t, kMaxLayers> fate{};
       std::array<double, kMaxLayers> where{};
@@ -231,15 +215,22 @@ class TrackBreakdown
         }
         where[layer] = std::min(where[layer], distance(row));
         for (const auto t : tracksOfRow[row]) {
-          fate[layer] = std::min(fate[layer], fateIn(id, t));
+          const auto kind = good[t] == id                        ? kSplit
+                            : good[t] != study::kNoTrackParticle ? kOtherGood
+                            : majority[t] == id                  ? kOwnFake
+                                                                 : kFake;
+          fate[layer] = std::min<std::uint8_t>(fate[layer], kind);
         }
       }
       for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {
-        if (((missing >> layer) & 1U) != 0U) {
+        if (((missing >> layer) & 1U) == 0U) {
+          continue;
+        }
+        const auto bit = std::uint64_t{1} << layer;
+        record.fates[fate[layer]] |= bit;
+        if (placed) {
           const auto place = where[layer] < first ? kBefore : (where[layer] > last ? kAfter : kBetween);
           ++mMissing[layer][fate[layer]][place];
-          const auto bit = std::uint64_t{1} << layer;
-          record.fates[fate[layer]] |= bit;
           record.before |= place == kBefore ? bit : 0U;
           record.after |= place == kAfter ? bit : 0U;
         }

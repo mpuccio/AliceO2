@@ -93,32 +93,6 @@
 namespace o2::gtrk::study
 {
 
-/// The particles the study scores.
-enum class SeedingPopulation : std::uint8_t { kPrimaries,
-                                              kDecays,
-                                              kV0s };
-inline constexpr std::array<std::string_view, 3> kSeedingPopulationNames{"primaries", "decay daughters", "V0 daughters"};
-
-/// \a particle belongs to \a population: a physical primary; a decay's
-/// daughter; one whose mother is a K0S or a hyperon (`decayFamily`: a K0S,
-/// Lambda, Sigma or cascade).
-[[nodiscard]] inline bool inPopulation(const study::ParticleTruth& particle, SeedingPopulation population)
-{
-  switch (population) {
-    case SeedingPopulation::kPrimaries:
-      return particle.origin == study::ParticleOrigin::kPhysicalPrimary;
-    case SeedingPopulation::kDecays:
-      return particle.origin == study::ParticleOrigin::kDecay;
-    case SeedingPopulation::kV0s: {
-      const auto family = study::decayFamily(particle.motherPdg);
-      return particle.origin == study::ParticleOrigin::kDecay &&
-             (family == study::DecayFamily::kK0S || family == study::DecayFamily::kLambda || family == study::DecayFamily::kSigma ||
-              family == study::DecayFamily::kCascade);
-    }
-  }
-  return false;
-}
-
 template <DetectorLayout Det>
 class SeedingStrategy
 {
@@ -141,13 +115,13 @@ class SeedingStrategy
   /// with \a fit, seeded by the road fit's records rather than the roads;
   /// the findable of \a population.
   SeedingStrategy(const study::TrackingTruth& truth, const study::ComparisonSettings& comparison, std::vector<double> steps, bool remove, bool fit,
-                  SeedingPopulation population = SeedingPopulation::kPrimaries)
+                  Population population = Population::kPrimaries)
     : mTruth(truth),
       mComparison(comparison),
       mSteps(std::move(steps)),
       mRemove(remove),
       mFit(fit),
-      mPopulation(kSeedingPopulationNames[static_cast<std::size_t>(population)])
+      mPopulation(kPopulationNames[static_cast<std::size_t>(population)])
   {
     const auto& rows = truth.rows;
     // Every particle the rows carry, numbered, and the rows of each.

@@ -156,7 +156,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string fateOut;            ///< --fate-out: the CSV of every class particle's fate
   std::string breakdown;          ///< --breakdown: where the last run's tracks sit, a JSON line
   std::string breakdownParticles; ///< --breakdown-particles: the same per particle of the class, a CSV
-  std::string breakdownOrigin;    ///< --breakdown-origin: the class's origin, primary or decay
+  std::string breakdownPopulation; ///< --breakdown-population: the class's particles, primary, decay or v0
   std::string inwardHistory;      ///< --inward-history: the CSV of the inward refit's states
   std::string endDecisions;       ///< --end-decisions: the CSV of every follow walk's end
   std::string endEdits;           ///< --end-edits: with it, the CSV of each track's truth-free end edits
@@ -1307,12 +1307,8 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
     }
     shadow[pass] = 1U;
   }
-  study::SeedingPopulation population = study::SeedingPopulation::kPrimaries;
-  if (options.seedingPopulation == "decay") {
-    population = study::SeedingPopulation::kDecays;
-  } else if (options.seedingPopulation == "v0") {
-    population = study::SeedingPopulation::kV0s;
-  } else if (options.seedingPopulation != "primary") {
+  const auto population = study::populationOf(options.seedingPopulation);
+  if (!population) {
     throw std::runtime_error("--seeding-population " + options.seedingPopulation + ": primary, decay or v0");
   }
   std::optional<typename Controller<Det>::Checkpoint> resumeFrom;
@@ -1330,10 +1326,10 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
   if (tracker.beginTimeframe(frame) != StageStatus::kComplete) {
     throw std::runtime_error("--seeding-strategy: the timeframe's used mask does not fit the pool");
   }
-  study::SeedingStrategy<Det> study(truth, comparison, std::move(steps), !options.seedingNoRemoval, options.seedingFit, population);
+  study::SeedingStrategy<Det> study(truth, comparison, std::move(steps), !options.seedingNoRemoval, options.seedingFit, *population);
   std::cout << std::format("seeding strategy: {} passes, {}, scoring the findable {}\n", settings.size() - first,
                            options.seedingNoRemoval ? "each on the whole frame" : "each on the rows the earlier passes' seeded particles left",
-                           study::kSeedingPopulationNames[static_cast<std::size_t>(population)]);
+                           study::kPopulationNames[static_cast<std::size_t>(*population)]);
   if (resumeFrom) {
     tracker.restoreUsed(resumeFrom->used);
     study.startAfter(first, resumeFrom->tracks, resumeFrom->used, std::cout);
@@ -1778,15 +1774,18 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   profile::Trace trace{static_cast<std::size_t>(threads)};
   // Against the truth, under the sink's rules and in its lines;
   // outside the time.
-  const auto scoreAndPrint = [&](const study::TrackRows& rows) -> std::optional<std::pair<study::TrackScore, double>> {
+  // The score of \a rows over \a particles (every particle of the truth by
+  // default), printed under \a label.
+  const auto scoreAndPrint = [&](const study::TrackRows& rows, const study::ParticleTable* particles = nullptr,
+                                 std::string_view label = "GTRK") -> std::optional<std::pair<study::TrackScore, double>> {
     if (!truth) {
       return std::nullopt;
     }
     const auto scoreStart = std::chrono::steady_clock::now();
-    auto score = study::scoreTracks(truth->rows, truth->particles, rows, comparison);
+    auto score = study::scoreTracks(truth->rows, particles ? *particles : truth->particles, rows, comparison);
     const double scoreSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - scoreStart).count();
     std::cout << std::format("score against the truth, in {:.3f} s:\n", scoreSeconds);
-    for (const auto& line : study::describeScore(score, comparison, "GTRK")) {
+    for (const auto& line : study::describeScore(score, comparison, std::string{label})) {
       std::cout << line << '\n';
     }
     return std::pair{std::move(score), scoreSeconds};
@@ -1804,15 +1803,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     std::cout << std::format("--score-sources: {} of {} particles\n", sourceParticles->size(), truth->particles.size());
   }
-  const auto scoreSources = [&](const study::TrackRows& rows) -> std::optional<study::TrackScore> {
-    if (!sourceParticles) {
-      return std::nullopt;
-    }
-    auto score = study::scoreTracks(truth->rows, *sourceParticles, rows, comparison);
-    for (const auto& line : study::describeScore(score, comparison, "GTRK, the --score-sources particles")) {
-      std::cout << line << '\n';
-    }
-    return score;
+  const auto scoreSources = [&](const study::TrackRows& rows) -> std::optional<std::pair<study::TrackScore, double>> {
+    return sourceParticles ? scoreAndPrint(rows, &*sourceParticles, "GTRK, the --score-sources particles") : std::nullopt;
   };
 
   std::vector<double> walls;
@@ -2059,7 +2051,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
           json << R"(,"score":)" << jsonScore(score->first, comparison, score->second);
         }
         if (sourceScore) {
-          json << R"(,"scoreSources":)" << jsonScore(*sourceScore, comparison, 0.);
+          json << R"(,"scoreSources":)" << jsonScore(sourceScore->first, comparison, sourceScore->second);
         }
         json << "}\n";
         json.flush();
@@ -2168,11 +2160,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     const auto sourceScore = scoreSources(hostRows);
     if (truth && last && (!options.breakdown.empty() || !options.breakdownParticles.empty())) {
       const auto view = result.tracks->view();
-      const auto origin = options.breakdownOrigin == "decay" ? study::ParticleOrigin::kDecay : study::ParticleOrigin::kPhysicalPrimary;
-      if (options.breakdownOrigin != "decay" && options.breakdownOrigin != "primary") {
-        throw std::runtime_error("--breakdown-origin " + options.breakdownOrigin + ": primary or decay");
+      const auto population = study::populationOf(options.breakdownPopulation);
+      if (!population) {
+        throw std::runtime_error("--breakdown-population " + options.breakdownPopulation + ": primary, decay or v0");
       }
-      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison, origin,
+      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison, *population,
                                             std::span<const std::uint8_t>{view.iteration, result.tracks->size()});
       if (!options.breakdown.empty()) {
         breakdown.write(options.breakdown);
@@ -2276,7 +2268,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         json << R"(,"score":)" << jsonScore(score->first, comparison, score->second);
       }
       if (sourceScore) {
-        json << R"(,"scoreSources":)" << jsonScore(*sourceScore, comparison, 0.);
+        json << R"(,"scoreSources":)" << jsonScore(sourceScore->first, comparison, sourceScore->second);
       }
       json << "}\n";
       json.flush();

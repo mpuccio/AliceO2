@@ -65,8 +65,10 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -249,6 +251,45 @@ enum class DecayFamily : std::uint8_t {
 inline constexpr std::size_t kDecayFamilies = static_cast<std::size_t>(DecayFamily::kCount);
 [[nodiscard]] DecayFamily decayFamily(std::int32_t motherPdg);
 [[nodiscard]] constexpr bool inFlight(DecayFamily family) { return family == DecayFamily::kPion || family == DecayFamily::kKaon; }
+
+/// The particles a study takes: the physical primaries, the decay daughters,
+/// or those of a K0S or a hyperon (a K0S, Lambda, Sigma or cascade mother).
+enum class Population : std::uint8_t { kPrimaries,
+                                       kDecays,
+                                       kV0s };
+inline constexpr std::array<std::string_view, 3> kPopulationNames{"primaries", "decay daughters", "V0 daughters"};
+
+/// The population an option names: primary, decay or v0; none for another.
+[[nodiscard]] constexpr std::optional<Population> populationOf(std::string_view name)
+{
+  if (name == "primary") {
+    return Population::kPrimaries;
+  }
+  if (name == "decay") {
+    return Population::kDecays;
+  }
+  if (name == "v0") {
+    return Population::kV0s;
+  }
+  return std::nullopt;
+}
+
+/// \a particle belongs to \a population.
+[[nodiscard]] inline bool inPopulation(const ParticleTruth& particle, Population population)
+{
+  switch (population) {
+    case Population::kPrimaries:
+      return particle.origin == ParticleOrigin::kPhysicalPrimary;
+    case Population::kDecays:
+      return particle.origin == ParticleOrigin::kDecay;
+    case Population::kV0s: {
+      const auto family = decayFamily(particle.motherPdg);
+      return particle.origin == ParticleOrigin::kDecay &&
+             (family == DecayFamily::kK0S || family == DecayFamily::kLambda || family == DecayFamily::kSigma || family == DecayFamily::kCascade);
+    }
+  }
+  return false;
+}
 
 /// A particle's layers: a bit per layer with a measurement carrying it, and
 /// its longest chain, the most layers a path of `chainLinks` visits whose
