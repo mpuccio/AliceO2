@@ -554,7 +554,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (iteration >= mIterationCount) {
       throw std::invalid_argument("beginIteration of an iteration the run does not have");
     }
-    mStream.synchronize();
+    // Every call before returns with the stream drained.
     // The iteration's own arena peak, in a window endIteration closes.
     mOuterArenaPeak = mArena.peak();
     mArena.resetPeak();
@@ -596,8 +596,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!mIterationOpen) {
       throw std::logic_error("endIteration without an open iteration");
     }
-    mStream.synchronize();
-    closeFrom(Scope::kSlice);
+    closeFrom(Scope::kSlice); // runSlice returns with the stream drained
     StageStatus status = mIterationStatus;
     const bool shared = mHostParameters[mIteration].sharedGraph;
     const bool sharesNext = mIteration + 1U < mIterationCount && mHostParameters[mIteration + 1U].sharedGraph;
@@ -632,8 +631,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
         if (download != nullptr) {
           gtrk::download(mGathered, download->records, recordRows, mStream);
         }
-        mStream.synchronize();
       }
+      // The gather is queued before anything that reuses the chunks' space.
       closeFrom(Scope::kChunks);
       if (status == StageStatus::kComplete) {
         status = endStages(download);
@@ -683,7 +682,10 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
                                                 constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot,
                                                 ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found);
       }
-      mStream.synchronize();
+      // A complete vertexer has synchronised after its last readback.
+      if (status != StageStatus::kComplete) {
+        mStream.synchronize();
+      }
       closeFrom(Scope::kSlice);
       appendVertices(result, found);
     }
@@ -1102,8 +1104,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       gtrk::download(neighbours, download->neighbours, mStream);
       gtrk::download(chained, download->chained, chainedListed, mStream);
     }
-    mStream.synchronize();
-    return StageStatus::kComplete;
+    return StageStatus::kComplete; // runSlice synchronises
   }
 
   /// The end of an iteration after its gather, in the iteration scope: the
@@ -1247,8 +1248,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       return StageStatus::kOutOfMemory;
     }
     mRuntime->copyOnDevice(mUsed.data(), std::as_const(working).data(), rows, mStream);
-    mStream.synchronize();
-    return StageStatus::kComplete;
+    return StageStatus::kComplete; // endIteration synchronises
   }
 
   /// The recovery pass of iteration \a successor over every track so far --
@@ -1334,7 +1334,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   /// cleared.
   void openSlice()
   {
-    mStream.synchronize();
+    // Every call before returns with the stream drained.
     closeFrom(Scope::kSlice);
     mSliceScope.emplace(mArena.scope());
     mReport = {};
