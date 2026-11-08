@@ -296,6 +296,14 @@ class AdaptorTask : public o2::framework::Task
     const o2::itsmft::tracking::ROFTimingLayer rofTiming{.mROFLength = static_cast<BC>(length),
                                                          .mROFDelay = static_cast<BC>(delay),
                                                          .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(0))};
+    // A vertex's frame as a track's: the lower edge of its time with the half
+    // width at most half a frame. Its box's own lower edge lies a margin
+    // before its frame starts, in the frame before.
+    const auto vertexFrame = [&](const o2::its::Vertex& vertex) {
+      const auto time = vertex.getTimeStamp().makeSymmetrical();
+      return static_cast<std::int64_t>(
+        rofTiming.getROF(o2::its::TimeStamp(time.getTimeStamp(), std::min(time.getTimeStampError(), static_cast<float>(length) / 2.F))));
+    };
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
     std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U);
@@ -360,7 +368,13 @@ class AdaptorTask : public o2::framework::Task
       const auto lower = bcOfPS(seed.timePS);
       vertex.setTimeStamp(o2::its::TimeEstBC(static_cast<std::uint32_t>(lower), static_cast<std::uint32_t>(bcOfPS(static_cast<std::int64_t>(seed.timePS) + seed.widthPS) - lower)));
     }
-    std::ranges::stable_sort(vertices, [](const o2::its::Vertex& a, const o2::its::Vertex& b) {
+    // By frame, as the frame records count them, then by time and contributors.
+    std::ranges::stable_sort(vertices, [&](const o2::its::Vertex& a, const o2::its::Vertex& b) {
+      const auto frameA = vertexFrame(a);
+      const auto frameB = vertexFrame(b);
+      if (frameA != frameB) {
+        return frameA < frameB;
+      }
       return a.getTimeStamp().lower() != b.getTimeStamp().lower() ? a.getTimeStamp().lower() < b.getTimeStamp().lower() : a.getNContributors() > b.getNContributors();
     });
 
@@ -371,7 +385,7 @@ class AdaptorTask : public o2::framework::Task
       frameCount = std::max(frameCount, c.frame + 1);
     }
     for (const auto& vertex : vertices) {
-      frameCount = std::max(frameCount, static_cast<std::int64_t>(rofTiming.getROF(vertex.getTimeStamp().lower())) + 1);
+      frameCount = std::max(frameCount, vertexFrame(vertex) + 1);
     }
     for (auto* frameRecords : {&trackROFs, &vertexROFs}) {
       frameRecords->resize(static_cast<std::size_t>(frameCount));
@@ -413,7 +427,7 @@ class AdaptorTask : public o2::framework::Task
     }
     std::fill(entries.begin(), entries.end(), 0);
     for (const auto& vertex : vertices) {
-      ++entries[rofTiming.getROF(vertex.getTimeStamp().lower())];
+      ++entries[static_cast<std::size_t>(vertexFrame(vertex))];
     }
     std::exclusive_scan(entries.begin(), entries.end(), entries.begin(), 0);
     for (std::size_t i = 0; i < vertexROFs.size(); ++i) {
