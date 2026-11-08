@@ -257,6 +257,25 @@ BOOST_AUTO_TEST_CASE(TheContributorFloor)
   BOOST_TEST(at.find({}).vertices.size() == 1U);
 }
 
+/// A frame whose rounds find no vertex runs them again at
+/// aloneMinContributors; a frame with a vertex does not, so a small
+/// collision beside a large one stays below the floor.
+BOOST_AUTO_TEST_CASE(AFrameWithoutAVertexRerunsAtTheLowerFloor)
+{
+  Event event;
+  event.vertex(2.0, 20U, 3);
+  event.vertex(-6.0, 2U, 3);
+  event.vertex(1.0, 2U, 6);
+  BOOST_TEST(event.find({}).vertices.size() == 1U);
+  const auto result = event.find({.aloneMinContributors = 2U});
+  BOOST_TEST_REQUIRE(result.vertices.size() == 2U);
+  BOOST_TEST(result.vertices[0].timePS == Event::frameTime(3).start);
+  BOOST_TEST(std::abs(result.vertices[0].z - 2.F) < 0.05F);
+  BOOST_TEST(result.vertices[1].timePS == Event::frameTime(6).start);
+  BOOST_TEST(std::abs(result.vertices[1].z - 1.F) < 0.05F);
+  BOOST_TEST(result.contributors[1] == 2U);
+}
+
 /// A dense collision's measurements recombined into triplets that point
 /// elsewhere make no vertex: the dense vertex owns the measurements of its
 /// frame's triplets within its claim, and the free candidates with one are

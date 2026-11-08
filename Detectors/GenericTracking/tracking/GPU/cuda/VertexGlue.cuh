@@ -29,7 +29,10 @@
 ///       then the round's vertices own the measurements of their frames'
 ///       triplets within the claim -- the cut ones too -- and the free
 ///       candidates with an owned one are dropped, each
-///       measurement a slot per frame, (frame << 32) | row, sorted and unique
+///       measurement a slot per frame, (frame << 32) | row, sorted and unique;
+///       with `aloneMinContributors` the lower minimum, a second sweep at it
+///       over the frames the first left without a vertex, the others skipped
+///       (the host's rerun of such a frame)
 ///   Seeds: the sums read back; the host makes the seeds (`vertexSeedOf`) and
 ///       orders each frame's vertices by z, ties by round, as the host does
 ///
@@ -403,8 +406,22 @@ struct FreeColumns {
   }
 };
 
+/// The frames with a vertex: those with a claimed candidate.
+struct FramesWithVertex {
+  Candidates candidates;
+  const std::int32_t* claims = nullptr;
+  std::uint8_t* withVertex = nullptr;
+  GPUdi() void operator()(Index i) const
+  {
+    if (claims[i] >= 0) {
+      withVertex[candidates.frame[i]] = 1U;
+    }
+  }
+};
+
 /// Each free candidate's window, its sidebands and its excess 2W - S if it
 /// may be a peak (0 otherwise); the frame's largest excess by atomic max.
+/// The frames \a skipped marks (if given) score nothing.
 struct Score {
   Candidates candidates;
   const std::int32_t* claims = nullptr;
@@ -413,6 +430,7 @@ struct Score {
   long long claim = 0;
   Index minContributors = 0U;
   float k2 = 0.F;
+  const std::uint8_t* skipped = nullptr;
   long long* excess = nullptr;
   Round round;
   GPUdi() void operator()(Index i) const
@@ -422,6 +440,9 @@ struct Score {
       return;
     }
     const Index f = candidates.frame[i];
+    if (skipped != nullptr && skipped[f] != 0U) {
+      return;
+    }
     const Index begin = candidates.frameBegin[f];
     const Index end = candidates.frameEnd(f);
     const long long z = candidates.z[i];
@@ -888,61 +909,84 @@ template <DetectorLayout Det>
   const Scalar k2 = 2.F * settings.significance * settings.significance;
   std::vector<RoundStorage> rounds;
   bool outOfMemory = false;
-  const auto swept = algorithms::sweepToFixedPoint<1U>(runtime, arena, stream, count + 1U, [&](Index* changed) {
-    if (outOfMemory) {
-      return;
-    }
-    auto& round = rounds.emplace_back();
-    if (!round.allocate(arena, frames)) {
-      outOfMemory = true;
-      return;
-    }
-    round.reset(runtime, stream, frames);
-    const auto roundView = round.view();
-    algorithms::forEach(runtime, stream, scanned, FreeColumns{candidates, std::as_const(claims).data(), freeCount.data(), freeZ.data()});
-    if (algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeCount).data(), countBefore.data(), scanned) != StageStatus::kComplete ||
-        algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeZ).data(), zBefore.data(), scanned) != StageStatus::kComplete) {
-      outOfMemory = true;
-      return;
-    }
-    algorithms::forEach(runtime, stream, count,
-                        Score{.candidates = candidates,
-                              .claims = std::as_const(claims).data(),
-                              .countBefore = std::as_const(countBefore).data(),
-                              .window = window,
-                              .claim = claim,
-                              .minContributors = settings.minContributors,
-                              .k2 = k2,
-                              .excess = excess.data(),
-                              .round = roundView});
-    algorithms::forEach(runtime, stream, count, Pick{candidates, std::as_const(excess).data(), roundView});
-    algorithms::forEach(runtime, stream, frames,
-                        Centre{candidates, std::as_const(countBefore).data(), std::as_const(zBefore).data(), window, roundView, changed});
-    algorithms::forEach(runtime, stream, count,
-                        Claim{.candidates = candidates,
-                              .claims = claims.data(),
+  // One sweep of rounds to the fixed point at \a minContributors, the frames
+  // \a skipped marks (if given) left alone.
+  const auto sweep = [&](Index minContributors, const std::uint8_t* skipped) {
+    return algorithms::sweepToFixedPoint<1U>(runtime, arena, stream, count + 1U, [&](Index* changed) {
+      if (outOfMemory) {
+        return;
+      }
+      auto& round = rounds.emplace_back();
+      if (!round.allocate(arena, frames)) {
+        outOfMemory = true;
+        return;
+      }
+      round.reset(runtime, stream, frames);
+      const auto roundView = round.view();
+      algorithms::forEach(runtime, stream, scanned, FreeColumns{candidates, std::as_const(claims).data(), freeCount.data(), freeZ.data()});
+      if (algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeCount).data(), countBefore.data(), scanned) != StageStatus::kComplete ||
+          algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeZ).data(), zBefore.data(), scanned) != StageStatus::kComplete) {
+        outOfMemory = true;
+        return;
+      }
+      algorithms::forEach(runtime, stream, count,
+                          Score{.candidates = candidates,
+                                .claims = std::as_const(claims).data(),
+                                .countBefore = std::as_const(countBefore).data(),
+                                .window = window,
+                                .claim = claim,
+                                .minContributors = minContributors,
+                                .k2 = k2,
+                                .skipped = skipped,
+                                .excess = excess.data(),
+                                .round = roundView});
+      algorithms::forEach(runtime, stream, count, Pick{candidates, std::as_const(excess).data(), roundView});
+      algorithms::forEach(runtime, stream, frames,
+                          Centre{candidates, std::as_const(countBefore).data(), std::as_const(zBefore).data(), window, roundView, changed});
+      algorithms::forEach(runtime, stream, count,
+                          Claim{.candidates = candidates,
+                                .claims = claims.data(),
+                                .claim = static_cast<float>(claim),
+                                .vertexBase = static_cast<std::int32_t>((rounds.size() - 1U) * frames),
+                                .round = roundView});
+      algorithms::forEach(runtime, stream, sourceCount,
+                          Own{.sourceSlots = std::as_const(sourceSlots).data(),
+                              .sourceZ = std::as_const(sourceZ).data(),
+                              .sourceFrame = std::as_const(sourceFrame).data(),
+                              .ownedSlots = ownedSlots.data(),
                               .claim = static_cast<float>(claim),
-                              .vertexBase = static_cast<std::int32_t>((rounds.size() - 1U) * frames),
                               .round = roundView});
-    algorithms::forEach(runtime, stream, sourceCount,
-                        Own{.sourceSlots = std::as_const(sourceSlots).data(),
-                            .sourceZ = std::as_const(sourceZ).data(),
-                            .sourceFrame = std::as_const(sourceFrame).data(),
-                            .ownedSlots = ownedSlots.data(),
-                            .claim = static_cast<float>(claim),
-                            .round = roundView});
-    algorithms::forEach(runtime, stream, count, DropOwned{std::as_const(candidateSlots).data(), std::as_const(ownedSlots).data(), claims.data()});
-  });
+      algorithms::forEach(runtime, stream, count, DropOwned{std::as_const(candidateSlots).data(), std::as_const(ownedSlots).data(), claims.data()});
+    });
+  };
+  const auto swept = sweep(settings.minContributors, nullptr);
   if (swept.status != StageStatus::kComplete) {
     return swept.status;
   }
   if (outOfMemory) {
     return StageStatus::kOutOfMemory;
   }
+  // The frames left without a vertex, again at the lower minimum; the others
+  // skipped. The rounds go on numbering the vertices after the first sweep's.
+  if (settings.aloneMinContributors != 0U && settings.aloneMinContributors < settings.minContributors) {
+    DeviceSpan<std::uint8_t> withVertex;
+    if (!withVertex.allocate(arena, frames)) {
+      return StageStatus::kOutOfMemory;
+    }
+    runtime.fill(withVertex.data(), 0U, frames, stream);
+    algorithms::forEach(runtime, stream, count, FramesWithVertex{candidates, std::as_const(claims).data(), withVertex.data()});
+    const auto rerun = sweep(settings.aloneMinContributors, std::as_const(withVertex).data());
+    if (rerun.status != StageStatus::kComplete) {
+      return rerun.status;
+    }
+    if (outOfMemory) {
+      return StageStatus::kOutOfMemory;
+    }
+  }
 
   // Each vertex's selection, grown from its core: one slot per vertex number,
   // round * frames + frame.
-  const std::size_t found = rounds.size() - 1U; // the last round found nothing
+  const std::size_t found = rounds.size() - 1U; // the last round found nothing (a rerun's: the first sweep's last too)
   const auto vertexSlots = static_cast<Index>(found * frames);
   DeviceSpan<float> centres;
   DeviceSpan<std::uint8_t> selected;

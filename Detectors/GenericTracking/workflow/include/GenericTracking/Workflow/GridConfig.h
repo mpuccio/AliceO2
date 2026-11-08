@@ -294,6 +294,7 @@ inline void checkRecoParam(const RecoSettings& param)
           .windowUM = param.vertexerWindowUM,
           .claimUM = param.vertexerClaimUM,
           .minContributors = static_cast<std::uint32_t>(std::max(param.vertexerMinContributors, 0)),
+          .aloneMinContributors = static_cast<std::uint32_t>(std::max(param.vertexerAloneMinContributors, 0)),
           .significance = static_cast<Scalar>(param.vertexerSignificance),
           .clipNSigma = static_cast<Scalar>(param.windowNSigma)};
 }

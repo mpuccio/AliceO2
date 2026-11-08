@@ -29,7 +29,8 @@
 /// ones are sorted by (frame, z), a frame being the box start of the
 /// middle measurement. Each frame then finds its vertices in rounds: the
 /// free window [z_i, z_i + w) of the most candidates over its sidebands, beyond
-/// the claim's reach on both sides, wins if it holds `minContributors` and
+/// the claim's reach on both sides, wins if it holds `minContributors` (a
+/// frame where none does: `aloneMinContributors`, its rounds rerun) and
 /// stands out of the sidebands by `significance` of their Poisson spread;
 /// it claims every free candidate within the claim of its centre, and its z
 /// is their mean. A found vertex owns the measurements of every triplet of
@@ -87,6 +88,12 @@ struct VertexerSettings {
   std::int32_t windowUM = 150;       ///< w: a peak's window [um]
   std::int32_t claimUM = 2000;       ///< the half-width around a peak's centre its vertex claims [um]
   std::uint32_t minContributors = 4; ///< the least candidates a peak's window must hold
+  /// The least candidates a peak's window must hold in a frame whose rounds
+  /// at `minContributors` found no vertex: such a frame runs its rounds again
+  /// at this minimum, from its untouched candidates. A frame with a vertex is
+  /// never rerun, so a collision's debris makes no vertex at the lower
+  /// minimum. 0, or `minContributors` and above: no rerun.
+  std::uint32_t aloneMinContributors = 0;
   Scalar significance = 5.F;         ///< k: a peak's excess over the sidebands' mean b must reach k sqrt(b)
   /// A vertex's z and its error from its claimed candidates within this many
   /// of their own and the mean's errors of their weighted mean, grown from the
@@ -723,7 +730,10 @@ class Vertexer
   /// \a found sorted by z at the end. After each vertex, the measurements of
   /// the frame's \a sources (sorted by z) within its claim become owned in
   /// \a ownedSlots, and the free candidates with an owned one are dropped.
-  /// The rounds taken, the last included.
+  /// A frame whose rounds find no vertex runs them again at
+  /// `aloneMinContributors` when that is the lower minimum; nothing was
+  /// claimed, owned or dropped, so it starts from the same state. The rounds
+  /// taken, the last included -- of the rerun alone where it ran.
   std::uint32_t findInFrame(std::span<const Candidate> segment, std::span<std::int32_t> claims, BoundedVector<Found>& found, std::span<const Source> sources,
                             std::span<std::uint8_t> ownedSlots) const
   {
@@ -741,6 +751,7 @@ class Vertexer
     // root, squared.
     const Scalar k2 = 2.F * mSettings.significance * mSettings.significance;
     BoundedVector<std::uint32_t> count(n + 1U, 0U, resource);
+    std::uint32_t minContributors = mSettings.minContributors;
     std::uint32_t rounds = 0U;
     while (true) {
       ++rounds;
@@ -754,7 +765,7 @@ class Vertexer
         if (claims[i] != kClaimFree) {
           continue;
         }
-        const auto excess = peakExcess(z[i], window, claim, mSettings.minContributors, k2, countIn);
+        const auto excess = peakExcess(z[i], window, claim, minContributors, k2, countIn);
         if (excess <= bestExcess) {
           continue;
         }
@@ -762,6 +773,11 @@ class Vertexer
         best = i;
       }
       if (best == n) {
+        if (found.empty() && mSettings.aloneMinContributors != 0U && mSettings.aloneMinContributors < minContributors) {
+          minContributors = mSettings.aloneMinContributors;
+          rounds = 0U;
+          continue;
+        }
         break;
       }
       // The centre: the mean of the window's free candidates.

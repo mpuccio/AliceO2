@@ -96,6 +96,9 @@ struct RecoSettings {
   int vertexerWindowUM = 150;       ///< a peak's window [um]
   int vertexerClaimUM = 2000;       ///< the half-width a vertex claims around its peak [um]
   int vertexerMinContributors = 4;  ///< the least candidates a peak's window holds
+  /// The least in a frame where none holds vertexerMinContributors: that
+  /// frame's rounds run again at this minimum; 0, none, by default.
+  int vertexerAloneMinContributors = 0;
   double vertexerSignificance = 5.; ///< a peak's excess over the sidebands, in their Poisson sigmas
   /// Whether the vertexing pass tests its pairs and triplets against their
   /// measurements' cluster shapes (`iterationShapeTest`); 0, off, by default.

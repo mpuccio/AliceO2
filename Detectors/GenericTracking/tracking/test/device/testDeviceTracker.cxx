@@ -715,6 +715,56 @@ IterationSettings passSettings()
 
 } // namespace
 
+/// The device's rerun of the frames without a vertex: the two collisions
+/// and, in a frame of its own, two tracks, a vertex only at the lower floor;
+/// the device's list the host's.
+BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
+{
+  auto device = runtime();
+  const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
+  auto hits = collisionHits();
+  for (const double pt : {0.8, 1.1}) {
+    const auto one = sensorHelixHits(pt, 0.02 * pt, pt, 287.);
+    hits.insert(hits.end(), one.begin(), one.end());
+  }
+  const Fixture fixture{hits, kCollisionDurationNS};
+  const std::array<double, kLayers> material{};
+  const auto scattering = scatteringTable<Det>(material);
+  const auto pool = std::make_shared<BoundedMemoryResource>();
+  const VertexerSettings settings{.aloneMinContributors = 2U};
+
+  VertexingPass<Det, UniformMaterial> pass{passSettings(), settings, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
+  const auto expected = pass.find(*fixture.frame, 13, 0);
+  BOOST_REQUIRE(expected.status == StageStatus::kComplete);
+  BOOST_REQUIRE(expected.found.vertices.size() == kCollisionsNS.size() + 1U);
+
+  const auto host = makeHost({.source = VertexSource::kVertexList});
+  auto parameters = parametersOf(*host);
+  parameters.push_back(pass.passParameters());
+  std::vector<SearchWindowParams> windows;
+  windows.reserve(parameters.size());
+  for (std::size_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
+    windows.push_back(iterations(VertexSource::kVertexList)[iteration].windows);
+  }
+  windows.push_back(passSettings().windows);
+  BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
+  const auto empty = planTimeframe<Det>(*fixture.frame, parameters, windows, host->beamLine(), {}, 13, 0);
+  BOOST_REQUIRE((tracker->beginTimeframe(*fixture.frame, empty) == StageStatus::kComplete));
+  VertexerResult found;
+  BOOST_REQUIRE((tracker->findVertices(host->iterationCount(), settings, Fixture::kBeamConstraint, found) == StageStatus::kComplete));
+  BOOST_REQUIRE(found.vertices.size() == expected.found.vertices.size());
+  BOOST_TEST(found.rounds == expected.found.rounds);
+  for (std::size_t v = 0; v < found.vertices.size(); ++v) {
+    BOOST_TEST_CONTEXT("vertex " << v)
+    {
+      BOOST_TEST(found.vertices[v].timePS == expected.found.vertices[v].timePS);
+      BOOST_TEST(found.vertices[v].widthPS == expected.found.vertices[v].widthPS);
+      BOOST_TEST(found.contributors[v] == expected.found.contributors[v]);
+      BOOST_TEST(std::abs(found.vertices[v].z - expected.found.vertices[v].z) < 1.e-5F);
+    }
+  }
+}
+
 /// The vertexing pass on the device, configured after the tracking's
 /// iterations: the host's vertex list from it, and with the list -- the plan
 /// replaced, the measurements kept -- the host's tracks; out of order it is
