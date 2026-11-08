@@ -21,9 +21,14 @@
 
 #include "GPUCommonHelpers.h"
 
+#include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -47,6 +52,54 @@ constexpr std::string_view kBackend = "HIP";
 #else
 constexpr std::string_view kBackend = "CUDA";
 #endif
+
+/// The copies of one copyEachOnDevice launch, each in units of 2^unitShift
+/// bytes: the widest of 16, 8, 4 or 1 dividing both addresses and the bytes.
+struct CopyBatch {
+  static constexpr std::size_t kCopies = 32U;
+  struct Copy {
+    std::byte* to;
+    const std::byte* from;
+    std::size_t units;
+    unsigned unitShift;
+  };
+  Copy copies[kCopies];
+};
+
+template <std::size_t Bytes>
+struct alignas(Bytes) CopyUnit {
+  std::byte bytes[Bytes];
+};
+
+template <std::size_t Bytes>
+GPUdi() void copyUnit(const CopyBatch::Copy& copy, std::size_t unit)
+{
+  reinterpret_cast<CopyUnit<Bytes>*>(copy.to)[unit] = reinterpret_cast<const CopyUnit<Bytes>*>(copy.from)[unit];
+}
+
+/// Copy blockIdx.y of \a batch, one unit a thread.
+GPUg() void GTRK_KERNEL_BOUNDS copyEachKernel(CopyBatch batch)
+{
+  const CopyBatch::Copy& copy = batch.copies[blockIdx.y];
+  const std::size_t unit = (std::size_t{blockIdx.x} * blockDim.x) + threadIdx.x;
+  if (unit >= copy.units) {
+    return;
+  }
+  switch (copy.unitShift) {
+    case 4U:
+      copyUnit<16U>(copy, unit);
+      break;
+    case 3U:
+      copyUnit<8U>(copy, unit);
+      break;
+    case 2U:
+      copyUnit<4U>(copy, unit);
+      break;
+    default:
+      copyUnit<1U>(copy, unit);
+      break;
+  }
+}
 
 class Runtime final : public DeviceRuntime
 {
@@ -72,6 +125,39 @@ class Runtime final : public DeviceRuntime
   void copyToDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) final { copy(to, from, bytes, cudaMemcpyHostToDevice, stream); }
   void copyToHost(void* to, const void* from, std::size_t bytes, DeviceStream& stream) final { copy(to, from, bytes, cudaMemcpyDeviceToHost, stream); }
   void copyOnDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) final { copy(to, from, bytes, cudaMemcpyDeviceToDevice, stream); }
+
+  void copyEachOnDevice(std::span<const DeviceCopy> copies, DeviceStream& stream) final
+  {
+    // Zero-byte copies take no slot: a launch has at least one unit.
+    while (!copies.empty()) {
+      CopyBatch batch{};
+      std::size_t taken = 0U;
+      std::size_t largest = 0U;
+      for (; !copies.empty() && taken < CopyBatch::kCopies; copies = copies.subspan(1U)) {
+        const DeviceCopy& copy = copies.front();
+        if (copy.bytes == 0U) {
+          continue;
+        }
+        const auto bits = reinterpret_cast<std::uintptr_t>(copy.to) | reinterpret_cast<std::uintptr_t>(copy.from) | copy.bytes;
+        const int zeros = std::min(std::countr_zero(bits), 4);
+        const unsigned shift = zeros >= 2 ? static_cast<unsigned>(zeros) : 0U; // no 2-byte unit
+        batch.copies[taken] = {
+          .to = static_cast<std::byte*>(copy.to), .from = static_cast<const std::byte*>(copy.from), .units = copy.bytes >> shift, .unitShift = shift};
+        largest = std::max(largest, batch.copies[taken].units);
+        ++taken;
+      }
+      if (taken == 0U) {
+        return;
+      }
+      const auto threads = static_cast<std::size_t>(kBlockSize);
+      if (largest > std::size_t{std::numeric_limits<std::int32_t>::max()} * threads) {
+        throw std::length_error("copyEachOnDevice: a copy of more units than a launch counts");
+      }
+      const dim3 grid{static_cast<unsigned>((largest + threads - 1U) / threads), static_cast<unsigned>(taken)};
+      copyEachKernel<<<grid, threads, 0U, nativeStreamOf(stream)>>>(batch);
+      checkLaunch();
+    }
+  }
 
   void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final
   {

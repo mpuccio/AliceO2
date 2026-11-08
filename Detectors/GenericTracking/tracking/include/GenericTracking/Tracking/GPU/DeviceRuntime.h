@@ -35,6 +35,7 @@ class MatLayerCylSet;
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -46,6 +47,13 @@ namespace o2::gtrk
 /// include DeviceTracker.h.
 template <DetectorLayout Det, typename Material>
 class DeviceTracker;
+
+/// One device-to-device copy of copyEachOnDevice.
+struct DeviceCopy {
+  void* to = nullptr;
+  const void* from = nullptr;
+  std::size_t bytes = 0U;
+};
 
 struct DeviceProperties {
   std::string name;
@@ -73,6 +81,9 @@ class DeviceRuntime
   virtual void copyToDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) = 0;
   virtual void copyToHost(void* to, const void* from, std::size_t bytes, DeviceStream& stream) = 0;
   virtual void copyOnDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) = 0;
+  /// Every copy of \a copies, none overlapping another's destination or
+  /// source, by one kernel (a few for many copies) instead of a copy each.
+  virtual void copyEachOnDevice(std::span<const DeviceCopy> copies, DeviceStream& stream) = 0;
   virtual void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) = 0;
   /// Page-lock the \a bytes of host memory at \a host for this device's
   /// copies, which then run without staging: whole pages no other

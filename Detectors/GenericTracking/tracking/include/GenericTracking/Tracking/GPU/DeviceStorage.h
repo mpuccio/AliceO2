@@ -280,12 +280,14 @@ void download(const DeviceColumns<S>& source, BoundedColumns<S>& destination, st
   download(source, destination, 0U, rows, stream);
 }
 
-/// Copy \a rows rows of \a source, from row \a sourceOffset, into
-/// \a destination at row \a destinationOffset, on the device: one copy per
-/// column, queued on \a stream.
+namespace device_storage_detail
+{
+/// The copies of \a rows rows of \a source, from row \a sourceOffset, into
+/// \a destination at row \a destinationOffset, a copy per column, appended to
+/// \a copies.
 template <template <template <class> class> class S>
-void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
-                 DeviceStream& stream)
+void columnCopies(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
+                  std::vector<DeviceCopy>& copies)
 {
   if (sourceOffset > source.size() || rows > source.size() - sourceOffset || destinationOffset > destination.size() ||
       rows > destination.size() - destinationOffset) {
@@ -294,10 +296,24 @@ void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, Devic
   if (rows == 0U) {
     return;
   }
-  auto& runtime = destination.arena().runtime();
-  device_storage_detail::forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) {
-    runtime.copyOnDevice(to + destinationOffset, from + sourceOffset, rows * sizeof(*to), stream);
+  forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) {
+    copies.push_back({.to = to + destinationOffset, .from = from + sourceOffset, .bytes = rows * sizeof(*to)});
   });
+}
+} // namespace device_storage_detail
+
+/// Copy \a rows rows of \a source, from row \a sourceOffset, into
+/// \a destination at row \a destinationOffset, on the device: all columns
+/// by one kernel, queued on \a stream.
+template <template <template <class> class> class S>
+void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
+                 DeviceStream& stream)
+{
+  std::vector<DeviceCopy> copies;
+  device_storage_detail::columnCopies(source, sourceOffset, destination, destinationOffset, rows, copies);
+  if (!copies.empty()) {
+    destination.arena().runtime().copyEachOnDevice(copies, stream);
+  }
 }
 
 /// Records of a column set kept as chunks, each exactly sized, in the order
@@ -334,13 +350,17 @@ class DeviceColumnChunks
   }
 
   /// Copy every chunk, in the order appended, into \a destination from row
-  /// \a destinationOffset.
+  /// \a destinationOffset: all chunks' columns by one kernel.
   void gather(DeviceColumns<S>& destination, std::size_t destinationOffset, DeviceStream& stream) const
   {
+    std::vector<DeviceCopy> copies;
     std::size_t at = destinationOffset;
     for (const auto& chunk : mChunks) {
-      copyColumns(chunk, 0U, destination, at, chunk.size(), stream);
+      device_storage_detail::columnCopies(chunk, 0U, destination, at, chunk.size(), copies);
       at += chunk.size();
+    }
+    if (!copies.empty()) {
+      destination.arena().runtime().copyEachOnDevice(copies, stream);
     }
   }
 
