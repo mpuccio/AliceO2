@@ -398,6 +398,7 @@ struct DeviceMaterial {
     uploadObject(material, storage, stream);
     return true;
   }
+  void release() noexcept { storage = {}; }
   [[nodiscard]] const Material* data() const { return storage.data(); }
 };
 
@@ -405,6 +406,8 @@ template <typename Material>
 struct DeviceMaterial<Material, false> {
   DeviceFlatObject<Material> storage;
   [[nodiscard]] bool upload(DeviceArena& arena, const Material& material, DeviceStream& stream) { return storage.upload(arena, material, stream); }
+  /// The device copy let go, the host image kept for the next run's upload.
+  void release() noexcept { storage.release(); }
   [[nodiscard]] const Material* data() const { return storage.data(); }
 };
 
@@ -1395,7 +1398,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mParameters = {};
     mHostParameters.clear();
     mGeometry = {};
-    mMaterial = {};
+    mMaterial.release();
     mCellLayers = {};
     mCellOffsets = {};
     mCellSensors = {};

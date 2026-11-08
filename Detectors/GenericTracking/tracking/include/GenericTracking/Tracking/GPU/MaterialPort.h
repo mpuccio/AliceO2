@@ -33,7 +33,7 @@ namespace o2::gtrk
 template <>
 struct FlatObjectPort<o2::base::MatLayerCylSet> {
   static std::size_t bufferBytes(const o2::base::MatLayerCylSet& source);
-  static FlatObjectImage image(const o2::base::MatLayerCylSet& source, char* futureBuffer);
+  static void image(const o2::base::MatLayerCylSet& source, char* futureBuffer, FlatObjectImage& image);
 };
 
 } // namespace o2::gtrk

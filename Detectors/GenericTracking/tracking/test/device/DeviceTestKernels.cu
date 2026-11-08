@@ -540,24 +540,31 @@ GPUg() void readToyFlatObject(const ToyFlatObject* object, std::int32_t* values)
   }
 }
 
-bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyFlatObject& host, std::vector<std::int32_t>& readBack)
+bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyFlatObject& host, std::vector<std::int32_t>& readBack,
+                   std::vector<std::int32_t>& moved)
 {
-  auto scope = arena.scope();
   DeviceFlatObject<ToyFlatObject> object;
-  if (!object.upload(arena, host, stream)) {
-    return false;
-  }
   const auto count = static_cast<std::size_t>(host.count());
-  DeviceSpan<std::int32_t> read;
-  if (!read.allocate(arena, count)) {
-    return false;
-  }
-  readToyFlatObject<<<4U, 64U, 0U, nativeStream(runtime, stream)>>>(object.data(), read.data());
-  checkLaunch();
-  readBack.resize(count);
-  download(read, readBack.data(), count, stream);
-  stream.synchronize();
-  return true;
+  // \a pad bytes before the object: the second upload lands elsewhere, its image re-targeted.
+  const auto read = [&](std::size_t pad, std::vector<std::int32_t>& values) {
+    auto scope = arena.scope();
+    DeviceSpan<std::byte> before;
+    if ((pad > 0U && !before.allocate(arena, pad)) || !object.upload(arena, host, stream)) {
+      return false;
+    }
+    DeviceSpan<std::int32_t> out;
+    if (!out.allocate(arena, count)) {
+      return false;
+    }
+    readToyFlatObject<<<4U, 64U, 0U, nativeStream(runtime, stream)>>>(object.data(), out.data());
+    checkLaunch();
+    values.resize(count);
+    download(out, values.data(), count, stream);
+    stream.synchronize();
+    object.release();
+    return true;
+  };
+  return read(0U, readBack) && read(1024U, moved);
 }
 
 struct CountAtLevel {

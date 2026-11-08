@@ -179,7 +179,8 @@ BOOST_AUTO_TEST_CASE(ColumnChunksGatherInOrder)
 }
 
 /// A flat object lands usable: the device reads its values through the
-/// pointer relocated for the device buffer. An arena too small refuses it.
+/// pointer relocated for the device buffer, also where a second upload of
+/// the kept image lands elsewhere. An arena too small refuses it.
 BOOST_AUTO_TEST_CASE(AFlatObjectIsUsableOnTheDevice)
 {
   std::mt19937 random{9U};
@@ -190,14 +191,17 @@ BOOST_AUTO_TEST_CASE(AFlatObjectIsUsableOnTheDevice)
   {
     Device device;
     std::vector<std::int32_t> readBack;
-    BOOST_REQUIRE(kernels().flatObject(*device.runtime, device.stream, *device.arena, object, readBack));
+    std::vector<std::int32_t> moved;
+    BOOST_REQUIRE(kernels().flatObject(*device.runtime, device.stream, *device.arena, object, readBack, moved));
     BOOST_TEST(readBack == values, boost::test_tools::per_element());
+    BOOST_TEST(moved == values, boost::test_tools::per_element());
     BOOST_TEST(device.arena->used() == 0U);
   }
   {
     Device small{std::size_t{4} * 1024U};
     std::vector<std::int32_t> readBack;
-    BOOST_TEST(!kernels().flatObject(*small.runtime, small.stream, *small.arena, object, readBack));
+    std::vector<std::int32_t> moved;
+    BOOST_TEST(!kernels().flatObject(*small.runtime, small.stream, *small.arena, object, readBack, moved));
     BOOST_TEST(small.arena->used() == 0U);
   }
 }

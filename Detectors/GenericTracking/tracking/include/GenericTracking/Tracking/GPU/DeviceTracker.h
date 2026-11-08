@@ -187,7 +187,9 @@ class DeviceTracker
   /// Rebuild the run: every open scope closed, the arena reset, then every
   /// iteration's parameters, the geometry and the material uploaded and the
   /// propagator kept. kOutOfMemory, and no run configured, if the arena
-  /// refuses.
+  /// refuses. A FlatObject material's host image is kept from one call to
+  /// the next and made again only for another object: the same object is
+  /// taken to be the same material.
   [[nodiscard]] virtual StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry,
                                                  const Material& material, const Propagator& propagator) = 0;
 

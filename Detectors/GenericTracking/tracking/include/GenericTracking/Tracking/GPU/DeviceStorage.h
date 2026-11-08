@@ -366,14 +366,21 @@ class DeviceColumnChunks
 
 /// A FlatObject's bytes as they must land on the device: the object, whose
 /// internal pointers already point into the device buffer, and its buffer.
+/// Kept between ports of the same source: the clone behind the bytes is
+/// re-targeted when the device buffer moves, not made again.
 struct FlatObjectImage {
   std::vector<std::byte> object;
   std::vector<std::byte> buffer;
+  const void* source = nullptr; ///< the object the image is of
+  char* future = nullptr;       ///< the device buffer its pointers name
+  std::shared_ptr<void> clone;  ///< the source's clone over `buffer`, the object's bytes taken from it
 };
 
 /// How a FlatObject type is prepared for a device: a specialisation provides
 /// `static std::size_t bufferBytes(const T& source)` and
-/// `static FlatObjectImage image(const T& source, char* futureBuffer)`.
+/// `static void image(const T& source, char* futureBuffer, FlatObjectImage& image)`,
+/// which makes \a image of \a source for \a futureBuffer or re-targets the
+/// one it holds of the same source.
 /// O2 compiles a FlatObject's host methods -- cloning, relocation, even its
 /// constructor -- only outside GPU translation units, so a specialisation is
 /// declared in a header and defined in a host .cxx, usually as
@@ -389,28 +396,45 @@ template <typename T>
   return static_cast<std::size_t>(source.getFlatBufferSize());
 }
 
-/// FlatObject.h's recipe for a GPU, for host translation units: clone
-/// \a source into a buffer of its flat size, relocate the clone's pointers to
-/// \a futureBuffer with setFutureBufferAddress, and take the bytes of both.
+/// FlatObject.h's recipe for a GPU, for host translation units: \a source
+/// cloned into \a image's buffer and the clone's pointers relocated to
+/// \a futureBuffer with setFutureBufferAddress, the object's bytes taken.
+/// An image of the same source is re-targeted instead: its clone's pointers
+/// back to the buffer it lives in (setActualBufferAddress), then to the new
+/// address; an image already for \a futureBuffer is left as it is. The same
+/// source object is taken to hold the same content: one changed in place
+/// needs a new image (a fresh FlatObjectImage).
 template <typename T>
-[[nodiscard]] FlatObjectImage flatObjectImage(const T& source, char* futureBuffer)
+void flatObjectImage(const T& source, char* futureBuffer, FlatObjectImage& image)
 {
-  FlatObjectImage image;
-  image.buffer.resize(static_cast<std::size_t>(source.getFlatBufferSize()));
-  auto clone = std::make_unique<T>();
   // FlatObject speaks char*; the image holds std::byte.
-  clone->cloneFromObject(source, reinterpret_cast<char*>(image.buffer.data())); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* const buffer = reinterpret_cast<char*>(image.buffer.data()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* clone = static_cast<T*>(image.clone.get());
+  if (clone == nullptr || image.source != &source) {
+    image.buffer.resize(static_cast<std::size_t>(source.getFlatBufferSize()));
+    auto made = std::make_shared<T>();
+    made->cloneFromObject(source, reinterpret_cast<char*>(image.buffer.data())); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+    clone = made.get();
+    image.clone = std::move(made);
+    image.source = &source;
+  } else if (image.future == futureBuffer) {
+    return;
+  } else {
+    clone->setActualBufferAddress(buffer);
+  }
   clone->setFutureBufferAddress(futureBuffer);
+  image.future = futureBuffer;
   image.object.resize(sizeof(T));
-  std::memcpy(image.object.data(), static_cast<const void*>(clone.get()), sizeof(T));
-  return image;
+  std::memcpy(image.object.data(), static_cast<const void*>(clone), sizeof(T));
 }
 
 /// An O2 FlatObject -- a MatLayerCylSet, a calibration object -- ported to the
 /// device: its image, made by FlatObjectPort<T>
 /// for the device buffer's address, copied as bytes, the buffer first. The
 /// object and its buffer are one allocation, so the upload is all or nothing,
-/// and the object is usable on the device as it lands.
+/// and the object is usable on the device as it lands. The image stays on the
+/// host for the next upload of the same source, only re-targeted where the
+/// device buffer moved.
 template <typename T>
 class DeviceFlatObject
 {
@@ -428,25 +452,30 @@ class DeviceFlatObject
     }
     std::byte* const object = storage.data();
     std::byte* const buffer = object + objectBytes;
-    const FlatObjectImage image = FlatObjectPort<T>::image(source, reinterpret_cast<char*>(buffer)); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-    if (image.object.size() != sizeof(T) || image.buffer.size() != bufferBytes) {
+    FlatObjectPort<T>::image(source, reinterpret_cast<char*>(buffer), mImage); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+    if (mImage.object.size() != sizeof(T) || mImage.buffer.size() != bufferBytes) {
       throw std::logic_error("a flat object's image does not match its type and buffer size");
     }
     auto& runtime = arena.runtime();
     if (bufferBytes != 0U) {
-      runtime.copyToDevice(buffer, image.buffer.data(), bufferBytes, stream);
+      runtime.copyToDevice(buffer, mImage.buffer.data(), bufferBytes, stream);
     }
-    runtime.copyToDevice(object, image.object.data(), sizeof(T), stream);
-    stream.synchronize(); // the image goes when this returns
+    runtime.copyToDevice(object, mImage.object.data(), sizeof(T), stream);
+    stream.synchronize(); // the image may be re-targeted once this returns
     mStorage = storage;
     return true;
   }
+
+  /// The device copy let go (its arena reset), the host image kept for the
+  /// next upload.
+  void release() noexcept { mStorage = {}; }
 
   /// The object on the device.
   [[nodiscard]] const T* data() const { return reinterpret_cast<const T*>(mStorage.data()); } // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 
  private:
   DeviceSpan<std::byte> mStorage;
+  FlatObjectImage mImage;
 };
 
 } // namespace o2::gtrk
