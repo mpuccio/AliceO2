@@ -53,6 +53,23 @@ static_assert(kWarpSize > 0, "no GPUCA_GPUTYPE_* with a warp size");
 inline constexpr int kBlockSize = 64;
 static_assert(kBlockSize % kWarpSize == 0);
 
+/// The lanes that walk one source together in a flat run's fill
+/// (`FlatTracklets`, FlatStage.cuh), per architecture: more lanes spread a
+/// source's rows and write its candidates side by side, and each repeats the
+/// source's preparation, so the best count depends on the architecture's
+/// memory and its per-thread scratch. An architecture without its own value
+/// takes its backend's. A power of two up to the warp size; 1 is one thread
+/// a source.
+#if defined(GPUCA_GPUTYPE_BLACKWELL)
+inline constexpr std::uint32_t kFillLanes = 4U;
+#elif defined(GPUCA_GPUTYPE_VEGA)
+inline constexpr std::uint32_t kFillLanes = 1U;
+#elif defined(__HIPCC__)
+inline constexpr std::uint32_t kFillLanes = 1U;
+#else
+inline constexpr std::uint32_t kFillLanes = 4U;
+#endif
+
 struct LaunchShape {
   std::uint32_t blocks = 0;
   std::uint32_t threads = static_cast<std::uint32_t>(kBlockSize);

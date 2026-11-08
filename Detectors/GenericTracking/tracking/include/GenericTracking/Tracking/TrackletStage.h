@@ -16,6 +16,7 @@
 #define GTRK_TRACKING_TRACKLETSTAGE_H_
 
 #include "GenericTracking/Base/LayerLinks.h"
+#include "GenericTracking/Base/Lanes.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/DisplacedPair.h"
@@ -272,8 +273,16 @@ class TrackletStage
   /// targetRow) for every candidate of \a sourceElement that passes `cheap`,
   /// in the serial order -- the out-links in order, each query's rows in the
   /// grid walk's order: the one traversal the stage's forms share.
-  template <typename Body>
-  GPUhdi() void forEachCandidate(Index sourceElement, Body& body) const
+  ///
+  /// With a \a group of lanes (`WarpGroup`) instead, every lane runs the
+  /// source's and the queries' preparation alike and the group walks each
+  /// query's rows in step (`MeasurementGrid::visitCandidates`): \a body(...,
+  /// targetRow, has) on every lane at every step, \a has whether the lane's
+  /// row is a candidate. A step's lanes hold consecutive rows of the walk, so
+  /// the candidates in step order, and lane order within a step, are the
+  /// serial order.
+  template <typename Body, typename Share = Lanes>
+  GPUhdi() void forEachCandidate(Index sourceElement, Body& body, Share share = {}) const
   {
     SourceContext source;
     CompatibleVertex cachedVertices[kVertexCapacity];
@@ -290,25 +299,29 @@ class TrackletStage
       // One candidate of the query, against the vertices' second-coordinate
       // \a intervals, or nullptr when the query took the whole window.
       const auto visitTarget = [&](const SecondRange* intervals) {
-        return [&, intervals](Index targetRow) {
-          if (cheap(targetRow)) {
-            body(source, cachedVertices, between, query, intervals, columns, targetRow);
-          }
-        };
+        if constexpr (std::is_same_v<Share, Lanes>) {
+          return [&, intervals](Index targetRow) {
+            if (cheap(targetRow)) {
+              body(source, cachedVertices, between, query, intervals, columns, targetRow);
+            }
+          };
+        } else {
+          return [&, intervals](Index targetRow, bool has) { body(source, cachedVertices, between, query, intervals, columns, targetRow, has && cheap(targetRow)); };
+        }
       };
       if constexpr (BeamLine) {
-        mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr));
+        mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr), share);
       } else {
         const bool fallback = source.uncachedRange.begin != source.vertexRange.end;
         if (mParameters->vertexSource == VertexSource::kBeamLine || fallback) {
-          mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr));
+          mFrame->grid().visitCandidates(query.targetLayer, query.window, mTargetBlocks, visitTarget(nullptr), share);
           return false;
         }
 
         SecondRange intervals[kVertexCapacity];
         SecondRun runs[kVertexCapacity];
         const std::uint32_t runCount = vertexRuns(source, cachedVertices, query, intervals, runs);
-        mFrame->grid().visitCandidates(query.targetLayer, query.window, runs, runCount, mTargetBlocks, visitTarget(intervals));
+        mFrame->grid().visitCandidates(query.targetLayer, query.window, runs, runCount, mTargetBlocks, visitTarget(intervals), share);
       }
       return false;
     });

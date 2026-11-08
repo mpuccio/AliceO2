@@ -723,14 +723,15 @@ class MeasurementGrid
   }
 
   /// Visit ordered, disjoint second-coordinate runs without visiting a row
-  /// twice when different runs clamp to or overlap the same grid cell.
-  template <typename Visitor>
+  /// twice when different runs clamp to or overlap the same grid cell; with
+  /// \a lanes a share or a group, as the overload above.
+  template <typename Visitor, typename Share = Lanes>
   GPUhdi() void visitCandidates(LayerID target, const CandidateWindow& window, const SecondRun* secondRuns, std::uint32_t secondRunCount, BlockRange blocks,
-                                Visitor visit) const
+                                Visitor visit, Share lanes = {}) const
   {
     const auto span = querySpan(target, window, blocks);
     for (auto block = span.blocks.begin; block < span.blocks.end; ++block) {
-      forEachPhiBin(span, [&](std::int32_t phiBin) { visitRuns(target, block, phiBin, span, secondRuns, secondRunCount, visit); });
+      forEachPhiBin(span, [&](std::int32_t phiBin) { visitRuns(target, block, phiBin, span, secondRuns, secondRunCount, visit, lanes); });
     }
   }
 
@@ -821,9 +822,9 @@ class MeasurementGrid
     }
   }
 
-  template <typename Visitor>
+  template <typename Visitor, typename Share>
   GPUhdi() GPUAlwaysInline() void visitRuns(LayerID target, std::int32_t block, std::int32_t phiBin, const CellSpan& span, const SecondRun* secondRuns,
-                                            std::uint32_t secondRunCount, Visitor& visit) const
+                                            std::uint32_t secondRunCount, Visitor& visit, Share lanes) const
   {
     std::int32_t previousLast = -1;
     for (std::uint32_t i = 0; i < secondRunCount; ++i) {
@@ -832,7 +833,7 @@ class MeasurementGrid
       const auto last = mGrid.secondBinOf(target, run.high);
       first = first > previousLast ? first : previousLast + 1;
       if (first <= last) {
-        visitSecondRun(target, block, phiBin, first, last, span, visit, Lanes{});
+        visitSecondRun(target, block, phiBin, first, last, span, visit, lanes);
       }
       previousLast = last > previousLast ? last : previousLast;
     }

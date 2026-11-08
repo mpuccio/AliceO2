@@ -137,7 +137,6 @@ struct HasQuery {
   GPUdi() bool operator()(std::uint32_t source) const { return stage.hasQuery(source); }
 };
 
-
 /// The tracks holding at least \a minimum clusters: the length after the
 /// follow.
 template <DetectorLayout Det>
@@ -180,6 +179,9 @@ struct FlatTracklets {
   using Between = typename Stage::Between;
   static constexpr std::uint32_t kVertexCapacity = Stage::kVertexCapacity;
   static constexpr std::uint32_t kQueryBits = 8U;
+  /// The lanes that walk one source together in the fill: one thread a
+  /// source, or a group of lanes (`WarpGroup`).
+  static constexpr std::uint32_t kFillLanes = gpu::kFillLanes;
   struct Source {
     SourceContext context;
     CompatibleVertex vertices[kVertexCapacity];
@@ -189,6 +191,12 @@ struct FlatTracklets {
     QueryContext context;
     SecondRange intervals[kVertexCapacity];
     bool hasIntervals = false;
+  };
+  /// A fill's bookkeeping over one source's walk (`note`).
+  struct FillState {
+    bool stored = false;
+    std::uint32_t query = 0U;
+    std::size_t lastLink = 0U;
   };
   Stage stage;
   std::uint32_t queriesPerSource = 1U; ///< the most out-links of a layer
@@ -201,29 +209,60 @@ struct FlatTracklets {
   GPUdi() void fill(std::uint32_t element, std::uint32_t position, Sink& sink) const
   {
     const std::uint32_t slot = position - sourceBegin;
-    bool stored = false;
-    std::uint32_t query = 0U;
-    std::size_t lastLink = 0U;
+    FillState state;
     const auto one = [&](const SourceContext& source, const CompatibleVertex* cachedVertices, const Between& between, const QueryContext& context,
                          const SecondRange* intervals, const MeasurementView&, std::uint32_t targetRow) {
-      if (!stored) {
+      sink.put(targetRow, note(state, slot, true, source, cachedVertices, between, context, intervals));
+    };
+    stage.forEachCandidate(element, one);
+  }
+  /// `fill` by the lanes of \a group in step (`forEachCandidate`): a step's
+  /// candidates in lane order at the sink's next positions, so the list is
+  /// the serial walk's. The bookkeeping on the step's ballot, alike on every
+  /// lane; lane 0 stores.
+  template <typename Sink, typename Group>
+  GPUdi() void fill(std::uint32_t element, std::uint32_t position, Sink& sink, const Group& group) const
+  {
+    const std::uint32_t slot = position - sourceBegin;
+    const std::uint32_t lane = group.lane();
+    FillState state;
+    const auto step = [&](const SourceContext& source, const CompatibleVertex* cachedVertices, const Between& between, const QueryContext& context,
+                          const SecondRange* intervals, const MeasurementView&, std::uint32_t targetRow, bool has) {
+      const std::uint64_t mask = group.ballot(has);
+      if (mask == 0U) {
+        return;
+      }
+      sink.putStep(mask, lane, has, targetRow, note(state, slot, lane == 0U, source, cachedVertices, between, context, intervals));
+    };
+    stage.forEachCandidate(element, step, group);
+  }
+  /// A candidate's key, its source and query noted in \a state: the source's
+  /// context stored at its first candidate, a query's at its first; a
+  /// query's number counts the queries with candidates before it. \a store
+  /// whether this thread writes the contexts.
+  [[nodiscard]] GPUdi() std::uint32_t note(FillState& state, std::uint32_t slot, bool store, const SourceContext& source, const CompatibleVertex* cachedVertices,
+                                           const Between& between, const QueryContext& context, const SecondRange* intervals) const
+  {
+    if (!state.stored) {
+      if (store) {
         sources[slot].context = source;
         for (std::uint32_t i = 0; i < source.cachedCount; ++i) {
           sources[slot].vertices[i] = cachedVertices[i];
         }
         sources[slot].between = between;
-        stored = true;
-        lastLink = context.linkIndex;
-        query = 0U;
         keep(slot, 0U, context, intervals);
-      } else if (context.linkIndex != lastLink) {
-        lastLink = context.linkIndex;
-        ++query;
-        keep(slot, query, context, intervals);
       }
-      sink.put(targetRow, (slot << kQueryBits) | query);
-    };
-    stage.forEachCandidate(element, one);
+      state.stored = true;
+      state.lastLink = context.linkIndex;
+      state.query = 0U;
+    } else if (context.linkIndex != state.lastLink) {
+      state.lastLink = context.linkIndex;
+      ++state.query;
+      if (store) {
+        keep(slot, state.query, context, intervals);
+      }
+    }
+    return (slot << kQueryBits) | state.query;
   }
   GPUdi() void keep(std::uint32_t slot, std::uint32_t query, const QueryContext& context, const SecondRange* intervals) const
   {

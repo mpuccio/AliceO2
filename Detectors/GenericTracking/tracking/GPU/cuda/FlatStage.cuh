@@ -22,7 +22,8 @@
 /// chunk     a range [a, b) of the list sized to the arena's free bytes;
 ///           the elements whose candidates lie in it are [sourceBegin,
 ///           sourceEnd) of the listed elements (one may straddle both ends).
-/// fill      one thread an element of the chunk: the walk again, writing the
+/// fill      one thread an element of the chunk (a group of the adapter's
+///           `kFillLanes` where it has more than one): the walk again, writing the
 ///           candidates in [a, b) as pairs at their offsets, and the
 ///           element's context the test reads.
 /// test      `selectIndices` over the pairs with the adapter's test: the
@@ -44,6 +45,8 @@
 ///   std::uint32_t count(element) const                       -- the walk, counting
 ///   void fill(element, position, Sink& sink) const           -- the walk, `sink.put(row, key)` per candidate; the
 ///                                                               element's context at `position - sourceBegin`
+///   and, with `kFillLanes` above 1, fill(element, position, Sink&, group) -- the walk by the group's lanes in step,
+///                                                               a step's candidates by `sink.putStep` in lane order
 ///   std::uint32_t sourceOf(const CandidatePair&) const       -- the listed position the pair's key holds
 ///   bool test(k, const CandidatePair&) const                 -- k the pair's index in the chunk, for what the test keeps for emit
 ///   Record emit(k, const CandidatePair&, element) const
@@ -99,6 +102,19 @@ struct Sink {
       pairs[at - chunkBegin] = CandidatePair{.row = row, .key = key};
     }
   }
+  /// A group's step: \a mask the lanes with a candidate;
+  /// this lane's, if \a has, after those of the lanes before it, and `next`
+  /// past them all.
+  GPUdi() void putStep(std::uint64_t mask, std::uint32_t lane, bool has, std::uint32_t row, std::uint32_t key)
+  {
+    if (has) {
+      const std::uint32_t at = next + static_cast<std::uint32_t>(__popcll(mask & ((std::uint64_t{1} << lane) - 1U)));
+      if (at >= chunkBegin && at < chunkEnd) {
+        pairs[at - chunkBegin] = CandidatePair{.row = row, .key = key};
+      }
+    }
+    next += static_cast<std::uint32_t>(__popcll(mask));
+  }
 };
 
 /// A test hook: chunks of at most this many pairs (0: the arena's free bytes
@@ -113,6 +129,17 @@ namespace detail
 
 /// The element at a listed position: the list's, or the position itself.
 GPUdi() std::uint32_t elementAt(const std::uint32_t* listed, std::uint32_t position) { return listed != nullptr ? listed[position] : position; }
+
+/// The lanes an adapter's fill walks an element with: its `kFillLanes`, or one.
+template <typename Adapter>
+constexpr std::uint32_t fillLanes()
+{
+  if constexpr (requires { Adapter::kFillLanes; }) {
+    return Adapter::kFillLanes;
+  } else {
+    return 1U;
+  }
+}
 
 template <typename Adapter>
 struct CountElements {
@@ -153,6 +180,17 @@ struct FillElements {
     }
     Sink sink{.pairs = pairs, .next = offsets[position], .chunkBegin = chunkBegin, .chunkEnd = chunkEnd};
     adapter.fill(elementAt(listed, position), position, sink);
+  }
+  /// The same by a group of the adapter's `kFillLanes` lanes.
+  template <typename Group>
+  GPUdi() void together(std::uint32_t j, const Group& group) const
+  {
+    const std::uint32_t position = sourceBegin + j;
+    if (offsets[position] == offsets[position + 1U]) {
+      return;
+    }
+    Sink sink{.pairs = pairs, .next = offsets[position], .chunkBegin = chunkBegin, .chunkEnd = chunkEnd};
+    adapter.fill(elementAt(listed, position), position, sink, group);
   }
 };
 
@@ -359,8 +397,12 @@ template <template <template <class> class> class S, typename Adapter>
     }
     runtime.fill(runStart.data(), 0U, sourceCount * sizeof(std::uint32_t), stream);
     runtime.fill(runEnd.data(), 0U, sourceCount * sizeof(std::uint32_t), stream);
-    algorithms::forEach(runtime, stream, sourceCount,
-                        detail::FillElements<Adapter>{adapter, listed, offsets.data(), sourceBegin, pairs.data(), a, b});
+    const detail::FillElements<Adapter> fill{adapter, listed, offsets.data(), sourceBegin, pairs.data(), a, b};
+    if constexpr (detail::fillLanes<Adapter>() > 1U) {
+      algorithms::forEachGroup<detail::fillLanes<Adapter>()>(runtime, stream, sourceCount, fill);
+    } else {
+      algorithms::forEach(runtime, stream, sourceCount, fill);
+    }
 
     DeviceSpan<std::uint32_t> selected;
     std::uint32_t selectedCount = 0U;
