@@ -1822,28 +1822,25 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   bool referenceSame = true;
   // A checkpoint: saved after the first iterations, or
   // the run going on from one -- on the host, and from one without the
-  // observers, which would miss its iterations.
+  // observers, which would miss its iterations. Its conditions hold the run's
+  // vertices, the dump's or the own vertexer's (the same on the host every
+  // run), so a resumed run reads it after its vertexing.
   if (!options.saveState.empty() && (options.stateIterations == 0U || options.stateIterations > settings.size() || !options.resumeState.empty())) {
     throw std::runtime_error("--save-state needs --state-iterations between 1 and the configuration's iterations, and no --resume-state");
   }
-  const auto checkpointFingerprints = [&] {
-    return std::pair{checkpointFrame(frame), checkpointConditions(input.beamLine, input.vertices, blocksPerSlice, param.sliceHaloPS)};
+  const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) {
+    return checkpointConditions(input.beamLine, vertices, blocksPerSlice, param.sliceHaloPS);
   };
   std::optional<typename Controller::Checkpoint> resumeFrom;
-  if (!options.resumeState.empty()) {
-    if (device || param.vertexer || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal || options.digestStages ||
-        !options.fitInputs.empty() || options.vertexStudy >= 0) {
-      throw std::runtime_error("--resume-state runs the host tracker on the dump's vertices without observers");
-    }
-    const auto [frameFingerprint, conditions] = checkpointFingerprints();
-    resumeFrom = readCheckpoint<typename Controller::Checkpoint>(options.resumeState, settings, frameFingerprint, conditions);
-    std::cout << std::format("resuming from {}: {} iterations, {} tracks\n", options.resumeState, resumeFrom->summaries.size(), resumeFrom->tracks.size());
+  if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal ||
+                                       options.digestStages || !options.fitInputs.empty() || options.vertexStudy >= 0 || options.verticesOnly)) {
+    throw std::runtime_error("--resume-state runs the host tracker without observers");
   }
   // Clusters taken before the run, by their cluster
   // number -- rows move with the grid -- as a checkpoint of no iterations
   // whose used mask holds their rows, so the observers miss nothing.
   if (!options.holdClusters.empty()) {
-    if (device || param.vertexer || resumeFrom) {
+    if (device || param.vertexer || !options.resumeState.empty()) {
       throw std::runtime_error("--hold-clusters runs the host tracker, without GTRKReco<DET>.vertexer or --resume-state");
     }
     std::ifstream in(options.holdClusters);
@@ -1871,8 +1868,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     std::cout << std::format("holding {} clusters of {} from {}\n", held, frame.size(), options.holdClusters);
   }
-  if (!options.saveState.empty() && (device || param.vertexer)) {
-    throw std::runtime_error("--save-state runs the host tracker on the dump's vertices");
+  if (!options.saveState.empty() && device) {
+    throw std::runtime_error("--save-state runs the host tracker");
   }
   for (unsigned repetition = 0; repetition < std::max(options.repeat, 1U); ++repetition) {
     const bool last = repetition + 1U == std::max(options.repeat, 1U);
@@ -1918,6 +1915,10 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error("the vertexing pass ran out of memory");
     }
     const auto vertices = vertexed.seeds;
+    if (!options.resumeState.empty() && !resumeFrom) {
+      resumeFrom = readCheckpoint<typename Controller::Checkpoint>(options.resumeState, settings, checkpointFrame(frame), checkpointConditionsOf(vertices));
+      std::cout << std::format("resuming from {}: {} iterations, {} tracks\n", options.resumeState, resumeFrom->summaries.size(), resumeFrom->tracks.size());
+    }
     const double vertexSeconds = !device ? vertexed.seconds : 0.;
     if (vertexing && !device) {
       const auto& found = *vertexed.found;
@@ -2108,8 +2109,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error(std::format("run {} failed with status {}", repetition, static_cast<int>(result.status)));
     }
     if (!options.saveState.empty() && last) {
-      const auto [frameFingerprint, conditions] = checkpointFingerprints();
-      writeCheckpoint(options.saveState, tracker.checkpoint(result), settings, frameFingerprint, conditions);
+      writeCheckpoint(options.saveState, tracker.checkpoint(result), settings, checkpointFrame(frame), checkpointConditionsOf(vertices));
       std::cout << std::format("checkpoint after {} iterations into {}\n", options.stateIterations, options.saveState);
     }
     const auto digest = trackingDigest(result, tracker.used());
