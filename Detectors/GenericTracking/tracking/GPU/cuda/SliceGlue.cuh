@@ -123,6 +123,22 @@ struct TrackletLinkLambdaKeys {
   }
 };
 
+/// to[i] = from[indices[i]], every tracklet column.
+struct GatherTracklets {
+  TrackletConstView from;
+  const Index* indices;
+  DeviceColumns<TrackletT>::View to;
+  GPUdi() void operator()(Index i) const
+  {
+    const Index row = indices[i];
+    to.source[i] = from.source[row];
+    to.target[i] = from.target[row];
+    to.link[i] = from.link[row];
+    to.lambda[i] = from.lambda[row];
+    to.phi[i] = from.phi[row];
+  }
+};
+
 } // namespace
 } // namespace detail
 
@@ -130,11 +146,11 @@ struct TrackletLinkLambdaKeys {
 /// every source a segment of the library's
 /// segmented sort, stable, first by target, then by link and lambda, so that
 /// equal links and lambdas keep the targets' order -- `trackletBefore`'s order
-/// for any segment length and any ties. Then each column gathered in that
-/// order through one buffer and copied back. Every buffer lives on the
-/// arena's scratch end for this call; a refusal is kOutOfMemory, with nothing
-/// written to the tracklets (the copies back are the last step). Queued on
-/// \a stream.
+/// for any segment length and any ties. Then every column gathered in that
+/// order by one kernel into the sort's buffers, dead by then, and copied back
+/// by one. Every buffer lives on the arena's scratch end for this call; a
+/// refusal is kOutOfMemory, with nothing written to the tracklets (the copy
+/// back is the last step). Queued on \a stream.
 [[nodiscard]] inline StageStatus sortTracklets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, DeviceStageOutput<TrackletT>& tracklets)
 {
   const Index count = tracklets.size();
@@ -176,17 +192,25 @@ struct TrackletLinkLambdaKeys {
     return status;
   }
 
-  const Index* sorted = values.Current();
-  view.apply([&](auto*... columns) {
-    const auto gather = [&](auto* data) {
-      using T = std::remove_pointer_t<decltype(data)>;
-      static_assert(sizeof(T) <= sizeof(Index));
-      auto* buffer = reinterpret_cast<T*>(column.data());
-      algorithms::forEach(runtime, stream, count, algorithms::Gather<T>{.from = data, .indices = sorted, .to = buffer});
-      runtime.copyOnDevice(data, buffer, std::size_t{count} * sizeof(T), stream);
-    };
-    (gather(columns), ...);
+  // After the sorts only the sorted slots are live: five of the other
+  // buffers, each at least 4 bytes a row, take a column each.
+  constexpr std::size_t kColumns = 5U;
+  const std::array<void*, kColumns> buffers{column.data(), targetKeys[0].data(), targetKeys[1].data(), linkLambdaKeys[0].data(), linkLambdaKeys[1].data()};
+  DeviceColumns<TrackletT>::Pointers gathered{};
+  gathered.apply([&](auto&... to) {
+    static_assert(sizeof...(to) == kColumns);
+    std::size_t next = 0U;
+    ((to = static_cast<std::remove_reference_t<decltype(to)>>(buffers[next++])), ...);
   });
+  algorithms::forEach(runtime, stream, count,
+                      detail::GatherTracklets{.from = std::as_const(tracklets).view(), .indices = values.Current(), .to = DeviceColumns<TrackletT>::View{gathered}});
+  std::array<DeviceCopy, kColumns> copies{};
+  std::size_t next = 0U;
+  device_storage_detail::forEachColumnPair(DeviceColumns<TrackletT>::ConstView{gathered}, view, [&](auto* to, const auto* from) {
+    static_assert(sizeof(*to) <= sizeof(Index));
+    copies[next++] = {.to = to, .from = from, .bytes = std::size_t{count} * sizeof(*to)};
+  });
+  runtime.copyEachOnDevice(copies, stream);
   return StageStatus::kComplete;
 }
 
