@@ -114,6 +114,7 @@ namespace o2::gtrk::study
 {
 
 template <DetectorLayout Det>
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): a study's members, ordered by what they hold
 class CompleteAnatomy
 {
  public:
@@ -146,11 +147,11 @@ class CompleteAnatomy
   static constexpr std::array<const char*, kShortReasons> kShortNames{"gap inside", "lost the bid", "dropped with a kink step's witness", "refit failed", "refit chi2", "not queried", "held", "outside the window", "crossing a layer", "no update", "chi2", "passing, another row taken", "passing, the lookahead took another", "kink budget spent", "kink step refused it", "kink step unconfirmed", "kink step took another", "no step from the layer outside"};
   /// Who holds a particle's own row at the end (the short tracks that lost
   /// the bid): an earlier iteration's track, or this one's.
-  enum Holder : std::uint8_t { kNoOwnRow,
-                               kRowFree,
-                               kHeldByFake,
-                               kHeldByOther,
-                               kHeldByOwn,
+  enum Holder : std::uint8_t { kNoOwnRow = 0U,
+                               kRowFree = 1U,
+                               kHeldByFake = 2U,
+                               kHeldByOther = 3U,
+                               kHeldByOwn = 4U,
                                kThisIteration = 3U,
                                kHolderKinds = 8U };
   static constexpr std::array<const char*, kHolderKinds> kHolderNames{"no own row", "free", "an earlier fake", "an earlier track of another particle", "an earlier track of its own", "a fake of this iteration", "a track of another particle of this iteration", "a track of its own of this iteration"};
@@ -1348,8 +1349,8 @@ class CompleteAnatomy
     if (mSeedStage.empty() || mFurthest.empty()) {
       return;
     }
-    std::map<std::string, std::size_t> furthest;
-    std::map<std::string, std::size_t> losses;
+    std::map<std::string, std::size_t> furthest; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    std::map<std::string, std::size_t> losses;   // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     std::size_t missed = 0U;
     for (std::uint32_t index = 0; index < mFindable.size(); ++index) {
       if (mFate[index] != kNotFound) {
@@ -1447,8 +1448,8 @@ class CompleteAnatomy
           if (fit.status != PropagationStatus::kOk) {
             why = "the record's refit failed";
           } else {
-            Replay outward;
-            Replay inward;
+            Walk outward;
+            Walk inward;
             const auto walkedProposal = recordFollow(stage, fit.state, outwardState, road, count, inward, outward);
             const auto* outRows = walkedProposal.outward;
             const auto* inRows = walkedProposal.inward;
@@ -2234,7 +2235,7 @@ class CompleteAnatomy
               continue;
             }
             const double pt = truePt(mTruth->particles.find(mFindable[index]));
-            if (static_cast<std::size_t>(std::ranges::upper_bound(kWalkPtEdges, pt) - kWalkPtEdges.begin()) != bin) {
+            if (std::cmp_not_equal(std::ranges::upper_bound(kWalkPtEdges, pt) - kWalkPtEdges.begin(), bin)) {
               continue;
             }
             ++total;
@@ -2503,7 +2504,7 @@ class CompleteAnatomy
         static_cast<double>(mWalkGate));
       const auto robust = [](std::vector<float> values) {
         std::ranges::sort(values);
-        const double med = static_cast<double>(values[values.size() / 2U]);
+        const auto med = static_cast<double>(values[values.size() / 2U]);
         std::vector<float> deviations(values.size());
         for (std::size_t i = 0; i < values.size(); ++i) {
           deviations[i] = std::abs(values[i] - static_cast<float>(med));
@@ -2647,10 +2648,10 @@ class CompleteAnatomy
     int step = 0;              ///< the failing step, counted from the pass's first measurement
     float startMiss = 0.F;     ///< the pass's seed against its first measurement, on its surface [cm]
   };
-  /// A track's replayed follow: its raw inward proposal, its steps, the
+  /// One replayed walk of the follow: its raw proposal, its steps, the
   /// rows the bidding kept of it, of them the rows every kept kink step's
   /// witness is among, and what the refit did with them.
-  struct Replay {
+  struct Walk {
     ClusterList<kMaxClusters> road{};
     std::uint8_t roadCount = 0U;
     std::vector<std::uint32_t> raw;
@@ -2682,9 +2683,6 @@ class CompleteAnatomy
     /// less its inward proposal). Empty without a refit. The inward study's
     /// chain.
     std::vector<std::uint32_t> refitRows;
-    /// The outward walk replayed too:
-    /// one, its kept rows the iteration's, including a snapshot's replay.
-    std::vector<Replay> outward;
     /// How the walk ended, the row the unconfirmed drop removed (kNoRow: none), the last row
     /// refused after it -- at the layout's end (EndDensity) or against the
     /// beam line (BeamEnd) -- and whether its rows
@@ -2694,12 +2692,18 @@ class CompleteAnatomy
     std::uint32_t refused = kNoRow;
     bool agrees = false;
   };
+  /// A track's replayed follow: its inward walk, and the outward walk
+  /// replayed too: one, its kept rows the iteration's, including a
+  /// snapshot's replay.
+  struct Replay : Walk {
+    std::vector<Walk> outward;
+  };
 
   struct Recorder : follow::NoObserver {
-    mutable Replay* replay = nullptr;
+    mutable Walk* replay = nullptr;
     std::uint32_t* from = nullptr;
-    Replay* outward = nullptr;
-    Replay* inward = nullptr;
+    Walk* outward = nullptr;
+    Walk* inward = nullptr;
     std::uint32_t outerFrom = kNoRow;
     std::uint32_t innerFrom = kNoRow;
     void begin(PropagationDirection direction) const
@@ -2740,7 +2744,7 @@ class CompleteAnatomy
   };
   /// The iteration's follow stage, with the same dispatch for both replays.
   template <typename Observation, typename Material, typename Body>
-  void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, Body&& body)
+  void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
       [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
@@ -2755,7 +2759,7 @@ class CompleteAnatomy
   /// Both walks through the stage's sequencing: outward first, its narrowed
   /// time box and walked count carried into the inward walk.
   template <typename Stage>
-  static auto recordFollow(const Stage& stage, const BoundTrackState& inner, const BoundTrackState& outer, const ClusterList<kMaxClusters>& road, std::uint8_t count, Replay& inward, Replay& outward)
+  static auto recordFollow(const Stage& stage, const BoundTrackState& inner, const BoundTrackState& outer, const ClusterList<kMaxClusters>& road, std::uint8_t count, Walk& inward, Walk& outward)
   {
     FollowProposal<kMaxClusters> proposal{};
     follow::KinkSteps steps{};
@@ -2886,7 +2890,7 @@ class CompleteAnatomy
     // The step of \a replay that took \a row, and the particle's own rows there:
     // the inward walk's, or with \a outward the outward walk's.
     const auto attribute = [&](const Replay* replay, std::uint64_t particle, std::uint32_t row, bool outward) {
-      const Replay* walk = replay;
+      const Walk* walk = replay;
       if (outward) {
         walk = replay != nullptr && !replay->outward.empty() ? &replay->outward.front() : nullptr;
       }
@@ -3220,7 +3224,7 @@ class CompleteAnatomy
       const auto found = mTruth->particles.find(particle);
       const double pt = truePt(found);
       const auto bin = std::min(static_cast<std::size_t>(std::ranges::upper_bound(kPtEdges, pt) - kPtEdges.begin()), kPtEdges.size() - 1U);
-      const auto one = [&](const Replay& walk, std::size_t direction) {
+      const auto one = [&](const Walk& walk, std::size_t direction) {
         // Agreeing walks only; a gated row is one the update was made for
         // (a failed update is no evidence); the scaled evidence exists only
         // where the kink pass ran (a spent budget shows as none).
@@ -3310,7 +3314,7 @@ class CompleteAnatomy
       const double pt = truePt(found);
       const auto ptBin = std::min(static_cast<std::size_t>(std::ranges::upper_bound(kPtEdges, pt) - kPtEdges.begin()), kPtEdges.size() - 1U);
       const auto witnessOf = [&](const Step::Lookahead& one) { return one.next == ClusterList<kMaxClusters>::kNoCluster ? 2U : (mTruth->rows[one.next].carries(particle) ? 0U : 1U); };
-      const auto walks = [&](const Replay& walk) {
+      const auto walks = [&](const Walk& walk) {
         if (!walk.agrees) {
           return;
         }
@@ -3401,7 +3405,7 @@ class CompleteAnatomy
       const auto roadParticle = replay.roadCount == 0U ? study::kNoTrackParticle : study::goodParticle(mTruth->rows, std::span<const std::uint32_t>{replay.road.index, replay.roadCount});
       for (std::size_t rule = 0; rule < kRules; ++rule) {
         std::vector<std::uint32_t> dropped;
-        const auto consider = [&](const Replay& walk, const std::uint32_t* kept, std::uint8_t keptCount) {
+        const auto consider = [&](const Walk& walk, const std::uint32_t* kept, std::uint8_t keptCount) {
           if (!walk.agrees || keptCount == 0U || keptCount != walk.raw.size()) {
             return;
           }
@@ -3515,7 +3519,7 @@ class CompleteAnatomy
   void endDecisions(const Observation& iteration, const std::vector<Replay>& replayed, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
     const auto view = iteration.tracks->view();
-    const double gate = static_cast<double>(parameters.clusterChi2Max);
+    const auto gate = static_cast<double>(parameters.clusterChi2Max);
     constexpr std::array<const char*, 4> kEnds{"noTarget", "holes", "noRow", "capacity"};
     constexpr std::array<const char*, 3> kRefits{"kept", "failedFit", "aboveChi2"};
     layerOccupancy(frame, geometry);
@@ -3575,7 +3579,7 @@ class CompleteAnatomy
           return {"past", !beyond ? "none" : (free ? "free" : "held")};
         };
         // The chi2 of \a row at the step that took it, and whether a kink step did.
-        const auto chi2Of = [](const Replay& walk, std::uint32_t row) -> std::pair<double, int> {
+        const auto chi2Of = [](const Walk& walk, std::uint32_t row) -> std::pair<double, int> {
           const auto step = std::ranges::find(walk.steps, row, &Step::choice);
           if (step == walk.steps.end()) {
             return {-1., -1};
@@ -3621,7 +3625,7 @@ class CompleteAnatomy
         struct Evidence {
           double chi2 = -1., sqrtDet = -1., rhoWindow = -1., rhoLayer = -1., reach = -1., overlapPS = -1., boxPS = -1., rowPS = -1., rest = -1., beamWith = -1., beamWithout = -1., floatDet = -1., factorDet = -1.;
         };
-        const auto evidenceOf = [&](const Replay& walk, std::uint32_t row, bool outward) {
+        const auto evidenceOf = [&](const Walk& walk, std::uint32_t row, bool outward) {
           Evidence out;
           const auto direction = outward ? PropagationDirection::kForward : PropagationDirection::kBackward;
           const auto step = std::ranges::find(walk.steps, row, &Step::choice);
@@ -3670,7 +3674,7 @@ class CompleteAnatomy
         // where it ends the track, the unconfirmed drop's row put back where it attaches.
         std::array<bool, 2> refuse{}; // inward, outward
         std::array<std::uint32_t, 2> restore{kNoRow, kNoRow};
-        const auto one = [&](const Replay& walk, bool outward) {
+        const auto one = [&](const Walk& walk, bool outward) {
           bool crossed = false;
           std::uint32_t links = 0U;
           std::size_t windows = 0U;
@@ -3982,7 +3986,7 @@ class CompleteAnatomy
     };
     // [direction][link from][link to][pT range][kink bin]
     std::map<std::tuple<std::size_t, int, int, std::size_t, std::size_t>, Cell> cells;
-    const double gate = static_cast<double>(parameters.clusterChi2Max);
+    const auto gate = static_cast<double>(parameters.clusterChi2Max);
     auto edges = kChi2Edges;
     edges[4] = gate;
     std::ranges::sort(edges);
@@ -4032,7 +4036,7 @@ class CompleteAnatomy
       const auto truth = mTruth->particles.find(particle);
       const double pt = truePt(truth);
       const std::size_t ptRange = pt < 0.6 ? 0U : (pt < 1. ? 1U : 2U);
-      const auto tally = [&](const Replay& walk, std::size_t direction) {
+      const auto tally = [&](const Walk& walk, std::size_t direction) {
         if (!walk.agrees) {
           return;
         }
@@ -4158,7 +4162,7 @@ class CompleteAnatomy
       }
       const auto vertex = vertexRZ(mTruth->particles.find(particle));
       const auto distance = [&](std::uint32_t row) { return pathDistance(row, vertex); };
-      const auto tally = [&](const Replay& walk, std::size_t direction) {
+      const auto tally = [&](const Walk& walk, std::size_t direction) {
         if (!walk.agrees) {
           return;
         }
@@ -4189,7 +4193,7 @@ class CompleteAnatomy
               const auto& step = walk.steps[s];
               const auto target = std::ranges::find(step.targets, layer, &TargetSeen::layer);
               if (crossed && target != step.targets.end()) {
-                const double chance = reachChance(parameters, step.state, step.factors, layer, target->window, direction == 0U ? PropagationDirection::kForward : PropagationDirection::kBackward, geometry, propagator, static_cast<std::uint32_t>(element), 32);
+                const double chance = reachChance(parameters, step.state, step.factors, layer, target->window, direction == 0U ? PropagationDirection::kForward : PropagationDirection::kBackward, geometry, propagator, element, 32);
                 const auto bin = static_cast<std::size_t>(std::ranges::upper_bound(kChanceEdges, chance) - kChanceEdges.begin());
                 ++chances[direction][(hitLayers >> layer) & 1U][beyond ? 1U : 0U][std::min(bin, kChanceEdges.size() - 1U)];
               }
@@ -4418,7 +4422,7 @@ class CompleteAnatomy
   {
     std::vector<double> edges = mFloors;
     std::ranges::sort(edges);
-    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+    edges.erase(std::ranges::unique(edges).begin(), edges.end());
     const std::size_t ranges = edges.size() + 1U;           // the last: the whole class
     std::vector<std::array<std::size_t, 3>> counts(ranges); // by Fate
     for (std::size_t index = 0; index < mFindable.size(); ++index) {
@@ -4532,8 +4536,8 @@ class CompleteAnatomy
   [[nodiscard]] static Roots rootsOf(const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection direction, const Propagator& propagator)
   {
     Roots out;
-    const double nx = static_cast<double>(to.normal[0]);
-    const double ny = static_cast<double>(to.normal[1]);
+    const auto nx = static_cast<double>(to.normal[0]);
+    const auto ny = static_cast<double>(to.normal[1]);
     const double transverse = std::hypot(nx, ny);
     out.barrel = transverse > 0.9;
     if (!out.barrel) {
@@ -4541,10 +4545,10 @@ class CompleteAnatomy
     }
     Scalar global[3]{};
     surfaceToGlobal(from, state.loc0(), state.loc1(), global);
-    const double x0 = static_cast<double>(global[0]);
-    const double y0 = static_cast<double>(global[1]);
-    const double z0 = static_cast<double>(global[2]);
-    const double phi = static_cast<double>(state.phi());
+    const auto x0 = static_cast<double>(global[0]);
+    const auto y0 = static_cast<double>(global[1]);
+    const auto z0 = static_cast<double>(global[2]);
+    const auto phi = static_cast<double>(state.phi());
     const double sinTheta = std::sin(static_cast<double>(state.theta()));
     const double cosTheta = std::cos(static_cast<double>(state.theta()));
     const double kappa = propagator.curvature(static_cast<double>(state.qOverP()), sinTheta);
@@ -4560,9 +4564,9 @@ class CompleteAnatomy
     const double uy = ny / transverse;
     const double tx = -uy;
     const double ty = ux;
-    const double ox = static_cast<double>(to.origin[0]);
-    const double oy = static_cast<double>(to.origin[1]);
-    const double oz = static_cast<double>(to.origin[2]);
+    const auto ox = static_cast<double>(to.origin[0]);
+    const auto oy = static_cast<double>(to.origin[1]);
+    const auto oz = static_cast<double>(to.origin[2]);
     const double d = ((cx - ox) * ux) + ((cy - oy) * uy);
     if (std::abs(d) > radius) {
       return out;
@@ -4571,7 +4575,7 @@ class CompleteAnatomy
     const double half = std::sqrt((radius * radius) - (d * d));
     const double fx = cx - (d * ux);
     const double fy = cy - (d * uy);
-    const double sense = static_cast<double>(static_cast<int>(direction));
+    const auto sense = static_cast<double>(static_cast<int>(direction));
     for (std::size_t i = 0; i < 2U; ++i) {
       const double s = i == 0U ? -1. : 1.;
       const double px = fx + (s * half * tx);
@@ -4739,7 +4743,7 @@ class CompleteAnatomy
     {
       const auto& to = geometry.planeOf(chain[run.failedIndex]);
       const auto roots = rootsOf(run.before, geometry.planeOf(run.before), to, PropagationDirection::kBackward, propagator);
-      std::string key = std::format("{} | status {}", kInwardKindNames[kind], static_cast<int>(run.status));
+      const std::string key = std::format("{} | status {}", kInwardKindNames[kind], static_cast<int>(run.status));
       if (!roots.barrel) {
         ++mRoots[key + " | a disc plane"];
       } else if (!roots.crosses) {
@@ -5071,8 +5075,8 @@ class CompleteAnatomy
   /// A followed road for `clutterStudy`: its walks, the outward one first as
   /// the follow runs them (either may be absent), and its rows.
   struct ClutterWalks {
-    const Replay* outward = nullptr;
-    const Replay* inward = nullptr;
+    const Walk* outward = nullptr;
+    const Walk* inward = nullptr;
     ClusterList<kMaxClusters> road{};
     std::uint8_t roadCount = 0U;
     const char* population = "";
@@ -5080,8 +5084,8 @@ class CompleteAnatomy
   /// The dropped records' walks of the iteration being observed, kept by
   /// `replayDropped` for `clutterStudy`.
   struct DroppedWalks {
-    Replay outward;
-    Replay inward;
+    Walk outward;
+    Walk inward;
     ClusterList<kMaxClusters> road{};
     std::uint8_t roadCount = 0U;
     bool walked = false;
@@ -5180,7 +5184,7 @@ class CompleteAnatomy
   template <typename Observation, typename Material>
   void clutterStudy(const Observation& iteration, const std::vector<Replay>& replayed, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
-    const double gate = static_cast<double>(parameters.clusterChi2Max);
+    const auto gate = static_cast<double>(parameters.clusterChi2Max);
     auto edges = kClutterEdges;
     edges.back() = gate;
     layerOccupancy(frame, geometry);
@@ -5229,7 +5233,7 @@ class CompleteAnatomy
         bool clean = true;
         std::uint32_t last = road.back();
         std::size_t core = road.size();
-        const auto walkOf = [&](const Replay& walk, PropagationDirection direction) {
+        const auto walkOf = [&](const Walk& walk, PropagationDirection direction) {
           last = direction == PropagationDirection::kForward ? road.back() : road.front();
           for (const auto& step : walk.steps) {
             if (!clean) {
@@ -5269,7 +5273,7 @@ class CompleteAnatomy
                 }
                 inBox.push_back({.row = candidate.row, .chi2 = chi2, .sqrtDet = std::sqrt(det), .outcome = candidate.outcome});
                 if (candidate.outcome == StepOutcome::kPasses || candidate.outcome == StepOutcome::kChi2) {
-                  const double production = static_cast<double>(candidate.chi2);
+                  const auto production = static_cast<double>(candidate.chi2);
                   const double relative = std::abs(chi2 - production) / std::max(production, 1e-6);
                   ++tally.chi2Agreement[relative < 1e-4 ? 0U : (relative < 1e-3 ? 1U : (relative < 1e-2 ? 2U : 3U))];
                   tally.chi2Agreement[4] += (chi2 <= gate) != (candidate.outcome == StepOutcome::kPasses) ? 1U : 0U;
@@ -5607,22 +5611,23 @@ class CompleteAnatomy
       value = static_cast<Scalar>(static_cast<double>(value) * scale);
     }
     // log|P0| by Cholesky, in double.
-    std::array<double, kNBoundParams * kNBoundParams> l{};
+    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through at(), which the check does not follow
+    const auto at = [](int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); };
     double logDet = 0.;
     for (int i = 0; i < kNBoundParams; ++i) {
       for (int j = 0; j <= i; ++j) {
-        double sum = static_cast<double>(state.cov[covIndex(i, j)]);
+        auto sum = static_cast<double>(state.cov[covIndex(i, j)]);
         for (int k = 0; k < j; ++k) {
-          sum -= l[static_cast<std::size_t>((i * kNBoundParams) + k)] * l[static_cast<std::size_t>((j * kNBoundParams) + k)];
+          sum -= l[at(i, k)] * l[at(j, k)];
         }
         if (i == j) {
           if (!(sum > 0.)) {
             return nan;
           }
-          l[static_cast<std::size_t>((i * kNBoundParams) + i)] = std::sqrt(sum);
+          l[at(i, i)] = std::sqrt(sum);
           logDet += std::log(sum);
         } else {
-          l[static_cast<std::size_t>((i * kNBoundParams) + j)] = sum / l[static_cast<std::size_t>((j * kNBoundParams) + j)];
+          l[at(i, j)] = sum / l[at(j, j)];
         }
       }
     }
@@ -5667,18 +5672,19 @@ class CompleteAnatomy
   {
     BoundTrackState mean = state;
     covarianceFromFactors(factors, mean.cov);
-    std::array<double, kNBoundParams * kNBoundParams> l{};
+    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through at(), which the check does not follow
+    const auto at = [](int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); };
     for (int i = 0; i < kNBoundParams; ++i) {
       for (int j = 0; j <= i; ++j) {
-        double sum = static_cast<double>(mean.cov[covIndex(i, j)]);
+        auto sum = static_cast<double>(mean.cov[covIndex(i, j)]);
         for (int k = 0; k < j; ++k) {
-          sum -= l[static_cast<std::size_t>((i * kNBoundParams) + k)] * l[static_cast<std::size_t>((j * kNBoundParams) + k)];
+          sum -= l[at(i, k)] * l[at(j, k)];
         }
         if (i == j) {
-          l[static_cast<std::size_t>((i * kNBoundParams) + i)] = sum > 0. ? std::sqrt(sum) : 0.;
+          l[at(i, i)] = sum > 0. ? std::sqrt(sum) : 0.;
         } else {
-          const double d = l[static_cast<std::size_t>((j * kNBoundParams) + j)];
-          l[static_cast<std::size_t>((i * kNBoundParams) + j)] = d > 0. ? sum / d : 0.;
+          const double d = l[at(j, j)];
+          l[at(i, j)] = d > 0. ? sum / d : 0.;
         }
       }
     }
@@ -5697,7 +5703,7 @@ class CompleteAnatomy
       for (int i = 0; i < kNBoundParams; ++i) {
         double shift = 0.;
         for (int k = 0; k <= i; ++k) {
-          shift += l[static_cast<std::size_t>((i * kNBoundParams) + k)] * normal[static_cast<std::size_t>(k)];
+          shift += l[at(i, k)] * normal[static_cast<std::size_t>(k)];
         }
         sample.par[i] = static_cast<Scalar>(static_cast<double>(state.par[i]) + shift);
       }
@@ -5748,7 +5754,7 @@ class CompleteAnatomy
   /// The window's clutter beyond the nominal gate; callers choose which
   /// rows to exclude and the value for an area too small to measure it.
   template <typename Material, typename Skip>
-  [[nodiscard]] double windowRho(const IterationParameters<Det>& parameters, const Step& step, LayerID layer, const CandidateWindow& window, double gate, double sqrtDet, PropagationDirection direction, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, Skip&& skip, double missing) const
+  [[nodiscard]] double windowRho(const IterationParameters<Det>& parameters, const Step& step, LayerID layer, const CandidateWindow& window, double gate, double sqrtDet, PropagationDirection direction, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const Skip& skip, double missing) const
   {
     const double boxArea = windowArea(parameters, layer, window);
     std::size_t outside = 0U;
@@ -5809,7 +5815,7 @@ class CompleteAnatomy
   template <typename Observation, typename Material>
   void decisionStudy(const Observation& iteration, const std::vector<Replay>& replayed, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::unordered_map<std::uint64_t, std::uint32_t>& goodTrack)
   {
-    const double gate = static_cast<double>(parameters.clusterChi2Max);
+    const auto gate = static_cast<double>(parameters.clusterChi2Max);
     const auto view = iteration.tracks->view();
     std::vector<ClutterWalks> walks;
     for (std::size_t element = 0; element < replayed.size(); ++element) {
@@ -5862,7 +5868,7 @@ class CompleteAnatomy
         PropagationDirection direction = PropagationDirection::kForward;
         std::vector<std::uint32_t> outwardTaken;
         std::vector<std::uint32_t> inwardTaken;
-        const auto scan = [&](const Replay* walk, PropagationDirection dir, std::vector<std::uint32_t>& taken) {
+        const auto scan = [&](const Walk* walk, PropagationDirection dir, std::vector<std::uint32_t>& taken) {
           if (walk == nullptr || at != nullptr) {
             return;
           }
@@ -6266,8 +6272,8 @@ class CompleteAnatomy
     // The failing plane's transverse normal and distance; a circle's farthest
     // point along that normal, its centre's projection plus its radius.
     const auto& target = geometry.planeOf(chain[failed]);
-    const double nx = static_cast<double>(target.normal[0]);
-    const double ny = static_cast<double>(target.normal[1]);
+    const auto nx = static_cast<double>(target.normal[0]);
+    const auto ny = static_cast<double>(target.normal[1]);
     const double transverse = std::hypot(nx, ny);
     out.barrel = transverse > 0.9;
     const double ux = transverse > 0. ? nx / transverse : 0.;
@@ -6389,7 +6395,7 @@ class CompleteAnatomy
               outer = fit.outwardState;
             }
           }
-          Replay outward;
+          Walk outward;
           const auto walked = recordFollow(stage, start, outer, road, count, replay, outward);
           replay.road = road;
           replay.roadCount = count;
@@ -6580,7 +6586,7 @@ class CompleteAnatomy
   /// the track: in the bidding or the refit if the replay proposed it, else
   /// at the step from \a outside, the layer just outside it -- or, where the
   /// step had the kink allowance, at its kink step.
-  [[nodiscard]] Short stopReason(const Replay& replay, std::uint32_t row, LayerID outside, std::uint64_t particle, std::uint8_t& detail) const
+  [[nodiscard]] Short stopReason(const Walk& replay, std::uint32_t row, LayerID outside, std::uint64_t particle, std::uint8_t& detail) const
   {
     if (row == kNoTrack) {
       return kNoStep;
@@ -6674,7 +6680,7 @@ class CompleteAnatomy
   static constexpr std::uint8_t kLowerChi2 = 16U;
   static_assert(kTakenKinds <= kLowerChi2);
   static constexpr std::array<const char*, kTakenKinds> kTakenNames{"", "its own row on another layer", "another particle's on its layer", "another particle's on another layer", "noise on its layer", "noise on another layer", "the own row itself, dropped after (the unconfirmed drop: the next step crossed a sensor without a row)", "the own row itself, refused after as the walk's last (EndDensity, BeamEnd)", "nothing"};
-  [[nodiscard]] std::uint8_t takenKind(const Replay& replay, std::uint32_t row, LayerID outside, std::uint64_t particle) const
+  [[nodiscard]] std::uint8_t takenKind(const Walk& replay, std::uint32_t row, LayerID outside, std::uint64_t particle) const
   {
     if (row == kNoTrack) {
       return kNoTaken;
@@ -6716,7 +6722,7 @@ class CompleteAnatomy
   /// the row it stepped from, its choice, and every candidate with its
   /// layer, outcome, chi2 and whether it carries \a particle; \a own the
   /// row the diagnosis asked about.
-  void dumpWalk(const Replay& walk, std::uint64_t particle, std::uint32_t own) const
+  void dumpWalk(const Walk& walk, std::uint64_t particle, std::uint32_t own) const
   {
     std::cout << std::format("  walk dump: particle {} own row {} (layer {}), dropped {}, end {}, raw", particle, own, static_cast<int>(mTruth->rows[own].layer), walk.dropped, static_cast<int>(walk.end));
     for (const auto row : walk.raw) {
@@ -6735,7 +6741,7 @@ class CompleteAnatomy
   /// For a row the unconfirmed drop removed (kOwnDropped): what the step from it did with the
   /// particle's own row there, a `StepOutcome`, or 6 where none of the
   /// particle's rows was among its candidates; and that row's chi2.
-  [[nodiscard]] std::pair<std::uint8_t, Scalar> afterDrop(const Replay& replay, std::uint32_t row, std::uint64_t particle) const
+  [[nodiscard]] std::pair<std::uint8_t, Scalar> afterDrop(const Walk& replay, std::uint32_t row, std::uint64_t particle) const
   {
     const auto step = std::ranges::find(replay.steps, row, &Step::from);
     if (step == replay.steps.end()) {
@@ -6750,7 +6756,7 @@ class CompleteAnatomy
   }
   /// The chi2 of \a row among the candidates of the step from \a outside; 0
   /// where it was not one.
-  [[nodiscard]] Scalar candidateChi2(const Replay& replay, std::uint32_t row, LayerID outside) const
+  [[nodiscard]] Scalar candidateChi2(const Walk& replay, std::uint32_t row, LayerID outside) const
   {
     const auto step = std::ranges::find(replay.steps, outside, &Step::layer);
     if (step == replay.steps.end()) {
@@ -7011,9 +7017,9 @@ class CompleteAnatomy
         return kGraphLinkRange;
       }
       if (verdict == study::PairLoss::kSourceInterval) {
-        const double z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.r, source.z));
-        const double low = static_cast<double>(parameters.sourceMin[link]);
-        const double high = static_cast<double>(parameters.sourceMax[link]);
+        const auto z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.r, source.z));
+        const auto low = static_cast<double>(parameters.sourceMin[link]);
+        const auto high = static_cast<double>(parameters.sourceMax[link]);
         ++mLinkRangeRefusals[std::format("{}->{} {} [{:.1f}, {:.1f}] by {:.1f}", static_cast<int>(Det::layerLinks[link].from), static_cast<int>(Det::layerLinks[link].to), z < low ? "below" : "above", low, high, z < low ? low - z : z - high)];
         return kGraphLinkRange;
       }
@@ -7057,13 +7063,13 @@ class CompleteAnatomy
       // The source coordinate is the layer's second one: z on a barrel
       // layer, r on a disc (`TrackletStage`, `secondCoordinate`).
       const auto inRange = [&](std::size_t link, const TimedPoint& source) {
-        const double z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.point.r, source.point.z));
+        const auto z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.point.r, source.point.z));
         return z >= Det::layerLinks[link].sourceMin && z <= Det::layerLinks[link].sourceMax;
       };
       if (!inRange(firstLink, a) || !inRange(second, b)) {
         const auto link = inRange(firstLink, a) ? second : firstLink;
         const auto& source = inRange(firstLink, a) ? b : a;
-        const double z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.point.r, source.point.z));
+        const auto z = static_cast<double>(secondCoordinate<Det>(Det::layerLinks[link].from, source.point.r, source.point.z));
         if (record) {
           ++mLinkRangeRefusals[std::format("{}->{} {} [{:.1f}, {:.1f}] by {:.1f}", static_cast<int>(Det::layerLinks[link].from), static_cast<int>(Det::layerLinks[link].to), z < Det::layerLinks[link].sourceMin ? "below" : "above", Det::layerLinks[link].sourceMin, Det::layerLinks[link].sourceMax, z < Det::layerLinks[link].sourceMin ? Det::layerLinks[link].sourceMin - z : z - Det::layerLinks[link].sourceMax)];
         }
@@ -7275,8 +7281,8 @@ class CompleteAnatomy
           covarianceFromFactors(predictedFactors, predicted.cov);
           const double r0 = static_cast<double>(measurement.loc0) - static_cast<double>(predicted.loc0());
           const double r1 = static_cast<double>(measurement.loc1) - static_cast<double>(predicted.loc1());
-          const double p00 = static_cast<double>(predicted.covAt(kLoc0, kLoc0));
-          const double p11 = static_cast<double>(predicted.covAt(kLoc1, kLoc1));
+          const auto p00 = static_cast<double>(predicted.covAt(kLoc0, kLoc0));
+          const auto p11 = static_cast<double>(predicted.covAt(kLoc1, kLoc1));
           const double i00 = p00 + static_cast<double>(measurement.varLoc0);
           const double i11 = p11 + static_cast<double>(measurement.varLoc1);
           // The update on the factors, as the follow's step makes it
@@ -7862,7 +7868,7 @@ class CompleteAnatomy
   /// \a row as the step's update does, against the cluster and the MC
   /// crossing; the start's own stave's true kink.
   template <typename Material>
-  void record(const char* kind, std::uint64_t particle, std::size_t iteration, const Replay& replay, std::size_t stepIndex, std::uint32_t row, Scalar chi2, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
+  void record(const char* kind, std::uint64_t particle, std::size_t iteration, const Walk& replay, std::size_t stepIndex, std::uint32_t row, Scalar chi2, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
     const auto& step = replay.steps[stepIndex];
     const auto measurement = measurementAt(frame, row);
@@ -8039,7 +8045,7 @@ class CompleteAnatomy
   };
   Increments mRefusedIncrements; ///< refit-chi2 stops, the rows all the particle's own
   Increments mKeptIncrements;    ///< complete tracks the iteration followed outward, refit kept
-  void addIncrements(Increments& into, const Replay& replay)
+  void addIncrements(Increments& into, const Walk& replay)
   {
     ++into.tracks;
     std::size_t top = 0U;

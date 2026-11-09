@@ -68,7 +68,7 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
   void setMaxMemory(size_t max);
 
 #if !defined(__HIPCC__) && !defined(__CUDACC__)
-  std::string asString() const;
+  [[nodiscard]] std::string asString() const;
   void print() const;
 #endif
 
@@ -94,7 +94,7 @@ template <typename T>
 using BoundedVector = std::pmr::vector<T>;
 
 template <typename T>
-using bounded_vector = BoundedVector<T>;
+using bounded_vector = BoundedVector<T>; // NOLINT(readability-identifier-naming): ITS's spelling
 
 template <typename T>
 inline void deepVectorClear(std::vector<T>& vec)
@@ -127,7 +127,7 @@ inline void deepVectorClear(std::array<bounded_vector<T>, S>& arr, std::pmr::mem
 }
 
 template <typename T>
-inline void clearResizeBoundedVector(bounded_vector<T>& vec, size_t sz, std::pmr::memory_resource* mr = nullptr, T def = T())
+inline void clearResizeBoundedVector(bounded_vector<T>& vec, size_t sz, std::pmr::memory_resource* mr = nullptr, const T& def = T())
 {
   // Rebuild a valid empty vector before allocation or element construction can
   // throw. The old allocation is released first, as required by bounded pools.

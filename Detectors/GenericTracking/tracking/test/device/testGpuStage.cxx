@@ -82,7 +82,7 @@ std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, K
 
 BOOST_AUTO_TEST_CASE(TheSampleGivesTheCanonicalOutput)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto run = onDevice(*device, arena, Kind::kSample, 5U, 16U);
   BOOST_REQUIRE((run->status == StageStatus::kComplete));
@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE(TheSampleGivesTheCanonicalOutput)
 /// serial loop's, record for record.
 BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   for (const Kind kind : {Kind::kUneven, Kind::kIrregular}) {
     const auto reference = serial(kind, 97U);
@@ -124,7 +124,7 @@ BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
 /// the stage gives the full run's output: the rest's counts are 0.
 BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   for (const Kind kind : {Kind::kUneven, Kind::kIrregular}) {
     constexpr std::uint32_t kElements = 2000U;
@@ -144,7 +144,7 @@ BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
 /// size and keeps it, and the output does not depend on the mispredict.
 BOOST_AUTO_TEST_CASE(AMispredictRetriesOnceAtTheExactSize)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto reference = serial(Kind::kUneven, 60U);
   const auto run = onDevice(*device, arena, Kind::kUneven, 60U, 1U);
@@ -156,7 +156,7 @@ BOOST_AUTO_TEST_CASE(AMispredictRetriesOnceAtTheExactSize)
 
 BOOST_AUTO_TEST_CASE(TooManyRecordsForOneElementFailAsOnTheHost)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   static_cast<void>(serial(Kind::kOverflow, 3U, StageStatus::kOrdinalOverflow));
   const auto run = onDevice(*device, arena, Kind::kOverflow, 3U, Output::kMaxPerElement + 8U);
@@ -168,7 +168,7 @@ BOOST_AUTO_TEST_CASE(TooManyRecordsForOneElementFailAsOnTheHost)
 /// end. Once the staging is refused, once the output after a staging that fit.
 BOOST_AUTO_TEST_CASE(AnExhaustedArenaIsOutOfMemory)
 {
-  auto device = runtime();
+  auto* device = runtime();
   // 1001 counts and 1001 offsets, 4004 bytes each, the second 256-aligned.
   constexpr std::size_t kCountsAndOffsets = 4096U + 4004U;
   for (const std::size_t bytes : {std::size_t{16} * 1024U, std::size_t{150} * 1024U}) {
@@ -186,7 +186,7 @@ BOOST_AUTO_TEST_CASE(AnExhaustedArenaIsOutOfMemory)
 
 BOOST_AUTO_TEST_CASE(AnEmptyStageIsAValidEmptyOutput)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto run = onDevice(*device, arena, Kind::kIrregular, 0U, 16U);
   BOOST_REQUIRE((run->status == StageStatus::kComplete));
@@ -199,7 +199,7 @@ BOOST_AUTO_TEST_CASE(AnEmptyStageIsAValidEmptyOutput)
 /// the placed output stay on the base end, in the caller's scope.
 BOOST_AUTO_TEST_CASE(TheScratchIsReleasedAndTheOutputStays)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto run = onDevice(*device, arena, Kind::kIrregular, 5000U, 40000U);
   BOOST_REQUIRE((run->status == StageStatus::kComplete));

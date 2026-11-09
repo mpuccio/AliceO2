@@ -43,6 +43,10 @@ class GPUChainGenericTracking final : public o2::gpu::GPUChain
     size_t bytes = 0;
   };
 
+  GPUChainGenericTracking(const GPUChainGenericTracking&) = delete;
+  GPUChainGenericTracking(GPUChainGenericTracking&&) = delete;
+  GPUChainGenericTracking& operator=(const GPUChainGenericTracking&) = delete;
+  GPUChainGenericTracking& operator=(GPUChainGenericTracking&&) = delete;
   ~GPUChainGenericTracking() final;
   int32_t Init() final { return 0; }
   int32_t PrepareEvent() final { return 0; }
@@ -61,7 +65,7 @@ class GPUChainGenericTracking final : public o2::gpu::GPUChain
   /// A block of \a bytes, before Init; its index for GetBlock.
   size_t AddBlock(size_t bytes);
   /// Block \a index, after Init.
-  Block GetBlock(size_t index) const;
+  [[nodiscard]] Block GetBlock(size_t index) const;
 
  private:
   /// A block's processor: the host-side one registers the resource, its

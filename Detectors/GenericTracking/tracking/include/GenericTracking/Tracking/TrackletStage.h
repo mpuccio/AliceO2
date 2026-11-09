@@ -334,7 +334,7 @@ class TrackletStage
   /// (`prepareQuery`), in the links' order, until it returns true; whether
   /// it did.
   template <typename Body>
-  GPUhdi() GPUAlwaysInline() bool forEachQuery(const SourceContext& source, const Body& body) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool forEachQuery(const SourceContext& source, const Body& body) const
   {
     for (auto at = mParameters->outLinkOffsets[source.at.layer]; at < mParameters->outLinkOffsets[static_cast<std::size_t>(source.at.layer) + 1U]; ++at) {
       QueryContext query;

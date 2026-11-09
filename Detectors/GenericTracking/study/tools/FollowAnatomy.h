@@ -462,7 +462,7 @@ class FollowAnatomy
       const LayerID layer = mTruth->rows[row].layer;
       const bool free = used[row] == kFree;
       ownFreeBeyond = ownFreeBeyond || free;
-      if (layer == takenLayer) {
+      if (std::cmp_equal(layer, takenLayer)) {
         (free ? ownFreeOnTaken : ownHeldOnTaken) = true;
       } else if (free && std::find(step.targets.begin(), upTo, layer) != upTo) {
         ownFreeNearer = true;

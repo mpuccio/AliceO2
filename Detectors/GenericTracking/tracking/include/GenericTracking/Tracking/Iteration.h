@@ -230,6 +230,7 @@ template <DetectorLayout Det>
 
 /// Everything one iteration's kernels read.
 template <DetectorLayout Det>
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationParameters {
   static constexpr std::size_t kLinkCount = nLinks<Det>;
   static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);

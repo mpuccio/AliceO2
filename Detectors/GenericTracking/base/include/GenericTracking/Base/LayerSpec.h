@@ -37,6 +37,7 @@
 
 #include "GenericTracking/Base/Definitions.h"
 
+#include <algorithm>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -208,17 +209,8 @@ struct Detector {
   static constexpr bool hasDiscs = nDiscLayers > 0;
   /// Whether any layer's sensors are curved (SensorSpec::curved).
   static constexpr bool hasCurvedSensors = [] {
-    for (const auto& layer : Layout::barrelLayers) {
-      if (layer.sensor.curved()) {
-        return true;
-      }
-    }
-    for (const auto& layer : Layout::discLayers) {
-      if (layer.sensor.curved()) {
-        return true;
-      }
-    }
-    return false;
+    const auto curved = [](const auto& layer) { return layer.sensor.curved(); };
+    return std::ranges::any_of(Layout::barrelLayers, curved) || std::ranges::any_of(Layout::discLayers, curved);
   }();
   /// Passive scatterers (PassiveSpec), if the layout declares any.
   static constexpr int nPassives = [] {

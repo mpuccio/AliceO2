@@ -215,7 +215,7 @@ bool countDram()
       attr.size = sizeof(attr);
       attr.type = type;
       attr.config = 0x0aU | (mask << 8U);
-      const auto counter = static_cast<int>(syscall(SYS_perf_event_open, &attr, -1, cpu, -1, 0UL));
+      const auto counter = static_cast<int>(syscall(SYS_perf_event_open, &attr, -1, cpu, -1, 0UL)); // NOLINT(cppcoreguidelines-pro-type-vararg): perf_event_open has no libc wrapper
       if (counter < 0) {
         for (const int open : gDramCounters) {
           close(open);

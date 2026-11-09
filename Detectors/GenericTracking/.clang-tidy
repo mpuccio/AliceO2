@@ -1,0 +1,137 @@
+---
+# GenericTracking: a generic, GPU-capable CA track finder.
+#
+# Three properties of this code shape the disabled list below.
+#
+#  1. Parts of it compile as device code.  std::array, std::span, exceptions
+#     and RTTI are unavailable there, so the checks that push C arrays and
+#     pointer arithmetic towards those replacements are actively wrong.
+#
+#  2. It is detector software.  Short identifiers are the domain's notation --
+#     x, y, z, r, phi, eta, pt, bz -- and spelling them out makes formulas
+#     harder to check, not easier.
+#
+#  3. It interoperates with ROOT and O2.  Generated dictionary code and
+#     macro expansions are not ours to fix.
+
+Checks:
+  - -*
+  - bugprone-*
+  - performance-*
+  - modernize-*
+  - portability-*
+  - cppcoreguidelines-*
+  - misc-*
+  - readability-*
+  - clang-analyzer-*
+
+  # -- device code cannot use the recommended replacements ------------------
+  - -cppcoreguidelines-avoid-c-arrays        # GPUd() paths take raw pointers
+  - -modernize-avoid-c-arrays                #   and fixed C arrays by design
+  - -cppcoreguidelines-pro-bounds-pointer-arithmetic
+  - -cppcoreguidelines-pro-bounds-constant-array-index
+  - -cppcoreguidelines-pro-bounds-array-to-pointer-decay
+  - -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access  # Eigen v[i]
+  - -cppcoreguidelines-init-variables        # T x{} is already value-initialised
+
+  # -- the domain's notation ------------------------------------------------
+  - -readability-identifier-length           # r, z, phi, pt, bz are the names
+  - -bugprone-easily-swappable-parameters    # (x, y, z) is the whole API
+  - -readability-math-missing-parentheses    # transcribed formulas stay flat
+  # Geometry is arithmetic.  The offending literals are rotation-matrix element
+  # indices (rot[5]), the 2 in "twice the half-width" and the 0.5 in "half the
+  # span"; a named constant for any of them obscures the formula it appears in.
+  - -cppcoreguidelines-avoid-magic-numbers
+  - -readability-magic-numbers
+
+  # -- POD data model -------------------------------------------------------
+  # Sensor, Layer, Digit, Cluster and the SoA views are deliberately public
+  # aggregates: they are uploaded to the device as-is, so an accessor layer
+  # would be a lie about their layout.
+  - -misc-non-private-member-variables-in-classes
+  - -cppcoreguidelines-non-private-member-variables-in-classes
+  - -cppcoreguidelines-pro-type-member-init  # aggregate init at the use site
+  # Small index enums -- kLoc0..kQOverP, kFree/kShared/kExclusive, the reports'
+  # kinds ending in a count -- stay unscoped with a fixed underlying type: they
+  # index arrays and size them without a cast (BoundIndex, Definitions.h).
+  - -cppcoreguidelines-use-enum-class
+
+  # -- ROOT and Boost own memory their own way ------------------------------
+  # ROOT's object model is `new` handing ownership to a manager singleton:
+  # gGeoManager owns every TGeoMaterial, TGeoVolume and TGeoMatrix created
+  # under it, and deleting one ourselves is a crash.  There is no owner<> to
+  # be had, so the check has nothing correct to suggest.
+  - -cppcoreguidelines-owning-memory
+  - -cppcoreguidelines-no-malloc
+  # Fires inside Boost.ProgramOptions' own headers, on instantiations our TU
+  # triggers rather than on anything we wrote.  HeaderFilterRegex cannot
+  # suppress it because the diagnostic is attributed to our source file.
+  - -portability-template-virtual-member-function
+
+  # -- style choices --------------------------------------------------------
+  - -modernize-use-trailing-return-type
+  # A multi-way choice of a label or a kind reads best as one chained
+  # conditional: `a ? x : b ? y : z`.
+  - -readability-avoid-nested-conditional-operator
+
+  # -- untrue of a Boost.Test suite -----------------------------------------
+  # Every BOOST_TEST expands to branches, so a test case that checks a dozen
+  # properties in a loop scores as deeply nested code that nobody wrote.
+  - -readability-function-cognitive-complexity
+  # BOOST_AUTO_TEST_CASE expands to a static function; the check fires on the
+  # macro expansion, so there is nothing at the call site to fix.
+  - -misc-use-anonymous-namespace
+  # Fixed seeds are the point -- digitiser noise and MC closure tests are only
+  # meaningful if the sequence reproduces.
+  - -bugprone-random-generator-seed
+
+  # -- IWYU enforcement, deliberately off -----------------------------------
+  # misc-include-cleaner cannot see through O2's GPUCommon* include structure
+  # and would demand every TU name the header behind each type rather than the
+  # one it actually uses.  Too much churn for the benefit.
+  - -misc-include-cleaner
+
+WarningsAsErrors: '*'
+
+HeaderFilterRegex: 'GenericTracking/.*\.(h|cuh)$'
+
+CheckOptions:
+  # Naming follows O2's conventions.
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.EnumConstantIgnoredRegexp: '^k[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.ConceptCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.TemplateParameterCase: CamelCase
+  readability-identifier-naming.TypeTemplateParameterCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.NamespaceCase: lower_case
+  # O2 spells non-public members mFoo; the POD aggregates keep plain camelBack
+  # public names because they are part of the wire format.
+  readability-identifier-naming.PrivateMemberCase: CamelCase
+  readability-identifier-naming.PrivateMemberPrefix: m
+  readability-identifier-naming.ProtectedMemberCase: CamelCase
+  readability-identifier-naming.ProtectedMemberPrefix: m
+  readability-identifier-naming.PublicMemberCase: camelBack
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.MacroDefinitionIgnoredRegexp: '^[A-Z][A-Z0-9_]*_?$'
+  readability-identifier-naming.ConstexprVariableCase: camelBack
+  readability-identifier-naming.ConstexprVariableIgnoredRegexp: '^k[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.GlobalConstantCase: camelBack
+  readability-identifier-naming.GlobalConstantIgnoredRegexp: '^k[A-Z][a-zA-Z0-9]*$'
+  # BOOST_AUTO_TEST_CASE(SomeName) expands its argument into a function name;
+  # the diagnostic points into the macro, so there is no per-case fix.
+  readability-identifier-naming.FunctionIgnoredRegexp: '^[A-Z][A-Za-z0-9]*$'
+
+  misc-include-cleaner.IgnoreHeaders: 'Eigen/.*;GPUCommon.*'
+  # Values and references only: the pointee analysis does not count a pointer
+  # handed out -- returned as void*, stored in an allocation's void* data -- as
+  # a use of the pointee, and asks for const where it cannot compile.
+  misc-const-correctness.WarnPointersAsPointers: false
+  performance-move-const-arg.CheckTriviallyCopyableMove: false
+...

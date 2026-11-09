@@ -102,7 +102,7 @@ template <DetectorLayout Det>
 /// Calls \a body for each particle of the first of \a held's rows that all
 /// the other rows carry, in that first row's label order; whether there was one.
 template <typename Body>
-bool forEachCommonParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> held, Body&& body)
+bool forEachCommonParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> held, const Body& body)
 {
   if (held.empty()) {
     return false;

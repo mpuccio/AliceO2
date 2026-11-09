@@ -217,7 +217,11 @@ template <DetectorLayout Det>
   std::string line = "vertex QA, the missed collisions by findable primaries (collisions, findable; their triplets: none / free / another's):";
   for (std::size_t bin = 0; bin < kLow.size(); ++bin) {
     const auto high = bin + 1U < kLow.size() ? kLow[bin + 1U] : std::numeric_limits<std::uint32_t>::max();
-    std::uint64_t collisions = 0U, findable = 0U, cut = 0U, free = 0U, other = 0U;
+    std::uint64_t collisions = 0U;
+    std::uint64_t findable = 0U;
+    std::uint64_t cut = 0U;
+    std::uint64_t free = 0U;
+    std::uint64_t other = 0U;
     for (const auto& miss : score.missed) {
       if (miss.findable >= kLow[bin] && miss.findable < high) {
         ++collisions;

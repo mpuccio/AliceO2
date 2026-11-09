@@ -301,7 +301,7 @@ void streamOracle(o2::utils::TreeStreamRedirector& output, std::span<const QAOra
 void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMomenta> entries)
 {
   for (const auto& m : entries) {
-    std::vector<float> pAtLayer = m.pAtLayer;
+    const std::vector<float> pAtLayer = m.pAtLayer;
     output << "momenta" << "pdg=" << m.pdg << "origin=" << m.origin << "pt=" << m.pt << "eta=" << m.eta << "p0=" << m.p0 << "found=" << m.found << "lostAt=" << m.lostAt << "pairLoss=" << m.pairLoss << "layers=" << m.layers << "fakeWrong=" << m.fakeWrong << "fakeWrongLayer=" << m.fakeWrongLayer << "pAtLayer=" << pAtLayer << "\n";
   }
 }

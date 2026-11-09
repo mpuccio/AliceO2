@@ -1125,7 +1125,7 @@ class FollowStage
     auto end = FollowEnd::kCapacity;
     // Whether the latest step saw a row near where it took none (the unconfirmed drop, below).
     bool nearMiss = false;
-    [[maybe_unused]] follow::BeamEndHistoryOf<BeamEnd> history;
+    [[maybe_unused]] follow::BeamEndHistoryOf<BeamEnd> history; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     while (branch.count < capacity) {
       const LayerID current = mGeometry->surface(branch.state.surface).layer;
       observe.step(current, branch.state, branch.factors, branch.count);
@@ -1907,7 +1907,7 @@ struct Refit {
   /// cut; then it is written as the track, its added counts grown -- added
   /// to what an earlier follow added: an earlier iteration's track is
   /// followed again with `followEarlier`.
-  GPUhdi() GPUAlwaysInline() bool accept(std::uint32_t track, const ClusterList<kMaxClusters>& list, std::uint8_t n, std::uint8_t outward, std::uint8_t inward) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool accept(std::uint32_t track, const ClusterList<kMaxClusters>& list, std::uint8_t n, std::uint8_t outward, std::uint8_t inward) const
   {
     const auto fit = fitMeasurements<Rule>(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit)) {
@@ -2101,7 +2101,7 @@ struct Inputs {
 /// none of its own for the earlier iterations' tracks (`Follow::run`).
 template <typename ForEach>
 struct HostLaunch {
-  ForEach& forEach;
+  ForEach* forEach;
   bool earlier = false;
 
   [[nodiscard]] profile::Phase phase(profile::Phase own) const { return earlier ? profile::Phase::kNone : own; }
@@ -2110,7 +2110,7 @@ struct HostLaunch {
   void pass(profile::Phase own, std::uint32_t count, const Body& body) const
   {
     const profile::Zone zone{phase(own)};
-    forEach(count, body);
+    (*forEach)(count, body);
   }
 
   template <typename Stage>
@@ -2123,7 +2123,7 @@ struct HostLaunch {
   void clearBids(std::uint32_t* bids, std::size_t rows) const
   {
     const profile::Zone zone{phase(profile::Phase::kFollowPropose)};
-    forEach(static_cast<std::uint32_t>(rows), [bids](std::uint32_t row) { bids[row] = 0U; });
+    (*forEach)(static_cast<std::uint32_t>(rows), [bids](std::uint32_t row) { bids[row] = 0U; });
   }
 };
 
@@ -2257,30 +2257,30 @@ class Follow
           resizeBoundedVector(mEndStarts, elements, mMemoryPool.get());
         }
       }
-      follow::runSequence(follow::HostLaunch<ForEach>{.forEach = forEach, .earlier = earlier}, follow::Inputs<Det, Material>{
-                                                                                                 .parameters = &parameters,
-                                                                                                 .choices = &parameters,
-                                                                                                 .frame = &frame,
-                                                                                                 .geometry = &geometry,
-                                                                                                 .material = &material,
-                                                                                                 .propagator = propagator,
-                                                                                                 .tracks = tracks.view(),
-                                                                                                 .constTracks = static_cast<const Tracks&>(tracks).view(),
-                                                                                                 .trackOffset = trackOffset,
-                                                                                                 .trackCount = trackCount,
-                                                                                                 .inward = inward,
-                                                                                                 .earlier = earlier,
-                                                                                                 .used = used.data(),
-                                                                                                 .rowCount = used.size(),
-                                                                                                 .maxCandidateWidthPS = maxCandidateWidthPS.data(),
-                                                                                                 .cells = cells,
-                                                                                                 .proposals = mProposals.data(),
-                                                                                                 .bids = mBids.data(),
-                                                                                                 .rows = mRows.data(),
-                                                                                                 .counts = mCounts.data(),
-                                                                                                 .steps = mKinkSteps.empty() ? nullptr : mKinkSteps.data(),
-                                                                                                 .endStarts = end ? mEndStarts.data() : nullptr,
-                                                                                               });
+      follow::runSequence(follow::HostLaunch<ForEach>{.forEach = &forEach, .earlier = earlier}, follow::Inputs<Det, Material>{
+                                                                                                  .parameters = &parameters,
+                                                                                                  .choices = &parameters,
+                                                                                                  .frame = &frame,
+                                                                                                  .geometry = &geometry,
+                                                                                                  .material = &material,
+                                                                                                  .propagator = propagator,
+                                                                                                  .tracks = tracks.view(),
+                                                                                                  .constTracks = static_cast<const Tracks&>(tracks).view(),
+                                                                                                  .trackOffset = trackOffset,
+                                                                                                  .trackCount = trackCount,
+                                                                                                  .inward = inward,
+                                                                                                  .earlier = earlier,
+                                                                                                  .used = used.data(),
+                                                                                                  .rowCount = used.size(),
+                                                                                                  .maxCandidateWidthPS = maxCandidateWidthPS.data(),
+                                                                                                  .cells = cells,
+                                                                                                  .proposals = mProposals.data(),
+                                                                                                  .bids = mBids.data(),
+                                                                                                  .rows = mRows.data(),
+                                                                                                  .counts = mCounts.data(),
+                                                                                                  .steps = mKinkSteps.empty() ? nullptr : mKinkSteps.data(),
+                                                                                                  .endStarts = end ? mEndStarts.data() : nullptr,
+                                                                                                });
       return StageStatus::kComplete;
     });
   }

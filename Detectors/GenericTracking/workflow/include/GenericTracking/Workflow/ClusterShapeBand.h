@@ -65,7 +65,7 @@ struct ClusterShapeBand {
     if (colSpan == 0U || layer >= maxRows.size() || maxRows[layer] == 0) {
       return kEvery;
     }
-    if (rowSpan > maxRows[layer]) {
+    if (std::cmp_greater(rowSpan, maxRows[layer])) {
       return kNone;
     }
     const auto at = (layer * kSpans) + colSpan;

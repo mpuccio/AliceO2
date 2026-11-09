@@ -394,7 +394,7 @@ std::vector<Options> configurations()
 
 BOOST_AUTO_TEST_CASE(EverySliceAndIterationMatchesTheHostTracker)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   BOOST_TEST(tracker->arenaBytes() == kArenaBytes);
   for (const auto& options : configurations()) {
@@ -422,7 +422,7 @@ BOOST_AUTO_TEST_CASE(EverySliceAndIterationMatchesTheHostTracker)
 /// chunks' outputs assembled; the slices are the host's as before.
 BOOST_AUTO_TEST_CASE(ChunkedFlatRunsMatchTheHostTracker)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   tracker->setFlatChunkPairs(16U);
   for (const auto& options : configurations()) {
@@ -442,7 +442,7 @@ BOOST_AUTO_TEST_CASE(ChunkedFlatRunsMatchTheHostTracker)
 /// exact size and keeps it; the outputs do not change.
 BOOST_AUTO_TEST_CASE(MispredictedStagingGivesTheSameSlices)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   tracker->setStagingCapacity(1U);
   const auto totals = compare(*tracker, {.width = 1000});
@@ -465,7 +465,7 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
   const UniformMaterial none{};
   host.setTrackModel(trackingGeometry(), none, Propagator{});
   const auto plan = host.planTimeframe(*fixture.frame, {}, 1000, 0.);
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   configure(*tracker, host);
   tracker->setStagingCapacity(16U);
@@ -491,7 +491,7 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
 /// trackTimeframe alone, with no observer driving it: the host's tracks.
 BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   const auto vertexList = trackVertices();
   const auto pool = std::make_shared<BoundedMemoryResource>();
@@ -704,7 +704,7 @@ IterationSettings passSettings()
 /// the device's list the host's.
 BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   auto hits = collisionHits();
   for (const double pt : {0.8, 1.1}) {
@@ -755,7 +755,7 @@ BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
 /// refused.
 BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   const Fixture fixture{collisionHits(), kCollisionDurationNS};
   const std::array<double, kLayers> material{};
@@ -826,7 +826,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
 
 BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
 {
-  auto device = runtime();
+  auto* device = runtime();
   const Fixture fixture{hitsWithLonelyRows(), kDurationNS};
   const auto host = makeHost({});
   const auto parameters = parametersOf(*host);

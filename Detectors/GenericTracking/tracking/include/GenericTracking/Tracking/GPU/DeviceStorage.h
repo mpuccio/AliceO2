@@ -387,7 +387,7 @@ class DeviceColumnChunks
 /// anything else uses.
 template <typename T>
 struct PageAllocator {
-  using value_type = T;
+  using value_type = T; // NOLINT(readability-identifier-naming): the allocator requirements' name
   PageAllocator() = default;
   template <typename U>
   explicit PageAllocator(const PageAllocator<U>& /*other*/) noexcept

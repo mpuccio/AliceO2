@@ -42,7 +42,7 @@ namespace o2::gtrk::study
 /// Load the field of the run's GRPMagField (`GLO/Config/GRPMagField` from the
 /// CCDB) into o2::base::Propagator, as a workflow's GRPGeomHelper would.
 /// Returns the nominal Bz.
-double loadField(const std::string& url)
+static double loadField(const std::string& url)
 {
   const auto* grp = o2::ccdb::BasicCCDBManager::instance().get<o2::parameters::GRPMagField>("GLO/Config/GRPMagField");
   if (grp == nullptr) {
@@ -52,7 +52,7 @@ double loadField(const std::string& url)
   return workflow::nominalBzKiloGauss();
 }
 
-int run(int argc, char** argv)
+static int run(int argc, char** argv)
 {
   Options options;
   bpo::options_description description("Track a dumped tracking input");

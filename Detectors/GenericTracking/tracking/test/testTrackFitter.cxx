@@ -682,7 +682,8 @@ BOOST_AUTO_TEST_CASE(PerigeePhiIsTheDirectionAtTheTransverseClosestApproach)
   // The closest approach by search: the smallest transverse radius on a
   // coarse scan, refined by ternary search.
   double best = 0.;
-  for (double path = -100.; path <= 100.; path += 0.1) {
+  for (int step = -1000; step <= 1000; ++step) {
+    const double path = 0.1 * step;
     if (transverseRadius2At(chain.propagator, state, surface, path) < transverseRadius2At(chain.propagator, state, surface, best)) {
       best = path;
     }

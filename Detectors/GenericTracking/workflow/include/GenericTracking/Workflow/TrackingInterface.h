@@ -70,6 +70,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -412,7 +413,13 @@ class TrackingInterface
   [[nodiscard]] const Material& material() const { return *mMaterial; }
   [[nodiscard]] const ScatteringTable<Det>& scattering() const { return mScattering; }
   [[nodiscard]] const BeamLine& beamLine() const { return mBeamLine; }
-  [[nodiscard]] const GridGeometry<Det>& grid() const { return *mGrid; }
+  [[nodiscard]] const GridGeometry<Det>& grid() const
+  {
+    if (!mGrid) {
+      throw std::logic_error("GenericTracking: the grid is asked for before the producer shipped it");
+    }
+    return *mGrid;
+  }
   [[nodiscard]] const std::vector<FrameTiming>& frames() const { return mFrames; }
   /// The tracker's first iteration's source, and its sources as the log lines name them.
   [[nodiscard]] VertexSource trackerSource() const { return mTrackerSource; }

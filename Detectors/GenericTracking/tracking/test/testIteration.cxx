@@ -27,7 +27,6 @@
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 
-#include "GridTestSupport.h"
 #include "UniformMaterial.h"
 
 #include <algorithm>

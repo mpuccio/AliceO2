@@ -134,7 +134,7 @@ struct PointVariances {
 };
 
 struct NoLocalMeasurement {
-  void operator()(std::size_t, std::uint32_t) const {}
+  void operator()(std::size_t /*input*/, std::uint32_t /*row*/) const {}
 };
 
 /// Build a frame in caller-owned columns and offsets. Logical input indices

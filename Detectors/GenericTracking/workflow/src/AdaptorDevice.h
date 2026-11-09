@@ -101,7 +101,7 @@ struct ClusterFrames {
     const auto& ir = rofs[r].getBCData();
     result.recordBC.push_back((static_cast<std::int64_t>(ir.orbit - tfFirstOrbit) * o2::constants::lhc::LHCMaxBunches) + ir.bc);
     for (int i = 0; i < rofs[r].getNEntries(); ++i) {
-      result.record[static_cast<std::size_t>(rofs[r].getFirstEntry() + i)] = static_cast<std::uint32_t>(r);
+      result.record[static_cast<std::size_t>(rofs[r].getFirstEntry()) + static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(r);
     }
   }
   return result;
@@ -299,7 +299,7 @@ class AdaptorTask : public o2::framework::Task
     };
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
-    std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U);
+    std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U); // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (const auto track : fitted) {
       auto& uses = innermost[clusterIndex[records[track].clusters.index[0]]];
       uses = static_cast<std::uint8_t>(std::min(uses + 1, 2));
@@ -317,7 +317,7 @@ class AdaptorTask : public o2::framework::Task
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
     for (const auto track : fitted) {
       const auto& record = records[track];
-      const auto geometry = o2::its::GeometryTGeo::Instance();
+      auto* const geometry = o2::its::GeometryTGeo::Instance();
       const double sensorAlpha = geometry->getSensorRefAlpha(static_cast<int>(record.state.surface));
       const double alpha = frameAlpha(record.state, sensorAlpha);
       turned += std::cos(static_cast<double>(record.state.phi()) - sensorAlpha) < 0. ? 1U : 0U;
@@ -416,7 +416,7 @@ class AdaptorTask : public o2::framework::Task
       auto& irFrame = irFrames.emplace_back(trackROFs[i].getBCData(), trackROFs[i].getBCData() + (length - 1));
       irFrame.info = static_cast<std::uint64_t>(trackROFs[i].getNEntries());
     }
-    std::fill(entries.begin(), entries.end(), 0);
+    std::ranges::fill(entries, 0);
     for (const auto& vertex : vertices) {
       ++entries[static_cast<std::size_t>(vertexFrame(vertex))];
     }

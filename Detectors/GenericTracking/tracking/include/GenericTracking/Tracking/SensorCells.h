@@ -71,7 +71,7 @@ struct SensorCellsView {
   /// true; whether one did. A sensor listed in several of those cells is
   /// visited once per cell.
   template <typename Visit>
-  GPUhdi() GPUAlwaysInline() bool anySensor(LayerID layer, Scalar phi, Scalar phiReach, Scalar second, Scalar secondReach, const Visit& visit) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool anySensor(LayerID layer, Scalar phi, Scalar phiReach, Scalar second, Scalar secondReach, const Visit& visit) const
   {
     using Math = o2::gpu::CAMath;
     const auto& cells = layers[layer];

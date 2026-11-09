@@ -29,12 +29,22 @@
 namespace o2::gtrk
 {
 
-DeviceContext::DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes)
+namespace
+{
+/// The backend's name as GPUReconstruction::CreateInstance spells it.
+std::string upperCase(std::string_view backend)
 {
   std::string type{backend};
   std::ranges::transform(type, type.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-  mOwned.reset(o2::gpu::GPUReconstruction::CreateInstance(type.c_str(), true));
-  mReconstruction = mOwned.get();
+  return type;
+}
+} // namespace
+
+DeviceContext::DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes)
+  : mOwned(o2::gpu::GPUReconstruction::CreateInstance(upperCase(backend).c_str(), true)),
+    mReconstruction(mOwned.get())
+{
+  const std::string type = upperCase(backend);
   if (mReconstruction == nullptr) {
     throw std::runtime_error(std::format("GPU backend {}: no GPU reconstruction", type));
   }
@@ -42,7 +52,7 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
   for (const auto bytes : blockBytes) {
     static_cast<void>(mChain->AddBlock(bytes));
   }
-  o2::gpu::GPUSettingsGRP grp;
+  const o2::gpu::GPUSettingsGRP grp;
   o2::gpu::GPUSettingsProcessing processing;
   processing.deviceNum = device;
   // The pool is the blocks the chain reports, and the pinned host pool what

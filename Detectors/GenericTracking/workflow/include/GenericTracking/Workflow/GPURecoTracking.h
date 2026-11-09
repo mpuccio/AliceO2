@@ -47,6 +47,11 @@ namespace o2::gtrk::workflow
 class GPURecoTracking
 {
  public:
+  GPURecoTracking() = default;
+  GPURecoTracking(const GPURecoTracking&) = delete;
+  GPURecoTracking(GPURecoTracking&&) = delete;
+  GPURecoTracking& operator=(const GPURecoTracking&) = delete;
+  GPURecoTracking& operator=(GPURecoTracking&&) = delete;
   virtual ~GPURecoTracking() = default;
 
   /// The detector's inputs, appended to \a inputs: the measurements and the

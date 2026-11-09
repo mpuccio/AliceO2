@@ -27,6 +27,8 @@ namespace o2::gtrk::study
 /// The smearing of the MC vertex list (the MC vertex reader, which the study
 /// workflow adds with `--mc-vertices`). The published variances are these values squared; its
 /// time is the collision's, a box of width 0. The fixed seed makes the resulting vertex lists reproducible.
+// O2ParamDef deletes the copy constructor and supplies the rest of the boilerplate.
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct MCVertexParam : public o2::conf::ConfigurableParamHelper<MCVertexParam> {
   double sigmaZ = 0.01;           ///< [cm]
   double sigmaTransverse = 0.002; ///< [cm], independently in x and y

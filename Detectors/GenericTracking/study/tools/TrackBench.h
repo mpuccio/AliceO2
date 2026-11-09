@@ -1439,7 +1439,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (ecs == nullptr) {
       throw std::runtime_error("no GLO/Config/GRPECS at " + options.ccdbUrl);
     }
-    orbitsPerTimeframe = ecs->getNHBFPerTF();
+    orbitsPerTimeframe = static_cast<int>(ecs->getNHBFPerTF());
   }
   // The grid this build derives from the dump's parameters and the trial's
   // keys below; the rows are rebinned into it unless they already are.

@@ -29,7 +29,7 @@ DeviceArena::DeviceArena(DeviceRuntime& runtime, DeviceBlock block) : mRuntime(&
   }
 }
 
-DeviceAllocation DeviceArena::refuse(std::size_t bytes, ArenaEnd end) { return {.data = nullptr, .bytes = bytes, .tag = currentTag(end)}; }
+DeviceAllocation DeviceArena::refuse(std::size_t bytes, ArenaEnd end) const { return {.data = nullptr, .bytes = bytes, .tag = currentTag(end)}; }
 
 DeviceAllocation DeviceArena::allocate(std::size_t bytes, std::size_t alignment, ArenaEnd end)
 {

@@ -717,7 +717,7 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
       stage.follow(view.state[0], view.outwardState[0], view.clusters[0], view.count[0], proposals[0], kinks[0], observer);
       const auto outcome = outcomeOf(seen, fixture.row(movedLayer));
       BOOST_REQUIRE(outcome.has_value());
-      if (*outcome == StepOutcome::kChi2) {
+      if (*outcome == StepOutcome::kChi2) { // NOLINT(bugprone-unchecked-optional-access): BOOST_REQUIRE checks it
         gatedSeen = true;
         if (inwardCase) {
           BOOST_TEST(proposals[0].inwardCount == 1U);

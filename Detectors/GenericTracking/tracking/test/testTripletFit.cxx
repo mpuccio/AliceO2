@@ -35,8 +35,6 @@ namespace o2::gtrk
 namespace
 {
 
-using detectors::ToyBarrel4Disc8;
-
 constexpr std::size_t kCoordinates = 9U;
 
 // The reference below is ITS's makeTripletFitFactor geometry, kept in its

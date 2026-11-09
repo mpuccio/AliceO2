@@ -130,7 +130,7 @@ class DeviceArena
     std::uint64_t serial = 0;
   };
 
-  [[nodiscard]] DeviceAllocation refuse(std::size_t bytes, ArenaEnd end);
+  [[nodiscard]] DeviceAllocation refuse(std::size_t bytes, ArenaEnd end) const;
   void closeScope(ArenaEnd end, std::size_t depth, std::uint64_t serial, bool commit) noexcept;
 
   DeviceRuntime* mRuntime = nullptr;

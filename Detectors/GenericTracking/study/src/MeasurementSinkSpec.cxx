@@ -3106,7 +3106,7 @@ class MeasurementSinkTask : public Task
         truePairs = mcTruePairs(frame, comparisonRows, mcOf, mInterface.geometry(), param, mInterface.propagator().bzKiloGauss);
         LOGP(info, "  MC-true primary pairs  {}", truePairs.size());
       }
-      if (pass) {
+      if (pass != nullptr) {
         const auto score = scoreVertices<Det>(comparisonRows, comparisonParticles, pass->claims, pass->found);
         LOGP(info, "{}", describe(score));
         LOGP(info, "{}", describePulls(score));
@@ -3248,7 +3248,7 @@ class MeasurementSinkTask : public Task
   /// --tracker-digests: the tracking device's products of this timeframe
   /// (TrackerSpec.h) on \a frame, digested as the bench digests a device's
   /// tracks and its vertexer's list. One line per timeframe.
-  void logTrackerDigests(ProcessingContext& pc, const Frame& frame)
+  static void logTrackerDigests(ProcessingContext& pc, const Frame& frame)
   {
     using Record = workflow::TrackRecord<Det>;
     const auto records = pc.inputs().get<gsl::span<Record>>("deviceTracks");
@@ -3264,7 +3264,7 @@ class MeasurementSinkTask : public Task
   /// \a found (none without it): every record field by field, failed refits
   /// included, every vertex and contributor count. One line per timeframe;
   /// the run fails on the first difference.
-  void compareWithDevice(ProcessingContext& pc, const typename TrackRefit<Det>::Tracks& tracks, const VertexerResult* found)
+  static void compareWithDevice(ProcessingContext& pc, const typename TrackRefit<Det>::Tracks& tracks, const VertexerResult* found)
   {
     using Record = workflow::TrackRecord<Det>;
     const auto theirs = pc.inputs().get<gsl::span<Record>>("deviceTracks");
@@ -4225,8 +4225,8 @@ class MeasurementSinkTask : public Task
         std::array<double, 5> residual{};
         std::array<double, 5> sigma{};
         for (std::size_t i = 0; i < 5U; ++i) {
-          residual[i] = static_cast<double>(state.getParam(i)) - truth[i];
-          sigma[i] = std::sqrt(std::max(static_cast<double>(state.getDiagError2(i)), 0.));
+          residual[i] = static_cast<double>(state.getParam(static_cast<int>(i))) - truth[i];
+          sigma[i] = std::sqrt(std::max(static_cast<double>(state.getDiagError2(static_cast<int>(i))), 0.));
         }
         o2.add(pt, residual, sigma);
         o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});

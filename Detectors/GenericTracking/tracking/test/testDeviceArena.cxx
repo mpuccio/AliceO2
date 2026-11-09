@@ -164,10 +164,10 @@ BOOST_AUTO_TEST_CASE(TheScratchEndIsIndependentOfTheBase)
   Host host;
   constexpr std::size_t kCapacity = 4096U;
   DeviceArena arena{host.runtime, host.block(kCapacity)};
-  DeviceSpan<std::uint8_t> kept;
+  DeviceSpan<std::byte> kept;
   BOOST_REQUIRE(kept.allocate(arena, 1000U));
   // The first allocation sits at the arena's base (the block is 256-aligned).
-  const auto* origin = reinterpret_cast<const std::byte*>(kept.data());
+  const std::byte* origin = kept.data();
   BOOST_TEST(arena.used(ArenaEnd::kBase) == 1000U);
   BOOST_TEST(arena.used(ArenaEnd::kScratch) == 0U);
 

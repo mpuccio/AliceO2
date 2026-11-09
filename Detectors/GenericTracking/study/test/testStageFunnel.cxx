@@ -42,6 +42,7 @@ std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<double> floors;
+  floors.reserve(settings.size());
   for (const auto& setting : settings) {
     floors.push_back(setting.windows.minPtGeV);
   }
@@ -144,6 +145,7 @@ BOOST_AUTO_TEST_CASE(APairCountsAsLostOnlyIfNoIterationKeptIt)
   const auto two = funnel->particleVerdict(2);
   const auto three = funnel->particleVerdict(3);
   BOOST_REQUIRE((one.has_value() && two.has_value() && three.has_value()));
+  // NOLINTBEGIN(bugprone-unchecked-optional-access): BOOST_REQUIRE checks them, which the check does not model
   // Kept by iteration 0: iteration 1's "used" does not count.
   BOOST_TEST(!one->pairLoss.has_value());
   BOOST_TEST((one->lostAt == FunnelStage::kSelection)); // as if not found: every stage reached
@@ -151,6 +153,7 @@ BOOST_AUTO_TEST_CASE(APairCountsAsLostOnlyIfNoIterationKeptIt)
   BOOST_TEST(!two->pairLoss.has_value());
   BOOST_REQUIRE(three->pairLoss.has_value());
   BOOST_TEST((*three->pairLoss == PairLoss::kTime));
+  // NOLINTEND(bugprone-unchecked-optional-access)
   BOOST_TEST(!funnel->particleVerdict(4).has_value());
 }
 
@@ -178,10 +181,12 @@ BOOST_AUTO_TEST_CASE(AChainRaisedFromBelowIsLostAtTheRoads)
 
   const auto verdict = funnel->particleVerdict(1);
   BOOST_REQUIRE(verdict.has_value());
+  // NOLINTBEGIN(bugprone-unchecked-optional-access): BOOST_REQUIRE checks them, which the check does not model
   BOOST_TEST((verdict->lostAt == FunnelStage::kRoads));
   BOOST_REQUIRE(verdict->roadLoss.has_value());
   BOOST_TEST((*verdict->roadLoss == RoadLoss::kRaisedBelow));
   BOOST_TEST(!verdict->raisedFit.has_value()); // no road fit set: nothing fitted
+  // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 } // namespace o2::gtrk::study

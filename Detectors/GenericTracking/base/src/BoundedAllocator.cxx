@@ -11,7 +11,6 @@
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 
-#include <cstdio>
 #include <format>
 
 #include "GPUCommonLogger.h"
@@ -25,13 +24,11 @@ constexpr double kGigabyte = 1024. * 1024. * 1024.;
 
 BoundedMemoryResource::MemoryLimitExceeded::MemoryLimitExceeded(size_t attempted, size_t used, size_t max)
 {
-  char buf[256];
   if (attempted != 0) {
-    (void)snprintf(buf, sizeof(buf), "Reached set memory limit (attempted: %zu, used: %zu, max: %zu)", attempted, used, max);
+    mMsg = std::format("Reached set memory limit (attempted: {}, used: {}, max: {})", attempted, used, max);
   } else {
-    (void)snprintf(buf, sizeof(buf), "New set maximum below current used (newMax: %zu, used: %zu)", max, used);
+    mMsg = std::format("New set maximum below current used (newMax: {}, used: {})", max, used);
   }
-  mMsg = buf;
 }
 
 const char* BoundedMemoryResource::MemoryLimitExceeded::what() const noexcept { return mMsg.c_str(); }

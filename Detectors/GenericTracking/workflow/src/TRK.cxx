@@ -322,7 +322,7 @@ DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(bool useMC)
   if (useMC) {
     outputs.emplace_back(gDataOrigin, description<detectors::TRKFT3>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
-  TrkDictionaryConditions dictionaries(inputs);
+  const TrkDictionaryConditions dictionaries(inputs);
   return DataProcessorSpec{
     .name = deviceName<detectors::TRKFT3>("cluster-converter"),
     .inputs = inputs,

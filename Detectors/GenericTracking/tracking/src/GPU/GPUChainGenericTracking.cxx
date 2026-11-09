@@ -30,7 +30,10 @@ GPUChainGenericTracking::GPUChainGenericTracking(o2::gpu::GPUReconstruction* rec
 
 GPUChainGenericTracking::~GPUChainGenericTracking() = default;
 
-void* GPUChainGenericTracking::BlockProcessor::SetPointersBlock(void* mem) { return static_cast<char*>(mem) + mBytes; }
+void* GPUChainGenericTracking::BlockProcessor::SetPointersBlock(void* mem) // NOLINT(readability-make-member-function-const): GPUReconstruction's SetPointers callback type
+{
+  return static_cast<char*>(mem) + mBytes;
+}
 
 size_t GPUChainGenericTracking::AddBlock(size_t bytes)
 {

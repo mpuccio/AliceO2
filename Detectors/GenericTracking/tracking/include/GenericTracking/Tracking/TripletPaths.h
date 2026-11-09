@@ -101,7 +101,7 @@ class TripletPaths
       forEachOfGroup(group, [&](Index /*element*/, Index first, Index second) {
         // A host loop: O2's AtomicMax is device code in a GPU unit.
         const auto length = static_cast<std::uint8_t>(mPrefix[first] + 1U);
-        std::atomic_ref<std::uint8_t> prefix{mPrefix[second]};
+        const std::atomic_ref<std::uint8_t> prefix{mPrefix[second]};
         auto current = prefix.load(std::memory_order_relaxed);
         while (current < length && !prefix.compare_exchange_weak(current, length, std::memory_order_relaxed)) {
         }

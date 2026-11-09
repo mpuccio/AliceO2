@@ -49,7 +49,7 @@ struct SurfaceBounds {
   Scalar halfY = 0.F; ///< half length along loc1
 
   /// Written so that a NaN coordinate is outside.
-  GPUhdi() GPUAlwaysInline() bool isInside(Scalar loc0, Scalar loc1) const { return loc1 >= -halfY && loc1 <= halfY && loc0 >= -halfX && loc0 <= halfX; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool isInside(Scalar loc0, Scalar loc1) const { return loc1 >= -halfY && loc1 <= halfY && loc0 >= -halfX && loc0 <= halfX; }
 };
 
 /// One sensor plane.

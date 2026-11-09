@@ -79,7 +79,7 @@ std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, K
 /// canonical sample output, record for record.
 BOOST_AUTO_TEST_CASE(TheSampleGivesTheCanonicalOutput)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto run = onDevice(*device, arena, Kind::kSample, 0U, 5U);
   BOOST_REQUIRE((run->status == StageStatus::kComplete));
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(TheSampleGivesTheCanonicalOutput)
 /// the counts are the serial loop's, for each kind of element count.
 BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   for (const Kind kind : {Kind::kSample, Kind::kUneven, Kind::kIrregular}) {
     for (const std::uint32_t divisor : {0U, 2U, 3U}) {
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
 /// the chunks' outputs concatenate into the one-chunk run's.
 BOOST_AUTO_TEST_CASE(ChunksConcatenate)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   constexpr std::uint32_t kElements = 2000U;
   const auto reference = serial(Kind::kIrregular, 3U, kElements);
@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(ChunksConcatenate)
 /// the output is the full run's: the rest's counts are 0.
 BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   constexpr std::uint32_t kElements = 2000U;
   for (const Kind kind : {Kind::kUneven, Kind::kIrregular}) {
@@ -160,7 +160,7 @@ BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
 /// run reports the overflow the serial reference reports.
 BOOST_AUTO_TEST_CASE(AnOversizedElementIsCountedNotNumbered)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   constexpr std::uint32_t kElements = 4U;
   const auto reference = serial(Kind::kOverflow, 3U, kElements);
@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(AnOversizedElementIsCountedNotNumbered)
 /// No elements, and elements with no candidates: a complete, empty output.
 BOOST_AUTO_TEST_CASE(EmptyRunsComplete)
 {
-  auto device = runtime();
+  auto* device = runtime();
   DeviceArena arena{*device, block(kArenaBytes)};
   const auto none = onDevice(*device, arena, Kind::kIrregular, 3U, 0U);
   BOOST_REQUIRE((none->status == StageStatus::kComplete));

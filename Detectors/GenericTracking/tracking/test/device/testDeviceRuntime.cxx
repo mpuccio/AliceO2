@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
   }
   const auto count = static_cast<std::uint32_t>(ys.size());
 
-  auto device = runtime();
+  auto* device = runtime();
   auto stream = device->createStream();
   DeviceArena arena{*device, block((std::size_t{count} * ((2U * sizeof(double)) + sizeof(TrigRow))) + 4096U)};
   DeviceSpan<double> deviceYs;

@@ -40,18 +40,18 @@ struct BoundTrackState {
   SensorID surface = kInvalidSensorID; ///< the sensor these parameters are bound to
   Scalar surfacePhi = 0.F;             ///< a curved sensor's tangent plane: its angle in the sensor [rad]
 
-  GPUhdi() GPUAlwaysInline() Scalar loc0() const { return par[kLoc0]; }
-  GPUhdi() GPUAlwaysInline() Scalar loc1() const { return par[kLoc1]; }
-  GPUhdi() GPUAlwaysInline() Scalar phi() const { return par[kPhi]; }
-  GPUhdi() GPUAlwaysInline() Scalar theta() const { return par[kTheta]; }
-  GPUhdi() GPUAlwaysInline() Scalar qOverP() const { return par[kQOverP]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar loc0() const { return par[kLoc0]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar loc1() const { return par[kLoc1]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar phi() const { return par[kPhi]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar theta() const { return par[kTheta]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar qOverP() const { return par[kQOverP]; }
 
   /// Covariance element (i, j).  Symmetric, so the caller never has to order
   /// the indices.
-  GPUhdi() GPUAlwaysInline() Scalar covAt(int i, int j) const { return cov[covIndex(i, j)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar covAt(int i, int j) const { return cov[covIndex(i, j)]; }
   GPUhdi() GPUAlwaysInline() Scalar& covAt(int i, int j) { return cov[covIndex(i, j)]; }
 
-  GPUhdi() GPUAlwaysInline() Scalar variance(int i) const { return cov[varIndex(i)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar variance(int i) const { return cov[varIndex(i)]; }
   GPUhdi() GPUAlwaysInline() Scalar& variance(int i) { return cov[varIndex(i)]; }
 
   /// Drop the covariances of parameters \a a and \a b with every other

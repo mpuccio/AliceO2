@@ -158,10 +158,10 @@ class Fixture
     }
 
     frame = test::frameOf(
-      geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(10.); },
+      geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t /*i*/) { return test::toyTimeBox(10.); },
       [&](std::size_t i) {
         const auto scale = static_cast<Scalar>(1U + (i % 3U));
-        return test::PointVariances{scale * 1.e-6F, scale * 2.e-6F, scale * 3.e-6F};
+        return test::PointVariances{.z = scale * 1.e-6F, .r = scale * 2.e-6F, .rPhi = scale * 3.e-6F};
       },
       columns, offsets);
   }
@@ -271,7 +271,7 @@ class MixedFixture
       mixedHelixPoint(3, 4.5, 0.25, 2., 60. + time12 + time23),
     }};
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(input[i].timeNS); }, [&](std::size_t i) { return test::PointVariances{9.e-6F, 9.e-6F, 9.e-6F}; }, columns, offsets);
+    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(input[i].timeNS); }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 9.e-6F, .r = 9.e-6F, .rPhi = 9.e-6F}; }, columns, offsets);
   }
 
   [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
@@ -311,7 +311,7 @@ class SliceFixture
       }
     }
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(times[i]); }, [&](std::size_t i) { return test::PointVariances{1.e-6F, 2.e-6F, 3.e-6F}; }, columns, offsets);
+    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(times[i]); }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 1.e-6F, .r = 2.e-6F, .rPhi = 3.e-6F}; }, columns, offsets);
   }
 
   [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (3U * track) + layer; }

@@ -202,13 +202,13 @@ class VertexStudy
   /// primaries by the tracking QA's \a comparison; the vertexer run on them
   /// with \a stage on \a threads, the tables at \a table (the same settings
   /// from the configuration).
-  VertexStudy(const TimeFrame<Det>& frame, std::span<const study::TruthRow> rows, const study::ParticleTable& particles, std::size_t iteration, double passMinPtGeV, const study::ComparisonSettings& comparison, const VertexerSettings& stage, const Settings& table, int threads)
+  VertexStudy(const TimeFrame<Det>& frame, std::span<const study::TruthRow> rows, const study::ParticleTable& particles, std::size_t iteration, double passMinPtGeV, study::ComparisonSettings comparison, const VertexerSettings& stage, const Settings& table, int threads)
     : mFrame(&frame),
       mRows(rows),
       mParticles(&particles),
       mIteration(iteration),
       mPassMinPtGeV(passMinPtGeV),
-      mComparison(comparison),
+      mComparison(std::move(comparison)),
       mStage(stage, VertexConstraint{}),
       mTable(table),
       mStagePool(std::make_unique<BoundedMemoryResource>()),
@@ -624,14 +624,19 @@ class VertexStudy
         chi2 += residual * residual / std::max(static_cast<double>(columns.varZ[row]), 1.e-12);
       }
       // The circle through the three points in x-y, and its distance to the axis.
-      const double ax = columns.x[triple[0]], ay = columns.y[triple[0]];
-      const double bx = columns.x[triple[1]], by = columns.y[triple[1]];
-      const double cx = columns.x[triple[2]], cy = columns.y[triple[2]];
+      const double ax = columns.x[triple[0]];
+      const double ay = columns.y[triple[0]];
+      const double bx = columns.x[triple[1]];
+      const double by = columns.y[triple[1]];
+      const double cx = columns.x[triple[2]];
+      const double cy = columns.y[triple[2]];
       const double d = 2. * ((ax * (by - cy)) + (bx * (cy - ay)) + (cx * (ay - by)));
       double dca = 0.;
       double radius = std::numeric_limits<double>::infinity();
       if (std::abs(d) > 1.e-12) {
-        const double a2 = (ax * ax) + (ay * ay), b2 = (bx * bx) + (by * by), c2 = (cx * cx) + (cy * cy);
+        const double a2 = (ax * ax) + (ay * ay);
+        const double b2 = (bx * bx) + (by * by);
+        const double c2 = (cx * cx) + (cy * cy);
         const double ux = ((a2 * (by - cy)) + (b2 * (cy - ay)) + (c2 * (ay - by))) / d;
         const double uy = ((a2 * (cx - bx)) + (b2 * (ax - cx)) + (c2 * (bx - ax))) / d;
         dca = std::abs(std::hypot(ux, uy) - std::hypot(ax - ux, ay - uy));
@@ -735,7 +740,10 @@ class VertexStudy
     lines.push_back(std::format("candidates {}: primary {} ({:.1f} %), secondary {} ({:.1f} %), fake {} ({:.1f} %); straddling frames {} ({} primary)", mCandidates.size(), primary, 100. * static_cast<double>(primary) / n, secondary, 100. * static_cast<double>(secondary) / n, mCandidates.size() - primary - secondary, 100. * static_cast<double>(mCandidates.size() - primary - secondary) / n, straddling, primaryStraddling));
     lines.push_back(std::format("primary candidates' |z0 - z_true| 68/95/99/max [um]: {}; |pull| on the points' errors: {}", quantiles(residuals, 1.e4), quantiles(pulls, 1.)));
     {
-      std::vector<double> chi2Primary, chi2Fake, dcaPrimary, dcaFake;
+      std::vector<double> chi2Primary;
+      std::vector<double> chi2Fake;
+      std::vector<double> dcaPrimary;
+      std::vector<double> dcaFake;
       for (const auto& c : mCandidates) {
         if (c.collision >= 0) {
           chi2Primary.push_back(c.chi2RZ);
@@ -770,7 +778,7 @@ class VertexStudy
     std::uint32_t withInner = 0;
     std::uint32_t findable = 0;
     std::uint32_t findableWithoutInner = 0;
-    std::map<std::int64_t, std::uint32_t> perFrame;
+    std::map<std::int64_t, std::uint32_t> perFrame; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (const auto& collision : mCollisions) {
       withInner += collision.inner > 0U ? 1U : 0U;
       findable += collision.findable;
@@ -835,6 +843,9 @@ class VertexStudy
 
   [[nodiscard]] TripletPulls tripletPulls(const Candidate& c) const
   {
+    if (!mPass) {
+      throw std::logic_error("VertexStudy: triplet pulls before a pass was observed");
+    }
     const auto columns = mFrame->measurements();
     const auto a = pairPointAt(columns, c.triple[0]);
     const auto b = pairPointAt(columns, c.triple[1]);
@@ -846,7 +857,7 @@ class VertexStudy
     out.ptGeV = curved ? static_cast<double>(cut.momentumCurvature) * c.radius : std::numeric_limits<double>::infinity();
     const double slope = static_cast<double>(d.z - a.z) / static_cast<double>(d.r - a.r);
     const double g = std::sqrt(1. + (slope * slope));
-    const double mass2 = static_cast<double>(cut.mass2);
+    const auto mass2 = static_cast<double>(cut.mass2);
     // 1/(beta p)^2 at the triplet's pT, and the floor's, as the pair cut has it.
     const double ownInvPt2 = curved ? (1. + (mass2 / (out.ptGeV * out.ptGeV))) / (out.ptGeV * out.ptGeV) : 0.;
     const double scale = cut.invBetaMomentum2 > 0.F ? ownInvPt2 / static_cast<double>(cut.invBetaMomentum2) : 0.;
@@ -910,8 +921,8 @@ class VertexStudy
     }
     out.dca = static_cast<double>(c.fit.dcaCM) / std::sqrt(varPoints + varScattering + static_cast<double>(mBeamVarTransverse));
     // r-z: the kink of the dip angle at the middle point, each chord with its own derivative.
-    const double d1 = static_cast<double>(b.r - a.r);
-    const double d2 = static_cast<double>(d.r - b.r);
+    const auto d1 = static_cast<double>(b.r - a.r);
+    const auto d2 = static_cast<double>(d.r - b.r);
     const double t1 = static_cast<double>(b.z - a.z) / d1;
     const double t2 = static_cast<double>(d.z - b.z) / d2;
     const double a1 = 1. / (1. + (t1 * t1));
@@ -933,9 +944,9 @@ class VertexStudy
     }
     struct Class {
       std::string name;
-      std::vector<double> dca{};
-      std::vector<double> rz{};
-      std::vector<double> ptRatio{};
+      std::vector<double> dca;
+      std::vector<double> rz;
+      std::vector<double> ptRatio;
       double dcaSum = 0.;
       std::array<std::uint64_t, 5> both{}, onlyDca{}, onlyRz{};
       std::uint64_t absolute = 0U;
@@ -1086,6 +1097,7 @@ class VertexStudy
     std::vector<std::map<std::int64_t, std::uint32_t>> labels(result.vertices.size());
     std::vector<std::map<std::int64_t, std::uint32_t>> wentTo(mCollisions.size());
     std::vector<std::uint32_t> contributors;
+    contributors.reserve(result.vertices.size());
     for (const auto& vertex : result.vertices) {
       contributors.push_back(vertex.contributors);
     }
@@ -1263,7 +1275,11 @@ class VertexStudy
             ++byParticle[static_cast<std::size_t>(v)][c.particle];
           }
         }
-        std::vector<double> fakeSectors, realSectors, fakeTrue, fakeTop, realTop;
+        std::vector<double> fakeSectors;
+        std::vector<double> realSectors;
+        std::vector<double> fakeTrue;
+        std::vector<double> fakeTop;
+        std::vector<double> realTop;
         for (std::size_t v = 0; v < result.vertices.size(); ++v) {
           const auto& vertex = result.vertices[v];
           const double n = vertex.contributors;
@@ -1292,7 +1308,7 @@ class VertexStudy
       if (result.best[c] >= 0 || collision.inner < 20U) {
         continue;
       }
-      std::map<std::int64_t, std::uint32_t> claims;
+      std::map<std::int64_t, std::uint32_t> claims; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
       std::uint32_t own = 0U;
       for (std::size_t i = 0; i < mCandidates.size(); ++i) {
         if (mCandidates[i].collision == static_cast<std::int64_t>(c)) {
@@ -1390,7 +1406,10 @@ class VertexStudy
       const auto dense = top == v ? std::int64_t{-3} : vertices[top].collision;
       auto& m = out[v];
       m.strongest = top == v;
-      std::vector<double> dca, chi2, radius, shared;
+      std::vector<double> dca;
+      std::vector<double> chi2;
+      std::vector<double> radius;
+      std::vector<double> shared;
       for (const auto i : claimed[v]) {
         const auto& c = mCandidates[i];
         m.shares[0] += c.trueTriplet ? 1. : 0.;
@@ -1533,14 +1552,14 @@ class VertexStudy
   struct ReplayRun {
     std::string name;
     std::vector<ReplayVertex> vertices{}; ///< every vertex found, in the order found
-    std::vector<std::int64_t> listedToId{};
+    std::vector<std::int64_t> listedToId;
     Score score{};                   ///< its claims per candidate: the listed vertex that claimed it, -1 free, -2 not kept
     std::vector<ReplayState> base{}; ///< per candidate: its state after the cuts and the deduplication
     std::vector<ReplayCollision> collisions{};
     std::uint64_t dropped = 0U;
     std::vector<ReplayDrop> drops{};
     std::vector<ReplayVeto> vetoes{};
-    std::vector<std::uint32_t> owned{}; ///< every row a vertex owned, in the order owned
+    std::vector<std::uint32_t> owned; ///< every row a vertex owned, in the order owned
   };
 
   /// The candidates' states after the cuts and the deduplication: kChi2,

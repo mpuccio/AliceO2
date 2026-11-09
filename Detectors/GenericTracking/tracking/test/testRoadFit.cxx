@@ -428,9 +428,9 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const auto iteration = parameters();
-  RoadsRun roads{fixture};
+  const RoadsRun roads{fixture};
   const auto& run = roads.result;
-  auto& count = roads.count;
+  const auto& count = roads.count;
   const SerialForEach serial{};
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
@@ -480,11 +480,10 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
   // for one cluster fewer keeps them all.
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
-  RoadsRun roads{fixture};
+  const RoadsRun roads{fixture};
   const auto& run = roads.result;
-  auto& count = roads.count;
+  const auto& count = roads.count;
   const SerialForEach serial{};
-  const auto plain = parameters();
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   const auto tracksKept = [&](double floorAll, double floorOneShort) {
@@ -519,11 +518,10 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   // than minClusters; without it, or with it off, there is none.
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
-  RoadsRun roads{fixture};
+  const RoadsRun roads{fixture};
   const auto& run = roads.result;
-  auto& count = roads.count;
+  const auto& count = roads.count;
   const SerialForEach serial{};
-  const auto plain = parameters();
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   // The records, each its cluster count times 10 plus its first layer, by
@@ -575,9 +573,9 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const auto iteration = parameters();
-  RoadsRun roads{fixture};
+  const RoadsRun roads{fixture};
   const auto& run = roads.result;
-  auto& count = roads.count;
+  const auto& count = roads.count;
   const SerialForEach serial{};
   const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
   RecordOutput records;

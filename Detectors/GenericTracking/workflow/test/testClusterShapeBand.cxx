@@ -14,7 +14,7 @@
 ///        line's local slope against one.
 
 #define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE Test GTRK cluster - shape band
+#define BOOST_TEST_MODULE Test GTRK cluster shape band
 #include <boost/test/unit_test.hpp>
 
 #include "GenericTracking/Tracking/ShapeCut.h"
@@ -23,8 +23,6 @@
 #include <cstddef>
 #include <vector>
 
-using o2::gtrk::kSlopeUnbounded;
-using o2::gtrk::slopeAdmits;
 using o2::gtrk::workflow::ClusterShapeBand;
 
 namespace

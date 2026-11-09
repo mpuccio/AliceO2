@@ -92,7 +92,7 @@ class Fixture
       {.layer = 1, .timePS = 41'000U, .widthPS = 29'000U, .r = 4.F},
     }};
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r, .r = input[i].r}; }, [&](std::size_t i) { return TimeEstPS{.start = input[i].timePS, .width = input[i].widthPS}; }, [&](std::size_t i) { return test::PointVariances{1e-4F, 1e-4F, 1e-4F}; }, columns, offsets);
+    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r, .r = input[i].r}; }, [&](std::size_t i) { return TimeEstPS{.start = input[i].timePS, .width = input[i].widthPS}; }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 1e-4F, .r = 1e-4F, .rPhi = 1e-4F}; }, columns, offsets);
     used.assign(frame->size(), kFree);
   }
 

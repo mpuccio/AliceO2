@@ -274,8 +274,8 @@ struct RecoSettings {
 /// Detector \a N's settings (`o2::detectors::DetID`): `GTRKReco<DET>`.
 // O2ParamDef deletes the copy constructor and supplies the rest of the
 // boilerplate, so the rule about declaring all five has nothing to act on here.
-// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 template <int N>
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, RecoSettings> {
   static constexpr std::string_view getParamName() { return N == o2::detectors::DetID::ITS ? "GTRKRecoITS" : (N == o2::detectors::DetID::MFT ? "GTRKRecoMFT" : "GTRKRecoTRK"); }
   O2ParamDef(RecoParam, getParamName().data());
@@ -303,7 +303,7 @@ struct DetIDOf<detectors::TRKFT3> : std::integral_constant<o2::detectors::DetID:
 /// A detector layout's parameter.
 template <DetectorLayout Det>
 struct RecoParamOf {
-  using type = RecoParam<DetIDOf<Det>::value>;
+  using type = RecoParam<DetIDOf<Det>::value>; // NOLINT(readability-identifier-naming): a type trait's member
 };
 
 /// The settings of \a Det's parameter.
