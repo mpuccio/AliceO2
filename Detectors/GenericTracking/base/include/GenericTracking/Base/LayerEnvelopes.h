@@ -64,8 +64,7 @@ struct SensorExtent {
 /// up and the position to the nearest; 0 leaves the values exact. Throws
 /// std::runtime_error for a sensor beyond the layers, a layer without one or a
 /// curved sensor whose axis is not the beam's.
-[[nodiscard]] std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers,
-                                                          double resolution = 0.);
+[[nodiscard]] std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers, double resolution = 0.);
 
 /// One line per layer, for a log; layers numbered barrel first.
 [[nodiscard]] std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBarrelLayers);
@@ -84,8 +83,7 @@ class PlacedEnvelopes
   static void publish(std::span<const LayerEnvelope> envelopes)
   {
     if (envelopes.size() != sTable.size()) {
-      throw std::invalid_argument(std::string{Det::name} + ": " + std::to_string(envelopes.size()) + " envelopes for " + std::to_string(sTable.size()) +
-                                  " layers");
+      throw std::invalid_argument(std::string{Det::name} + ": " + std::to_string(envelopes.size()) + " envelopes for " + std::to_string(sTable.size()) + " layers");
     }
     for (std::size_t layer = 0; layer < sTable.size(); ++layer) {
       sTable[layer] = envelopes[layer];

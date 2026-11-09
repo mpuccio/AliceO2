@@ -99,20 +99,19 @@ o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC)
 {
   using namespace o2::framework;
   const auto origin = Conditions<Det>::origin();
-  std::vector<InputSpec> inputs{
-    InputSpec{"compclusters", origin, "COMPCLUSTERS", 0, Lifetime::Timeframe}, InputSpec{"patterns", origin, "PATTERNS", 0, Lifetime::Timeframe},
-    InputSpec{"rofs", origin, "CLUSTERSROF", 0, Lifetime::Timeframe},
-    InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
+  std::vector<InputSpec> inputs{InputSpec{"compclusters", origin, "COMPCLUSTERS", 0, Lifetime::Timeframe}, InputSpec{"patterns", origin, "PATTERNS", 0, Lifetime::Timeframe}, InputSpec{"rofs", origin, "CLUSTERSROF", 0, Lifetime::Timeframe}, InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
   std::vector<OutputSpec> outputs{OutputSpec{gDataOrigin, description<Det>(kClusters), 0, Lifetime::Timeframe}};
   if (useMC) {
     inputs.emplace_back("labels", origin, "CLUSTERSMCTR", 0, Lifetime::Timeframe);
     outputs.emplace_back(gDataOrigin, description<Det>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
-  return DataProcessorSpec{.name = deviceName<Det>("cluster-converter"),
-                           .inputs = inputs,
-                           .outputs = outputs,
-                           .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC)},
-                           .options = Options{}};
+  return DataProcessorSpec{
+    .name = deviceName<Det>("cluster-converter"),
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC)},
+    .options = Options{},
+  };
 }
 
 } // namespace o2::gtrk::workflow

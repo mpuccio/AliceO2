@@ -95,23 +95,21 @@ struct TrackletBindings {
 /// and z bound about the beam spot's centre. The tracklet stage's, the stage
 /// funnel's and the sink's brute force's, one test.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() displaced::DisplacedPairResult displacedPairOf(const IterationParameters<Det>& parameters, const VertexSeed& vertex,
-                                                                                        const PairPoint& source, Scalar scattering, const PairPoint& target,
-                                                                                        Scalar between)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() displaced::DisplacedPairResult displacedPairOf(const IterationParameters<Det>& parameters, const VertexSeed& vertex, const PairPoint& source, Scalar scattering, const PairPoint& target, Scalar between)
 {
-  const displaced::PairErrors<Scalar> errors{.sourceVarR = source.varR,
-                                             .sourceVarRPhi = source.varRPhi,
-                                             .sourceVarZ = source.varZ,
-                                             .targetVarR = target.varR,
-                                             .targetVarRPhi = target.varRPhi,
-                                             .targetVarZ = target.varZ,
-                                             .sourceScatter = scattering,
-                                             .betweenScatter = between,
-                                             .beamVarTransverse = vertex.varTransverse};
+  const displaced::PairErrors<Scalar> errors{
+    .sourceVarR = source.varR,
+    .sourceVarRPhi = source.varRPhi,
+    .sourceVarZ = source.varZ,
+    .targetVarR = target.varR,
+    .targetVarRPhi = target.varRPhi,
+    .targetVarZ = target.varZ,
+    .sourceScatter = scattering,
+    .betweenScatter = between,
+    .beamVarTransverse = vertex.varTransverse,
+  };
   const Scalar centre = parameters.vertexZCentre;
-  return displaced::displacedPairWithin<Scalar>(source.x, source.y, source.z, target.x, target.y, target.z, errors, parameters.pairCut.nSigma,
-                                                parameters.pairCut.maxCurvature, parameters.impactMax, centre - parameters.impactZMax,
-                                                centre + parameters.impactZMax);
+  return displaced::displacedPairWithin<Scalar>(source.x, source.y, source.z, target.x, target.y, target.z, errors, parameters.pairCut.nSigma, parameters.pairCut.maxCurvature, parameters.impactMax, centre - parameters.impactZMax, centre + parameters.impactZMax);
 }
 
 /// Generate every accepted outgoing tracklet of one source measurement.
@@ -148,9 +146,7 @@ class TrackletStage
   static_assert(kVertexCapacity > 0U);
   static_assert(nLinks<Det> <= std::size_t{std::numeric_limits<std::uint16_t>::max()} + 1U);
 
-  TrackletStage(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, const TimeFrame<Det>& frame, BlockRange targetBlocks,
-                const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const std::array<std::uint32_t, kLayerCount>& maxCandidateWidthPS,
-                const VertexWindowParameters<Det>& vertexWindows, const std::uint8_t* used, const SourceGate& gate = {})
+  TrackletStage(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, const TimeFrame<Det>& frame, BlockRange targetBlocks, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const std::array<std::uint32_t, kLayerCount>& maxCandidateWidthPS, const VertexWindowParameters<Det>& vertexWindows, const std::uint8_t* used, const SourceGate& gate = {})
     : mParameters(&parameters),
       mSources(&sources),
       mFrame(&frame),
@@ -188,9 +184,7 @@ class TrackletStage
   /// code; the result is what a kernel receives.
   [[nodiscard]] TrackletStage bind(const TrackletBindings<Det>& bindings) const
   {
-    const bool complete = bindings.parameters != nullptr && bindings.sources != nullptr && bindings.frame != nullptr && bindings.used != nullptr &&
-                          bindings.vertexWindows != nullptr && (bindings.vertices != nullptr || mVertexCount == 0U) &&
-                          (bindings.gateCore != nullptr || mGate.core == nullptr);
+    const bool complete = bindings.parameters != nullptr && bindings.sources != nullptr && bindings.frame != nullptr && bindings.used != nullptr && bindings.vertexWindows != nullptr && (bindings.vertices != nullptr || mVertexCount == 0U) && (bindings.gateCore != nullptr || mGate.core == nullptr);
     if (!complete) {
       throw std::invalid_argument("a tracklet stage binding is missing an input the stage reads");
     }
@@ -252,9 +246,7 @@ class TrackletStage
   template <typename Emitter>
   GPUhdi() void operator()(Index sourceElement, Emitter& emitter) const
   {
-    const auto test = [&](const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query,
-                          const SecondRange* intervals, const MeasurementView& columns,
-                          Index targetRow) { expensive(source, cachedVertices, between, query, intervals, columns, targetRow, emitter); };
+    const auto test = [&](const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query, const SecondRange* intervals, const MeasurementView& columns, Index targetRow) { expensive(source, cachedVertices, between, query, intervals, columns, targetRow, emitter); };
     forEachCandidate(sourceElement, test);
   }
 
@@ -263,8 +255,7 @@ class TrackletStage
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t candidateCount(Index sourceElement) const
   {
     std::uint32_t count = 0U;
-    const auto one = [&](const SourceContext&, const CompatibleVertex*, const BetweenSource<Det>&, const QueryContext&, const SecondRange*,
-                         const MeasurementView&, Index) { ++count; };
+    const auto one = [&](const SourceContext&, const CompatibleVertex*, const BetweenSource<Det>&, const QueryContext&, const SecondRange*, const MeasurementView&, Index) { ++count; };
     forEachCandidate(sourceElement, one);
     return count;
   }
@@ -393,7 +384,9 @@ class TrackletStage
         break;
       }
       cachedVertices[source.cachedCount] = {
-        .vertexIndex = i, .scattering = sourceScattering<Det>(mParameters->scattering, mParameters->pairCut, vertex, source.at.layer, source.point)};
+        .vertexIndex = i,
+        .scattering = sourceScattering<Det>(mParameters->scattering, mParameters->pairCut, vertex, source.at.layer, source.point),
+      };
       ++source.cachedCount;
     }
     if (source.cachedCount == 0U) {
@@ -422,8 +415,7 @@ class TrackletStage
     query.directHigh = std::numeric_limits<Scalar>::infinity();
     if (query.holes != 0U) {
       const auto& target = mParameters->layerSpans[query.targetLayer];
-      const auto direct =
-        directPairRange(query.holes, mParameters->barrelLayers, mParameters->layerSpans, query.targetLayer, at.r, at.z, target.low, target.high);
+      const auto direct = directPairRange(query.holes, mParameters->barrelLayers, mParameters->layerSpans, query.targetLayer, at.r, at.z, target.low, target.high);
       const Scalar low = o2::gpu::CAMath::Max(direct.low, query.window.secondCentre - query.window.secondHalfWidth);
       const Scalar high = o2::gpu::CAMath::Min(direct.high, query.window.secondCentre + query.window.secondHalfWidth);
       if (!(low <= high)) {
@@ -461,8 +453,7 @@ class TrackletStage
   /// The hole test last: both tests have to pass and neither has a side
   /// effect, and the pair test refuses most rows.
   template <typename Columns, typename Emitter>
-  GPUhdi() void expensive(const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query,
-                          const SecondRange* intervals, const Columns& columns, Index targetRow, Emitter& emitter) const
+  GPUhdi() void expensive(const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query, const SecondRange* intervals, const Columns& columns, Index targetRow, Emitter& emitter) const
   {
     const auto target = pairPointAt(columns, targetRow);
     if (!testCandidate(source, cachedVertices, between, query, intervals, columns, targetRow, target)) {
@@ -475,14 +466,11 @@ class TrackletStage
   /// `expensive`'s tests on \a target, the candidate's point: true where the
   /// candidate is a tracklet (the test apart from the record).
   template <typename Columns>
-  [[nodiscard]] GPUhdi() bool testCandidate(const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between,
-                                            const QueryContext& query, const SecondRange* intervals, const Columns& columns, Index targetRow,
-                                            const PairPoint& target) const
+  [[nodiscard]] GPUhdi() bool testCandidate(const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query, const SecondRange* intervals, const Columns& columns, Index targetRow, const PairPoint& target) const
   {
     countLinkWork(query.linkIndex, LinkCounter::kCandidates);
     if constexpr (Shape) {
-      if (!shapeAdmits(columns, source.at.row, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z) ||
-          !shapeAdmits(columns, targetRow, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z)) {
+      if (!shapeAdmits(columns, source.at.row, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z) || !shapeAdmits(columns, targetRow, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z)) {
         countWork(WorkCounter::kTrackletShape);
         return false;
       }
@@ -495,13 +483,10 @@ class TrackletStage
         countWork(WorkCounter::kTrackletInWindow);
       }
     }
-    if (!accepted(source.at.layer, source.box, source.point, target, cachedVertices, source.cachedCount, source.uncachedRange, intervals,
-                  secondCoordinate<Det>(query.targetLayer, target.r, target.z), mParameters->betweenBound[query.linkIndex],
-                  mParameters->betweenPassives[query.linkIndex], between, inWindow)) {
+    if (!accepted(source.at.layer, source.box, source.point, target, cachedVertices, source.cachedCount, source.uncachedRange, intervals, secondCoordinate<Det>(query.targetLayer, target.r, target.z), mParameters->betweenBound[query.linkIndex], mParameters->betweenPassives[query.linkIndex], between, inWindow)) {
       return false;
     }
-    if (query.holes != 0U &&
-        segmentLeavesHole(query.holes, mParameters->barrelLayers, mParameters->layerSpans, source.point.r, source.point.z, target.r, target.z)) {
+    if (query.holes != 0U && segmentLeavesHole(query.holes, mParameters->barrelLayers, mParameters->layerSpans, source.point.r, source.point.z, target.r, target.z)) {
       countWork(WorkCounter::kTrackletHoles);
       return false;
     }
@@ -513,28 +498,30 @@ class TrackletStage
 
   /// The tracklet of an accepted candidate (`emit`'s record).
   template <typename Source, typename Target>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Tracklet record(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source,
-                                                           const Target& target) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Tracklet record(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target) const
   {
     const Scalar dx = target.x - source.x;
     const Scalar dy = target.y - source.y;
     const Scalar dz = target.z - source.z;
     const Scalar transverse = o2::gpu::CAMath::Hypot(dx, dy);
     return Tracklet{
-      .source = sourceRow, .target = targetRow, .link = static_cast<std::uint16_t>(linkIndex), .lambda = atan2Of(dz, transverse), .phi = atan2Of(dy, dx)};
+      .source = sourceRow,
+      .target = targetRow,
+      .link = static_cast<std::uint16_t>(linkIndex),
+      .lambda = atan2Of(dz, transverse),
+      .phi = atan2Of(dy, dx),
+    };
   }
 
  private:
   /// A vertex-list query's second-coordinate runs: the cached vertices'
   /// intervals (\a intervals), sorted, merged and clipped to the direct part
   /// of the target; their count.
-  GPUhdi() GPUAlwaysInline() std::uint32_t vertexRuns(const SourceContext& source, const CompatibleVertex* cachedVertices, const QueryContext& query,
-                                                      SecondRange* intervals, SecondRun* runs) const
+  GPUhdi() GPUAlwaysInline() std::uint32_t vertexRuns(const SourceContext& source, const CompatibleVertex* cachedVertices, const QueryContext& query, SecondRange* intervals, SecondRun* runs) const
   {
     for (std::uint32_t i = 0; i < source.cachedCount; ++i) {
       const auto& vertex = mVertices[cachedVertices[i].vertexIndex];
-      intervals[i] = vertexSecondRange(mParameters->windows[query.linkIndex], mVertexWindows->windows[query.linkIndex], source.point.r, source.point.z,
-                                       vertex.z, vertex.varZ, mParameters->pairCut.nSigma);
+      intervals[i] = vertexSecondRange(mParameters->windows[query.linkIndex], mVertexWindows->windows[query.linkIndex], source.point.r, source.point.z, vertex.z, vertex.varZ, mParameters->pairCut.nSigma);
       runs[i] = {.low = intervals[i].centre - intervals[i].halfWidth, .high = intervals[i].centre + intervals[i].halfWidth};
     }
     // With one slot there is nothing to sort; compiling the loop out also
@@ -571,10 +558,7 @@ class TrackletStage
   /// is computed only if it passes: the test only widens with the kink, so
   /// the same pairs pass.
   /// \a betweenPassives: the passives a pair on the link can cross.
-  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target,
-                                       const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange,
-                                       const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::uint64_t betweenPassives,
-                                       const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
+  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::uint64_t betweenPassives, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
   {
     // The pair's own kink: on the beam line from the source's part, computed
     // once per source; else from the pair, per vertex.
@@ -648,8 +632,7 @@ class TrackletStage
   }
 
   /// A displaced iteration's pair test (`displacedPairOf`), counted.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool displacedCompatible(const VertexSeed& vertex, const PairPoint& source, Scalar scattering,
-                                                                    const PairPoint& target, Scalar between) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool displacedCompatible(const VertexSeed& vertex, const PairPoint& source, Scalar scattering, const PairPoint& target, Scalar between) const
   {
     countWork(WorkCounter::kPairTests);
     const auto result = displacedPairOf(*mParameters, vertex, source, scattering, target, between);
@@ -665,8 +648,7 @@ class TrackletStage
   }
 
   template <typename Source, typename Target, typename Emitter>
-  GPUhdi() GPUAlwaysInline() void emit(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target,
-                                       Emitter& emitter) const
+  GPUhdi() GPUAlwaysInline() void emit(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target, Emitter& emitter) const
   {
     countWork(WorkCounter::kTrackletAccepted);
     countLinkWork(linkIndex, LinkCounter::kTracklets);

@@ -73,8 +73,7 @@ class Digest
       add(value.varZ);
       add(value.varTransverse);
     } else {
-      static_assert(std::is_floating_point_v<T> || std::has_unique_object_representations_v<T>,
-                    "a digest reads a value's bits; decompose types with padding field by field");
+      static_assert(std::is_floating_point_v<T> || std::has_unique_object_representations_v<T>, "a digest reads a value's bits; decompose types with padding field by field");
       bytes(&value, sizeof(T));
     }
   }
@@ -155,9 +154,7 @@ template <typename Result>
 void addSummaries(Digest& digest, const Result& result)
 {
   for (const auto& summary : result.iterations) {
-    for (const std::size_t count :
-         {static_cast<std::size_t>(summary.status), summary.slices, summary.roads, summary.records, summary.duplicates, summary.mismatches, summary.rounds,
-          summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward}) {
+    for (const std::size_t count : {static_cast<std::size_t>(summary.status), summary.slices, summary.roads, summary.records, summary.duplicates, summary.mismatches, summary.rounds, summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward}) {
       digest.add(static_cast<std::uint64_t>(count));
     }
     digest.add(summary.haloPS);

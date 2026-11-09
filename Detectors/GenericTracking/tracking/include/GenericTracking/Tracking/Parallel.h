@@ -65,12 +65,7 @@ void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, v
 template <typename Less>
 void parallelSort(TaskArena& arena, std::span<std::uint32_t> indices, Less less)
 {
-  parallelSortIndices(
-    arena, indices.size(), static_cast<void*>(&less),
-    [](void* context, std::size_t lhs, std::size_t rhs) {
-      return (*static_cast<Less*>(context))(static_cast<std::uint32_t>(lhs), static_cast<std::uint32_t>(rhs));
-    },
-    indices.data());
+  parallelSortIndices(arena, indices.size(), static_cast<void*>(&less), [](void* context, std::size_t lhs, std::size_t rhs) { return (*static_cast<Less*>(context))(static_cast<std::uint32_t>(lhs), static_cast<std::uint32_t>(rhs)); }, indices.data());
 }
 
 /// Run the loop inside an arena, which limits its concurrency independently
@@ -78,8 +73,7 @@ void parallelSort(TaskArena& arena, std::span<std::uint32_t> indices, Less less)
 template <typename Function>
 void parallelFor(TaskArena& arena, std::size_t begin, std::size_t end, std::size_t grainSize, Function function)
 {
-  parallelFor(arena, begin, end, grainSize, static_cast<void*>(&function),
-              [](void* context, std::size_t first, std::size_t last) { (*static_cast<Function*>(context))(first, last); });
+  parallelFor(arena, begin, end, grainSize, static_cast<void*>(&function), [](void* context, std::size_t first, std::size_t last) { (*static_cast<Function*>(context))(first, last); });
 }
 
 } // namespace o2::gtrk::detail

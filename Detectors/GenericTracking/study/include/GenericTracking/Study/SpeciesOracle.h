@@ -42,16 +42,12 @@ struct OraclePropagator : Propagator {
   Scalar lossMass = static_cast<Scalar>(o2::constants::physics::MassPionCharged);
 };
 
-[[nodiscard]] inline Scalar lossMassGeV(const OraclePropagator& prop)
-{
-  return prop.lossMass;
-}
+[[nodiscard]] inline Scalar lossMassGeV(const OraclePropagator& prop) { return prop.lossMass; }
 
 /// The oracle's propagator for every step: itself, as `stepPropagator`
 /// gives a `Propagator`.
 template <typename Geometry, typename Chain>
-[[nodiscard]] const OraclePropagator& stepPropagator(const OraclePropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/,
-                                                     int /*to*/)
+[[nodiscard]] const OraclePropagator& stepPropagator(const OraclePropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
 {
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }
@@ -61,15 +57,13 @@ template <typename Geometry, typename Chain>
 /// alone; the true mass's inward pass alone from the track's own outward
 /// state (the pion's), as the tracking's refit. Then the electron
 /// hypothesis for every species, the inward pass from the same outward state.
-enum class OracleVariant : std::uint8_t {
-  kPion,
-  kTrue,
-  kTrueScattering,
-  kTrueLoss,
-  kTrueInward,
-  kElectronInward,
-  kCount
-};
+enum class OracleVariant : std::uint8_t { kPion,
+                                          kTrue,
+                                          kTrueScattering,
+                                          kTrueLoss,
+                                          kTrueInward,
+                                          kElectronInward,
+                                          kCount };
 inline constexpr std::size_t kOracleVariants = static_cast<std::size_t>(OracleVariant::kCount);
 
 /// The mass of \a pdg's species [GeV]: e, mu, pi, K, p; none for another.
@@ -96,8 +90,7 @@ inline constexpr std::size_t kOracleVariants = static_cast<std::size_t>(OracleVa
 /// tolerances and \a mass, the particle's; \a outward is the track's outward
 /// state for the inward-only variants.
 template <DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] TrackFitResult oracleFit(OracleVariant variant, Scalar mass, const Propagator& base, const TrackingGeometry<Det>& geometry,
-                                       const Material& material, const Chain& chain, int n, const BoundTrackState& outward)
+[[nodiscard]] TrackFitResult oracleFit(OracleVariant variant, Scalar mass, const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& chain, int n, const BoundTrackState& outward)
 {
   const auto pion = static_cast<Scalar>(o2::constants::physics::MassPionCharged);
   const auto electron = static_cast<Scalar>(o2::constants::physics::MassElectron);

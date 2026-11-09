@@ -47,10 +47,7 @@ struct TrackletPathBounds {
 
   /// Whether a chain through \a before's prefix and \a after's suffix can
   /// reach minClusters.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool onPath(std::uint32_t before, std::uint32_t after) const
-  {
-    return suffix[after] != 0U && std::uint32_t{prefix[before]} + suffix[after] >= minClusters;
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool onPath(std::uint32_t before, std::uint32_t after) const { return suffix[after] != 0U && std::uint32_t{prefix[before]} + suffix[after] >= minClusters; }
 };
 
 /// Whether a road may end on \a layer (`IterationParameters::roadEndLayers`, 0 for any).
@@ -60,8 +57,7 @@ GPUhdi() GPUAlwaysInline() bool roadMayEnd(std::uint64_t endLayers, LayerID laye
 /// for a row that is no source of the slice and so has no tracklets, one
 /// cluster where a road may end and none elsewhere.
 template <DetectorLayout Det>
-GPUhdi() GPUAlwaysInline() std::uint32_t measurementSuffix(const TrackletPathBounds& paths, const LayerRowMap<Det>& sources, std::uint64_t endLayers,
-                                                           LayerID layer, std::uint32_t row)
+GPUhdi() GPUAlwaysInline() std::uint32_t measurementSuffix(const TrackletPathBounds& paths, const LayerRowMap<Det>& sources, std::uint64_t endLayers, LayerID layer, std::uint32_t row)
 {
   if (sources.contains(layer, row)) {
     return paths.suffix[sources.element(layer, row)];
@@ -74,8 +70,7 @@ GPUhdi() GPUAlwaysInline() std::uint32_t measurementSuffix(const TrackletPathBou
 /// atomic maximum (the sweep runs in parallel). \a Prefix is a byte on the
 /// host and a 32-bit word on a device, which has no byte atomics.
 template <DetectorLayout Det, typename Prefix>
-GPUdi() GPUAlwaysInline() void raiseTargetPrefixes(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets,
-                                                   const std::uint32_t* offsets, std::uint32_t element, Prefix* prefix)
+GPUdi() GPUAlwaysInline() void raiseTargetPrefixes(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets, std::uint32_t element, Prefix* prefix)
 {
   const auto length = static_cast<Prefix>(prefix[element] + 1U);
   for (std::uint32_t edge = offsets[element]; edge < offsets[element + 1U]; ++edge) {
@@ -90,14 +85,11 @@ GPUdi() GPUAlwaysInline() void raiseTargetPrefixes(const IterationParameters<Det
 /// cluster where a road may end, or one more than the longest suffix of its
 /// tracklets' targets, which \a partial holds final.
 template <DetectorLayout Det>
-GPUhdi() GPUAlwaysInline() std::uint32_t measurementPathSuffix(const TrackletPathBounds& partial, const IterationParameters<Det>& parameters,
-                                                               const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets,
-                                                               LayerID layer, std::uint32_t element)
+GPUhdi() GPUAlwaysInline() std::uint32_t measurementPathSuffix(const TrackletPathBounds& partial, const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets, LayerID layer, std::uint32_t element)
 {
   std::uint32_t length = roadMayEnd(parameters.roadEndLayers, layer) ? 1U : 0U;
   for (std::uint32_t edge = offsets[element]; edge < offsets[element + 1U]; ++edge) {
-    const std::uint32_t after =
-      measurementSuffix(partial, sources, parameters.roadEndLayers, parameters.linkTargets[tracklets.link[edge]], tracklets.target[edge]);
+    const std::uint32_t after = measurementSuffix(partial, sources, parameters.roadEndLayers, parameters.linkTargets[tracklets.link[edge]], tracklets.target[edge]);
     if (after != 0U && length < after + 1U) {
       length = after + 1U;
     }
@@ -171,14 +163,11 @@ class TrackletPaths
     const auto elementBegin = [&](LayerID layer) { return static_cast<Index>(sources.offsets[layer]); };
     const auto elementEnd = [&](LayerID layer) { return static_cast<Index>(sources.offsets[layer] + sources.ranges[layer].size()); };
     for (std::size_t group = 0U; group < groups.count; ++group) {
-      forEachOfDepth<Det>(forEach, group, elementBegin, elementEnd,
-                          [&](LayerID /*layer*/, Index element) { raiseTargetPrefixes(parameters, sources, view, offsets.data(), element, mPrefix.data()); });
+      forEachOfDepth<Det>(forEach, group, elementBegin, elementEnd, [&](LayerID /*layer*/, Index element) { raiseTargetPrefixes(parameters, sources, view, offsets.data(), element, mPrefix.data()); });
     }
     const TrackletPathBounds partial{.prefix = mPrefix.data(), .suffix = mSuffix.data(), .minClusters = mMinClusters};
     for (auto group = groups.count; group-- > 0U;) {
-      forEachOfDepth<Det>(forEach, group, elementBegin, elementEnd, [&](LayerID layer, Index element) {
-        mSuffix[element] = static_cast<std::uint8_t>(measurementPathSuffix(partial, parameters, sources, view, offsets.data(), layer, element));
-      });
+      forEachOfDepth<Det>(forEach, group, elementBegin, elementEnd, [&](LayerID layer, Index element) { mSuffix[element] = static_cast<std::uint8_t>(measurementPathSuffix(partial, parameters, sources, view, offsets.data(), layer, element)); });
     }
   }
 

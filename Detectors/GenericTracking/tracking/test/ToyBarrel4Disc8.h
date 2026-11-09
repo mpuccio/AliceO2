@@ -36,12 +36,14 @@ namespace o2::gtrk::detectors
 namespace toy_barrel4_disc8
 {
 
-inline constexpr SensorSpec kBarrelSensor{.shape = ShapeType::kRectangle,
-                                          .halfX = 0.5,
-                                          .halfY = 2.0,
-                                          .halfThickness = 0.005,
-                                          .pitchX = 0.0025,
-                                          .pitchY = 0.0025};
+inline constexpr SensorSpec kBarrelSensor{
+  .shape = ShapeType::kRectangle,
+  .halfX = 0.5,
+  .halfY = 2.0,
+  .halfThickness = 0.005,
+  .pitchX = 0.0025,
+  .pitchY = 0.0025,
+};
 
 /// One sensor shape for both rings of a disc: a layout's layer has one.
 inline constexpr SensorSpec kDiscSensor{.shape = ShapeType::kRectangle, .halfX = 1.8, .halfY = 4.1, .halfThickness = 0.005, .pitchX = 0.0025, .pitchY = 0.0025};
@@ -52,7 +54,8 @@ constexpr DiscLayerSpec disc(double z)
     .z = z,
     .nRings = 2,
     .rings = {{.r = 6.6, .nModules = 24, .phi0 = 0., .zOffset = 0.2, .gap = 0.1}, {.r = 14.4, .nModules = 48, .phi0 = 0., .zOffset = -0.2, .gap = 0.1}},
-    .sensor = kDiscSensor};
+    .sensor = kDiscSensor,
+  };
 }
 
 } // namespace toy_barrel4_disc8

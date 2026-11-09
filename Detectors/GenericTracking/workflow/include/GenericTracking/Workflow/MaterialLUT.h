@@ -76,10 +76,7 @@ class MaterialCondition
  public:
   /// Declares the input: called last by the holding `Conditions`'
   /// constructor, so that the LUT's input follows the others.
-  static void declare(std::vector<o2::framework::InputSpec>& inputs)
-  {
-    inputs.emplace_back(inputBinding<Det>(kBinding), materialLutOrigin<Det>(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>()));
-  }
+  static void declare(std::vector<o2::framework::InputSpec>& inputs) { inputs.emplace_back(inputBinding<Det>(kBinding), materialLutOrigin<Det>(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>())); }
 
   /// At the top of the device's run: delivers a new one through finaliseCCDB.
   static void checkUpdates(o2::framework::ProcessingContext& pc) { pc.inputs().get<o2::base::MatLayerCylSet*>(inputBinding<Det>(kBinding).c_str()); }

@@ -71,17 +71,14 @@ using Ft3Dictionary = o2::trkft3::TopologyDictionary<o2::detectors::DetID::FT3>;
 /// applies them) and its widths across and along as its errors. Throws
 /// std::runtime_error if the patterns run out, or a cluster names no TRK
 /// sub-detector or no layer of the dictionary.
-[[nodiscard]] std::vector<LocalCluster> trkLocalClusters(std::span<const o2::trkft3::TRKCluster> clusters, std::span<const unsigned char> patterns,
-                                                         const TrkDictionary& dictionary);
+[[nodiscard]] std::vector<LocalCluster> trkLocalClusters(std::span<const o2::trkft3::TRKCluster> clusters, std::span<const unsigned char> patterns, const TrkDictionary& dictionary);
 
 /// The same for FT3's clusters, ML/OT's chip (sub-detector 2), each chip
 /// numbered as our sensor: TRKFT3::kFirstDiscSensor plus FT3's chip ID.
-[[nodiscard]] std::vector<LocalCluster> ft3LocalClusters(std::span<const o2::trkft3::FT3Cluster> clusters, std::span<const unsigned char> patterns,
-                                                         const Ft3Dictionary& dictionary);
+[[nodiscard]] std::vector<LocalCluster> ft3LocalClusters(std::span<const o2::trkft3::FT3Cluster> clusters, std::span<const unsigned char> patterns, const Ft3Dictionary& dictionary);
 
 /// Clusters.h's `toClusters` for one layer's stream of TRK or FT3 clusters.
-[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::trkft3::ROFRecord> rofs, ReadoutFrames frames,
-                                              std::uint32_t tfFirstOrbit);
+[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::trkft3::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit);
 
 /// Clusters.h's `readoutFrames` for one layer's stream of TRK or FT3 clusters.
 [[nodiscard]] ReadoutFrames readoutFrames(std::span<const o2::trkft3::ROFRecord> rofs);

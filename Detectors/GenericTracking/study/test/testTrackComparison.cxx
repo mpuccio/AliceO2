@@ -98,8 +98,7 @@ BOOST_AUTO_TEST_CASE(FindabilityFollowsTheLinksThatSkipNoLayer)
   BOOST_TEST(!isFindable(0.05F, layers.at(1), settings));
   // The score and decay-family denominator use exactly the same predicate.
   const std::vector<TruthRow> decayRows{row(0, {1}), row(2, {1}), row(0, {2}), row(1, {2})};
-  const ParticleTable particles{{1, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}},
-                                {2, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}}};
+  const ParticleTable particles{{1, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}}, {2, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}}};
   const auto score = scoreTracks(decayRows, particles, {{0, 1}, {2, 3}}, settings);
   BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].findable == 1U);
   BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].found == 1U);
@@ -170,9 +169,7 @@ BOOST_AUTO_TEST_CASE(TheScoreIsWhatTheComparisonReports)
   // As above: A finds particles 1 and 2, the second through the measurement
   // they share, and makes a fake labelled 1 with a noise row.
   const std::vector<TruthRow> rows{row(0, {1}), row(1, {1, 2}), row(2, {1}), row(0, {2}), row(2, {2}), row(1, {3}), row(2, {})};
-  const ParticleTable particles{{1, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}},
-                                {2, {.pt = 0.15F, .primary = true, .origin = ParticleOrigin::kDecay, .pdg = -2212}},
-                                {3, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kMaterial, .pdg = 11}}};
+  const ParticleTable particles{{1, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}}, {2, {.pt = 0.15F, .primary = true, .origin = ParticleOrigin::kDecay, .pdg = -2212}}, {3, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kMaterial, .pdg = 11}}};
   const ComparisonSettings settings{.nLayers = 3, .minLayers = 1, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}}};
   const TrackRows ours{{0, 1, 2}, {3, 1, 4}, {0, 5, 6}};
   const TrackRows theirs{{2, 1, 0}};
@@ -216,8 +213,7 @@ BOOST_AUTO_TEST_CASE(AStubIsFoundButNotComplete)
   // Particle 1 on three layers: track A holds two of them, found; track B all
   // three, complete. Particle 2 on three layers, found with a stub only.
   const std::vector<TruthRow> rows{row(0, {1}), row(1, {1}), row(2, {1}), row(0, {2}), row(1, {2}), row(2, {2})};
-  const ParticleTable particles{{1, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}},
-                                {2, {.pt = 0.15F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}}};
+  const ParticleTable particles{{1, {.pt = 1.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}}, {2, {.pt = 0.15F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}}};
   const ComparisonSettings settings{.nLayers = 3, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}}};
 
   const auto stubs = scoreTracks(rows, particles, {{0, 1}, {3, 4}}, settings);
@@ -245,8 +241,7 @@ BOOST_AUTO_TEST_CASE(SecondariesAndSoftParticlesAreNotFindable)
   const std::vector<TruthRow> rows{row(0, {1}), row(1, {1}), row(0, {2}), row(1, {2})};
   const ParticleTable particles{{1, {.pt = 1.F, .primary = false}}, {2, {.pt = 0.05F, .primary = true}}};
   const TrackRows tracks{{0, 1}, {2, 3}};
-  const auto lines =
-    compareTrackSets(rows, particles, tracks, tracks, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
+  const auto lines = compareTrackSets(rows, particles, tracks, tracks, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
   BOOST_TEST(reports(lines, "on all 2 layers: 0"));
   BOOST_TEST(reports(lines, "A: 2 tracks, 0.00 % fake"));
 }
@@ -257,8 +252,7 @@ BOOST_AUTO_TEST_CASE(TwoGoodTracksOfOneParticleAreAClone)
   const ParticleTable particles{{1, {.pt = 0.4F, .primary = true}}};
   const TrackRows ours{{0, 1}, {2, 3}};
   const TrackRows theirs{{0, 1}};
-  const auto lines =
-    compareTrackSets(rows, particles, ours, theirs, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
+  const auto lines = compareTrackSets(rows, particles, ours, theirs, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
   BOOST_TEST(reports(lines, "A: 100.00 % found (100.00 % complete, 100.0 % of their layers),  0.00 % only with a fake, 100.00 % cloned"));
   BOOST_TEST(reports(lines, "B: 100.00 % found (100.00 % complete, 100.0 % of their layers),  0.00 % only with a fake,  0.00 % cloned"));
 }
@@ -270,8 +264,7 @@ BOOST_AUTO_TEST_CASE(OneWrongMeasurementIsAFakeAndItsLayerIsCounted)
   const std::vector<TruthRow> rows{row(0, {1}), row(1, {1}), row(2, {1}), row(1, {2})};
   const ParticleTable particles{{1, {.pt = 1.F, .primary = true}}, {2, {.pt = 1.F, .primary = false}}};
   const TrackRows ours{{0, 3, 2}};
-  const auto lines = compareTrackSets(rows, particles, ours, {},
-                                      {.nLayers = 3, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}}}, "A", "B");
+  const auto lines = compareTrackSets(rows, particles, ours, {}, {.nLayers = 3, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}}}, "A", "B");
   BOOST_TEST(reports(lines, "A fakes: 1; labelled with a primary 100.0 %"));
   BOOST_TEST(reports(lines, "by wrong measurements 1 / 2 / 3 / 4+: 100.0 / 0.0 / 0.0 / 0.0 %"));
   BOOST_TEST(reports(lines, "1 wrong measurements, by layer (%): 0: 0.0 1: 100.0 2: 0.0"));
@@ -290,9 +283,7 @@ BOOST_AUTO_TEST_CASE(ShortTracksAreCountedByTheirLayers)
   // Two good tracks on 0-2, one fake with a hole on layer 2, and the one good
   // track of the full set: none.
   const TrackRows ours{{0, 1, 2}, {3, 4, 5}, {0, 7, 8}};
-  const auto lines = compareTrackSets(
-    rows, particles, ours, {},
-    {.nLayers = 4, .minLayers = 3, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}, {.from = 2, .to = 3}}}, "A", "B");
+  const auto lines = compareTrackSets(rows, particles, ours, {}, {.nLayers = 4, .minLayers = 3, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}, {.from = 2, .to = 3}}}, "A", "B");
   BOOST_TEST(reports(lines, "A: 3 tracks short of a layer, by layers (fake %): 012: 2 (0.0) 013: 1 (100.0)"));
   BOOST_TEST(reports(lines, "B: 0 tracks short of a layer, by layers (fake %):"));
 }
@@ -308,12 +299,9 @@ BOOST_AUTO_TEST_CASE(O2sQADefinitionReadsOnlyTheFirstLabel)
     return row;
   };
   const std::vector<TruthRow> rows{first(row(0, {1})), first(row(1, {1})), first(row(0, {2})), first(row(1, {3, 2}))};
-  const ParticleTable particles{{1, {.pt = 0.05F, .primary = true, .eta = 0.2F, .phi = 1.F}},
-                                {2, {.pt = 0.05F, .primary = true, .eta = -0.7F, .phi = 4.F}},
-                                {3, {.pt = 1.F, .primary = false}}};
+  const ParticleTable particles{{1, {.pt = 0.05F, .primary = true, .eta = 0.2F, .phi = 1.F}}, {2, {.pt = 0.05F, .primary = true, .eta = -0.7F, .phi = 4.F}}, {3, {.pt = 1.F, .primary = false}}};
   const TrackRows ours{{0, 1}, {0, 1}, {2, 3}};
-  const auto lines =
-    compareTrackSets(rows, particles, ours, {}, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
+  const auto lines = compareTrackSets(rows, particles, ours, {}, {.nLayers = 2, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}}}, "A", "B");
   BOOST_TEST(reports(lines, "first labels on all 2 layers, any pT: 1 findable"));
   BOOST_TEST(reports(lines, "A: found 1 (100.00 %), clone tracks 1, with a fake track 0"));
   BOOST_TEST(reports(lines, "on all 2 layers: 0"));
@@ -327,19 +315,16 @@ BOOST_AUTO_TEST_CASE(DecayDaughtersAreSplitByMotherAndProduction)
   // but no three adjacent, found. Particle 3, a pion's in flight at |z| 2 and
   // radius 10 cm, on layers 0-2: findable, not found. Particle 4, a primary,
   // and particle 5, a K0S's below the pT floor, are not decay daughters here.
-  const std::vector<TruthRow> rows{row(2, {1}), row(3, {1}), row(4, {1}), row(0, {2}), row(1, {2}), row(3, {2}), row(4, {2}), row(0, {3}),
-                                   row(1, {3}), row(2, {3}), row(0, {4}), row(1, {4}), row(2, {4}), row(2, {5}), row(3, {5}), row(4, {5})};
-  const ParticleTable particles{{1, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = 211, .motherPdg = 310, .vx = 3.F}},
-                                {2, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = -2212, .motherPdg = -3122, .vx = 0.3F, .vy = 0.4F}},
-                                {3, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = 13, .motherPdg = 211, .vx = 10.F, .vz = -2.F}},
-                                {4, {.pt = 0.5F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}},
-                                {5, {.pt = 0.05F, .origin = ParticleOrigin::kDecay, .pdg = 211, .motherPdg = 310, .vx = 3.F}}};
+  const std::vector<TruthRow> rows{row(2, {1}), row(3, {1}), row(4, {1}), row(0, {2}), row(1, {2}), row(3, {2}), row(4, {2}), row(0, {3}), row(1, {3}), row(2, {3}), row(0, {4}), row(1, {4}), row(2, {4}), row(2, {5}), row(3, {5}), row(4, {5})};
+  const ParticleTable particles{{1, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = 211, .motherPdg = 310, .vx = 3.F}}, {2, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = -2212, .motherPdg = -3122, .vx = 0.3F, .vy = 0.4F}}, {3, {.pt = 0.5F, .origin = ParticleOrigin::kDecay, .pdg = 13, .motherPdg = 211, .vx = 10.F, .vz = -2.F}}, {4, {.pt = 0.5F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}}, {5, {.pt = 0.05F, .origin = ParticleOrigin::kDecay, .pdg = 211, .motherPdg = 310, .vx = 3.F}}};
   const TrackRows tracks{{0, 1, 2}, {3, 4, 5, 6}, {10, 11, 12}};
-  ComparisonSettings settings{.nLayers = 5,
-                              .minLayers = 3,
-                              .minPtGeV = 0.1,
-                              .productionEdges = {1., 5.},
-                              .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}, {.from = 2, .to = 3}, {.from = 3, .to = 4}}};
+  ComparisonSettings settings{
+    .nLayers = 5,
+    .minLayers = 3,
+    .minPtGeV = 0.1,
+    .productionEdges = {1., 5.},
+    .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}, {.from = 2, .to = 3}, {.from = 3, .to = 4}},
+  };
 
   const auto score = scoreTracks(rows, particles, tracks, settings);
   const auto counts = [&](DecayFamily family, std::size_t bin) {

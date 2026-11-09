@@ -60,8 +60,7 @@ void runTrig(DeviceRuntime& runtime, DeviceStream& stream, const double* ys, con
   checkLaunch();
 }
 
-StageStatus runSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements,
-                         std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
+StageStatus runSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
 {
   GpuStage<TrackletT> stage{runtime, arena, stream};
   DeviceStageOutput<TrackletT> output;
@@ -87,8 +86,7 @@ struct ListedSynthetic {
   GPUdi() bool operator()(std::uint32_t element) const { return count(element) != 0U || element % 3U == 0U; }
 };
 
-StageStatus runSyntheticListed(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements,
-                               std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
+StageStatus runSyntheticListed(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
 {
   GpuStage<TrackletT> stage{runtime, arena, stream};
   DeviceStageOutput<TrackletT> output;
@@ -99,8 +97,7 @@ StageStatus runSyntheticListed(DeviceRuntime& runtime, DeviceStream& stream, Dev
   auto scratch = arena.scope(ArenaEnd::kScratch);
   DeviceSpan<std::uint32_t> listed;
   std::uint32_t listedCount = 0U;
-  StageStatus status =
-    algorithms::selectIndices(runtime, arena, stream, elements, ListedSynthetic{.count = {.kind = kind}}, listed, listedCount, ArenaEnd::kScratch);
+  StageStatus status = algorithms::selectIndices(runtime, arena, stream, elements, ListedSynthetic{.count = {.kind = kind}}, listed, listedCount, ArenaEnd::kScratch);
   if (status != StageStatus::kComplete) {
     return status;
   }
@@ -142,10 +139,7 @@ struct FlatSynthetic {
     const std::uint32_t k = pair.row - (element * 1000U);
     return k < counter(element) && accept(pair.row);
   }
-  [[nodiscard]] GPUdi() Tracklet emit(std::uint32_t, const flat::CandidatePair& pair, std::uint32_t element) const
-  {
-    return synthetic::syntheticRecord(element, pair.row - (element * 1000U));
-  }
+  [[nodiscard]] GPUdi() Tracklet emit(std::uint32_t, const flat::CandidatePair& pair, std::uint32_t element) const { return synthetic::syntheticRecord(element, pair.row - (element * 1000U)); }
   [[nodiscard]] bool beginChunk(DeviceArena& arena, std::uint32_t begin, std::uint32_t sources, std::uint32_t)
   {
     sourceBegin = begin;
@@ -165,8 +159,7 @@ struct AllElements {
   GPUdi() bool operator()(std::uint32_t) const { return true; }
 };
 
-StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t divisor,
-                             std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info)
+StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info)
 {
   DeviceStageOutput<TrackletT> output;
   if (!output.prepare(arena, elements)) {
@@ -175,16 +168,12 @@ StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, Devic
   auto scratch = arena.scope(ArenaEnd::kScratch);
   DeviceSpan<std::uint32_t> listed;
   std::uint32_t listedCount = 0U;
-  StageStatus status = listedRun ? algorithms::selectIndices(runtime, arena, stream, elements, ListedSynthetic{.count = {.kind = kind}}, listed, listedCount,
-                                                             ArenaEnd::kScratch)
-                                 : algorithms::selectIndices(runtime, arena, stream, elements, AllElements{}, listed, listedCount, ArenaEnd::kScratch);
+  StageStatus status = listedRun ? algorithms::selectIndices(runtime, arena, stream, elements, ListedSynthetic{.count = {.kind = kind}}, listed, listedCount, ArenaEnd::kScratch) : algorithms::selectIndices(runtime, arena, stream, elements, AllElements{}, listed, listedCount, ArenaEnd::kScratch);
   if (status != StageStatus::kComplete) {
     return status;
   }
   info.listed = listedCount;
-  status = flat::runFlat(runtime, arena, stream, listedCount > 0U ? listed.data() : nullptr, listedCount,
-                         FlatSynthetic{.counter = {.kind = kind}, .accept = {.divisor = divisor}}, output, info.report,
-                         flat::FlatOptions{.maxChunkPairs = maxChunkPairs});
+  status = flat::runFlat(runtime, arena, stream, listedCount > 0U ? listed.data() : nullptr, listedCount, FlatSynthetic{.counter = {.kind = kind}, .accept = {.divisor = divisor}}, output, info.report, flat::FlatOptions{.maxChunkPairs = maxChunkPairs});
   if (status == StageStatus::kComplete) {
     download(output, result, stream);
     stream.synchronize();
@@ -203,8 +192,7 @@ struct PropagateProbe {
     answers[row] = {.after = state, .result = result};
   }
 };
-StageStatus runPropagation(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const PropagationProbe> probes,
-                           std::vector<PropagationAnswer>& answers)
+StageStatus runPropagation(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const PropagationProbe> probes, std::vector<PropagationAnswer>& answers)
 {
   auto scope = arena.scope();
   DeviceSpan<PropagationProbe> inputs;
@@ -220,17 +208,12 @@ StageStatus runPropagation(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   return StageStatus::kComplete;
 }
 
-std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> makeToyBarrel8Tracker(DeviceRuntime& runtime, DeviceBlock arena)
-{
-  return std::make_unique<DeviceTrackerImpl<detectors::ToyBarrel8, UniformMaterial>>(runtime, arena);
-}
+std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> makeToyBarrel8Tracker(DeviceRuntime& runtime, DeviceBlock arena) { return std::make_unique<DeviceTrackerImpl<detectors::ToyBarrel8, UniformMaterial>>(runtime, arena); }
 
 using Toy = detectors::ToyBarrel8;
 constexpr std::size_t kToyLayers = static_cast<std::size_t>(Detector<Toy>::nLayers);
 
-StageStatus runPermutation(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters,
-                           const LayerRowMap<Toy>& sources, const StageOutput<TrackletT>& tracklets, std::span<const std::uint8_t> prefix,
-                           std::span<const std::uint8_t> suffix, std::vector<std::uint32_t>& result)
+StageStatus runPermutation(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters, const LayerRowMap<Toy>& sources, const StageOutput<TrackletT>& tracklets, std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> suffix, std::vector<std::uint32_t>& result)
 {
   auto scope = arena.scope();
   DeviceObject<IterationParameters<Toy>> deviceParameters;
@@ -239,8 +222,7 @@ StageStatus runPermutation(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   DeviceSpan<std::uint32_t> offsets;
   glue::DevicePathBounds paths;
   const auto rows = static_cast<std::uint32_t>(prefix.size());
-  if (!deviceParameters.allocate(arena) || !deviceSources.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) ||
-      !offsets.allocate(arena, tracklets.elementCount() + 1U) || !paths.allocate(arena, rows)) {
+  if (!deviceParameters.allocate(arena) || !deviceSources.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) || !offsets.allocate(arena, tracklets.elementCount() + 1U) || !paths.allocate(arena, rows)) {
     return StageStatus::kOutOfMemory;
   }
   uploadObject(parameters, deviceParameters, stream);
@@ -251,8 +233,7 @@ StageStatus runPermutation(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   upload(suffix.data(), paths.suffix, rows, stream);
   DeviceSpan<std::uint32_t> permutation;
   std::uint32_t size = 0U;
-  const auto status = glue::permutation<Toy>(runtime, arena, stream, std::as_const(deviceTracklets).view(), tracklets.size(), deviceParameters.data(),
-                                             deviceSources.data(), permutation, size, offsets.data(), paths.view(parameters.minClusters));
+  const auto status = glue::permutation<Toy>(runtime, arena, stream, std::as_const(deviceTracklets).view(), tracklets.size(), deviceParameters.data(), deviceSources.data(), permutation, size, offsets.data(), paths.view(parameters.minClusters));
   if (status == StageStatus::kComplete) {
     result.resize(size);
     download(permutation, result.data(), size, stream);
@@ -261,9 +242,7 @@ StageStatus runPermutation(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   return status;
 }
 
-StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters,
-                          const LayerRowMap<Toy>& sources, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets,
-                          std::span<const std::uint32_t> permutation, PathBoundsResult& result)
+StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters, const LayerRowMap<Toy>& sources, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, std::span<const std::uint32_t> permutation, PathBoundsResult& result)
 {
   auto scope = arena.scope();
   DeviceObject<IterationParameters<Toy>> deviceParameters;
@@ -273,9 +252,7 @@ StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   DeviceSpan<std::uint32_t> trackletOffsets;
   DeviceSpan<std::uint32_t> tripletOffsets;
   DeviceSpan<std::uint32_t> firsts;
-  if (!deviceParameters.allocate(arena) || !deviceSources.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) ||
-      !deviceTriplets.allocate(arena, triplets.size()) || !trackletOffsets.allocate(arena, tracklets.elementCount() + 1U) ||
-      !tripletOffsets.allocate(arena, triplets.elementCount() + 1U) || !firsts.allocate(arena, permutation.size())) {
+  if (!deviceParameters.allocate(arena) || !deviceSources.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) || !deviceTriplets.allocate(arena, triplets.size()) || !trackletOffsets.allocate(arena, tracklets.elementCount() + 1U) || !tripletOffsets.allocate(arena, triplets.elementCount() + 1U) || !firsts.allocate(arena, permutation.size())) {
     return StageStatus::kOutOfMemory;
   }
   uploadObject(parameters, deviceParameters, stream);
@@ -287,21 +264,17 @@ StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   upload(permutation.data(), firsts, permutation.size(), stream);
   glue::DevicePathBounds measurements;
   glue::DevicePathBounds accepted;
-  auto status = glue::trackletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(),
-                                         trackletOffsets.data(), measurements);
+  auto status = glue::trackletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(), trackletOffsets.data(), measurements);
   if (status != StageStatus::kComplete) {
     return status;
   }
   DeviceSpan<std::uint32_t> pruned;
   std::uint32_t size = 0U;
-  status = glue::permutation<Toy>(runtime, arena, stream, std::as_const(deviceTracklets).view(), tracklets.size(), deviceParameters.data(),
-                                  deviceSources.data(), pruned, size, trackletOffsets.data(), measurements.view(parameters.minClusters));
+  status = glue::permutation<Toy>(runtime, arena, stream, std::as_const(deviceTracklets).view(), tracklets.size(), deviceParameters.data(), deviceSources.data(), pruned, size, trackletOffsets.data(), measurements.view(parameters.minClusters));
   if (status != StageStatus::kComplete) {
     return status;
   }
-  status = glue::tripletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(), tracklets.size(),
-                                   trackletOffsets.data(), std::as_const(deviceTriplets).view(), tripletOffsets.data(), firsts.data(), permutation.size(),
-                                   accepted);
+  status = glue::tripletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(), tracklets.size(), trackletOffsets.data(), std::as_const(deviceTriplets).view(), tripletOffsets.data(), firsts.data(), permutation.size(), accepted);
   if (status == StageStatus::kComplete) {
     result.measurementPrefix.resize(sources.size());
     result.measurementSuffix.resize(sources.size());
@@ -318,8 +291,7 @@ StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   return status;
 }
 
-StageStatus runEndIndex(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TripletT>& triplets, std::uint32_t trackletCount,
-                        std::vector<std::uint32_t>& offsets, std::vector<std::uint32_t>& indices)
+StageStatus runEndIndex(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TripletT>& triplets, std::uint32_t trackletCount, std::vector<std::uint32_t>& offsets, std::vector<std::uint32_t>& indices)
 {
   auto scope = arena.scope();
   DeviceColumns<TripletT> deviceTriplets;
@@ -329,8 +301,7 @@ StageStatus runEndIndex(DeviceRuntime& runtime, DeviceStream& stream, DeviceAren
   upload<TripletT>(triplets.view(), triplets.size(), deviceTriplets, stream);
   DeviceSpan<std::uint32_t> deviceOffsets;
   DeviceSpan<std::uint32_t> deviceIndices;
-  const auto status =
-    glue::endIndex(runtime, arena, stream, std::as_const(deviceTriplets).view(), triplets.size(), trackletCount, deviceOffsets, deviceIndices);
+  const auto status = glue::endIndex(runtime, arena, stream, std::as_const(deviceTriplets).view(), triplets.size(), trackletCount, deviceOffsets, deviceIndices);
   if (status == StageStatus::kComplete) {
     offsets.resize(std::size_t{trackletCount} + 1U);
     indices.resize(triplets.size());
@@ -341,8 +312,7 @@ StageStatus runEndIndex(DeviceRuntime& runtime, DeviceStream& stream, DeviceAren
   return status;
 }
 
-StageStatus runChained(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint32_t> neighbourOffsets,
-                       std::vector<std::uint32_t>& result)
+StageStatus runChained(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint32_t> neighbourOffsets, std::vector<std::uint32_t>& result)
 {
   auto scope = arena.scope();
   DeviceSpan<std::uint32_t> deviceOffsets;
@@ -370,8 +340,7 @@ struct SelectByMask {
   GPUdi() bool operator()(std::uint32_t index) const { return mask[index] != 0U; }
 };
 
-StageStatus runSelectIndices(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint8_t> mask,
-                             std::vector<std::uint32_t>& result)
+StageStatus runSelectIndices(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint8_t> mask, std::vector<std::uint32_t>& result)
 {
   auto scope = arena.scope();
   DeviceSpan<std::uint8_t> deviceMask;
@@ -381,8 +350,7 @@ StageStatus runSelectIndices(DeviceRuntime& runtime, DeviceStream& stream, Devic
   upload(mask.data(), deviceMask, mask.size(), stream);
   DeviceSpan<std::uint32_t> selected;
   std::uint32_t count = 0U;
-  const auto status =
-    algorithms::selectIndices(runtime, arena, stream, static_cast<std::uint32_t>(mask.size()), SelectByMask{.mask = deviceMask.data()}, selected, count);
+  const auto status = algorithms::selectIndices(runtime, arena, stream, static_cast<std::uint32_t>(mask.size()), SelectByMask{.mask = deviceMask.data()}, selected, count);
   if (status == StageStatus::kComplete) {
     result.resize(count);
     download(selected, result.data(), count, stream);
@@ -410,17 +378,9 @@ StageStatus runScan(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& a
   return status;
 }
 
-StageStatus runScan32(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint32_t> input,
-                      std::vector<std::uint32_t>& result)
-{
-  return runScan(runtime, stream, arena, input, result);
-}
+StageStatus runScan32(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint32_t> input, std::vector<std::uint32_t>& result) { return runScan(runtime, stream, arena, input, result); }
 
-StageStatus runScan64(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint64_t> input,
-                      std::vector<std::uint64_t>& result)
-{
-  return runScan(runtime, stream, arena, input, result);
-}
+StageStatus runScan64(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::span<const std::uint64_t> input, std::vector<std::uint64_t>& result) { return runScan(runtime, stream, arena, input, result); }
 
 /// One pass of the chain: value i rises to value i-1 plus one.
 struct ChainStep {
@@ -445,9 +405,7 @@ struct ChainStep {
   }
 };
 
-StageStatus runSweepChain(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::uint32_t length, std::uint32_t threshold,
-                          std::uint32_t maxChangingSweeps, std::vector<std::uint32_t>& values, std::array<std::uint32_t, 2>& flags,
-                          std::uint32_t& changingSweeps)
+StageStatus runSweepChain(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::uint32_t length, std::uint32_t threshold, std::uint32_t maxChangingSweeps, std::vector<std::uint32_t>& values, std::array<std::uint32_t, 2>& flags, std::uint32_t& changingSweeps)
 {
   if (length == 0U) {
     throw std::invalid_argument("a chain has at least one value");
@@ -460,9 +418,7 @@ StageStatus runSweepChain(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   runtime.fill(deviceValues.data(), 0U, std::size_t{length} * sizeof(std::uint32_t), stream);
   const std::uint32_t one = 1U;
   upload(&one, deviceValues, 1U, stream);
-  const auto swept = algorithms::sweepToFixedPoint<2U>(runtime, arena, stream, maxChangingSweeps, [&](std::uint32_t* deviceFlags) {
-    algorithms::forEach(runtime, stream, length - 1U, ChainStep{.values = deviceValues.data(), .threshold = threshold, .flags = deviceFlags});
-  });
+  const auto swept = algorithms::sweepToFixedPoint<2U>(runtime, arena, stream, maxChangingSweeps, [&](std::uint32_t* deviceFlags) { algorithms::forEach(runtime, stream, length - 1U, ChainStep{.values = deviceValues.data(), .threshold = threshold, .flags = deviceFlags}); });
   flags = swept.flags;
   changingSweeps = swept.changingSweeps;
   values.resize(length);
@@ -471,8 +427,7 @@ StageStatus runSweepChain(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   return swept.status;
 }
 
-StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::size_t sourceOffset,
-                           std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination)
+StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::size_t sourceOffset, std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination)
 {
   auto scope = arena.scope();
   DeviceColumns<TrackletT> from;
@@ -491,14 +446,12 @@ StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   destination.resize(destinationRows);
   const auto view = host.view();
   for (std::size_t row = 0; row < destinationRows; ++row) {
-    destination[row] =
-      Tracklet{.source = view.source[row], .target = view.target[row], .link = view.link[row], .lambda = view.lambda[row], .phi = view.phi[row]};
+    destination[row] = Tracklet{.source = view.source[row], .target = view.target[row], .link = view.link[row], .lambda = view.lambda[row], .phi = view.phi[row]};
   }
   return StageStatus::kComplete;
 }
 
-bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source,
-                     std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered)
+bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered)
 {
   auto base = arena.scope();
   DeviceColumns<TrackletT> from;
@@ -540,8 +493,7 @@ GPUg() void readToyFlatObject(const ToyFlatObject* object, std::int32_t* values)
   }
 }
 
-bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyFlatObject& host, std::vector<std::int32_t>& readBack,
-                   std::vector<std::int32_t>& moved)
+bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyFlatObject& host, std::vector<std::int32_t>& readBack, std::vector<std::int32_t>& moved)
 {
   DeviceFlatObject<ToyFlatObject> object;
   const auto count = static_cast<std::size_t>(host.count());
@@ -593,9 +545,7 @@ struct CountAtLevel {
   }
 };
 
-StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters,
-                               const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours,
-                               const std::array<MeasurementRange, kToyLayers>& core, RoadGlueResult& result)
+StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours, const std::array<MeasurementRange, kToyLayers>& core, RoadGlueResult& result)
 {
   auto scope = arena.scope();
   const auto tripletCount = triplets.size();
@@ -605,8 +555,7 @@ StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, Dev
   DeviceSpan<std::uint32_t> offsets;
   DeviceColumns<NeighbourT> from;
   DeviceSpan<MeasurementRange> deviceCore;
-  if (!deviceParameters.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) || !deviceTriplets.allocate(arena, tripletCount) ||
-      !offsets.allocate(arena, neighbours.offsets().size()) || !from.allocate(arena, neighbours.size()) || !deviceCore.allocate(arena, kToyLayers)) {
+  if (!deviceParameters.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) || !deviceTriplets.allocate(arena, tripletCount) || !offsets.allocate(arena, neighbours.offsets().size()) || !from.allocate(arena, neighbours.size()) || !deviceCore.allocate(arena, kToyLayers)) {
     return StageStatus::kOutOfMemory;
   }
   uploadObject(parameters, deviceParameters, stream);
@@ -629,9 +578,7 @@ StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, Dev
   }
   for (int attempt = 0; attempt < 2; ++attempt) {
     for (std::uint32_t level = 1U; level <= highest; ++level) {
-      algorithms::forEach(runtime, stream, tripletCount,
-                          CountAtLevel{std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), offsets.data(),
-                                       std::as_const(from).view().from, counts.view(road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data()), level});
+      algorithms::forEach(runtime, stream, tripletCount, CountAtLevel{std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), offsets.data(), std::as_const(from).view().from, counts.view(road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data()), level});
     }
   }
   status = counts.summarize(runtime, stream, std::as_const(deviceTriplets).view(), tripletCount, result.chained);
@@ -643,8 +590,7 @@ StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, Dev
   }
   DeviceSpan<std::uint32_t> starts;
   std::uint32_t startCount = 0U;
-  status = road_glue::roadStarts(runtime, arena, stream, std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), tripletCount,
-                                 successorAbove.data(), roads.data(), road_glue::roadStartRuleOf(deviceParameters.data(), parameters), starts, startCount);
+  status = road_glue::roadStarts(runtime, arena, stream, std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), tripletCount, successorAbove.data(), roads.data(), road_glue::roadStartRuleOf(deviceParameters.data(), parameters), starts, startCount);
   if (status != StageStatus::kComplete) {
     stream.synchronize();
     return status;
@@ -668,8 +614,7 @@ StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, Dev
   return StageStatus::kComplete;
 }
 
-StageStatus runSelectionGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyBarrel8Records& records,
-                             std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result)
+StageStatus runSelectionGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result)
 {
   result = {};
   auto scope = arena.scope();
@@ -682,8 +627,7 @@ StageStatus runSelectionGlue(DeviceRuntime& runtime, DeviceStream& stream, Devic
   upload<SelectionRecordOf<kToyBarrel8Clusters>::RecordT>(records.view(), count, deviceRecords, stream);
   upload(mask.data(), deviceMask, mask.size(), stream);
   selection_glue::Selected selected;
-  const StageStatus status = selection_glue::select<kToyBarrel8Clusters>(runtime, arena, stream, std::as_const(deviceRecords).view(), count, deviceMask.data(),
-                                                                         static_cast<std::uint32_t>(mask.size()), sharedInnermost, selected);
+  const StageStatus status = selection_glue::select<kToyBarrel8Clusters>(runtime, arena, stream, std::as_const(deviceRecords).view(), count, deviceMask.data(), static_cast<std::uint32_t>(mask.size()), sharedInnermost, selected);
   stream.synchronize();
   result.scratchAfter = arena.used(ArenaEnd::kScratch);
   if (status != StageStatus::kComplete) {
@@ -718,16 +662,14 @@ GPUg() void matBudgetKernel(const o2::base::MatLayerCylSet* lut, const float* se
   }
 }
 
-StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const o2::base::MatLayerCylSet& lut,
-                          std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 3>>& result)
+StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 3>>& result)
 {
   auto scope = arena.scope();
   DeviceFlatObject<o2::base::MatLayerCylSet> device;
   DeviceSpan<float> deviceSegments;
   DeviceSpan<float> deviceResult;
   const auto count = static_cast<std::uint32_t>(segments.size());
-  if (!device.upload(arena, lut, stream) || !deviceSegments.allocate(arena, 6U * std::size_t{count}) ||
-      !deviceResult.allocate(arena, 3U * std::size_t{count})) {
+  if (!device.upload(arena, lut, stream) || !deviceSegments.allocate(arena, 6U * std::size_t{count}) || !deviceResult.allocate(arena, 3U * std::size_t{count})) {
     return StageStatus::kOutOfMemory;
   }
   upload(segments.data()->data(), deviceSegments, 6U * std::size_t{count}, stream);
@@ -753,8 +695,7 @@ struct LaneGroupBody {
   }
 };
 
-StageStatus runLaneGroups(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::uint32_t lanes, std::uint32_t items,
-                          std::vector<std::uint64_t>& result)
+StageStatus runLaneGroups(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, std::uint32_t lanes, std::uint32_t items, std::vector<std::uint64_t>& result)
 {
   auto scope = arena.scope();
   DeviceSpan<std::uint64_t> folded;
@@ -802,53 +743,57 @@ namespace o2::gtrk
 #ifdef GTRK_BACKEND_HIP
 const DeviceTestEntry* testKernelsHIP()
 {
-  static const DeviceTestEntry entry{.trig = &gpu::hip::runTrig,
-                                     .runSynthetic = &gpu::hip::runSynthetic,
-                                     .runSyntheticListed = &gpu::hip::runSyntheticListed,
-                                     .runFlatSynthetic = &gpu::hip::runFlatSynthetic,
-                                     .makeToyBarrel8Tracker = &gpu::hip::makeToyBarrel8Tracker,
-                                     .permutation = &gpu::hip::runPermutation,
-                                     .pathBounds = &gpu::hip::runPathBounds,
-                                     .endIndex = &gpu::hip::runEndIndex,
-                                     .chained = &gpu::hip::runChained,
-                                     .selectIndices = &gpu::hip::runSelectIndices,
-                                     .scan32 = &gpu::hip::runScan32,
-                                     .scan64 = &gpu::hip::runScan64,
-                                     .sweepChain = &gpu::hip::runSweepChain,
-                                     .copyColumns = &gpu::hip::runCopyColumns,
-                                     .gatherChunks = &gpu::hip::runGatherChunks,
-                                     .flatObject = &gpu::hip::runFlatObject,
-                                     .matBudgets = &gpu::hip::runMatBudgets,
-                                     .selectionGlue = &gpu::hip::runSelectionGlue,
-                                     .propagation = &gpu::hip::runPropagation,
-                                     .laneGroups = &gpu::hip::runLaneGroups,
-                                     .orderedRoadGlue = &gpu::hip::runOrderedRoadGlue};
+  static const DeviceTestEntry entry{
+    .trig = &gpu::hip::runTrig,
+    .runSynthetic = &gpu::hip::runSynthetic,
+    .runSyntheticListed = &gpu::hip::runSyntheticListed,
+    .runFlatSynthetic = &gpu::hip::runFlatSynthetic,
+    .makeToyBarrel8Tracker = &gpu::hip::makeToyBarrel8Tracker,
+    .permutation = &gpu::hip::runPermutation,
+    .pathBounds = &gpu::hip::runPathBounds,
+    .endIndex = &gpu::hip::runEndIndex,
+    .chained = &gpu::hip::runChained,
+    .selectIndices = &gpu::hip::runSelectIndices,
+    .scan32 = &gpu::hip::runScan32,
+    .scan64 = &gpu::hip::runScan64,
+    .sweepChain = &gpu::hip::runSweepChain,
+    .copyColumns = &gpu::hip::runCopyColumns,
+    .gatherChunks = &gpu::hip::runGatherChunks,
+    .flatObject = &gpu::hip::runFlatObject,
+    .matBudgets = &gpu::hip::runMatBudgets,
+    .selectionGlue = &gpu::hip::runSelectionGlue,
+    .propagation = &gpu::hip::runPropagation,
+    .laneGroups = &gpu::hip::runLaneGroups,
+    .orderedRoadGlue = &gpu::hip::runOrderedRoadGlue,
+  };
   return &entry;
 }
 #else
 const DeviceTestEntry* testKernelsCUDA()
 {
-  static const DeviceTestEntry entry{.trig = &gpu::cuda::runTrig,
-                                     .runSynthetic = &gpu::cuda::runSynthetic,
-                                     .runSyntheticListed = &gpu::cuda::runSyntheticListed,
-                                     .runFlatSynthetic = &gpu::cuda::runFlatSynthetic,
-                                     .makeToyBarrel8Tracker = &gpu::cuda::makeToyBarrel8Tracker,
-                                     .permutation = &gpu::cuda::runPermutation,
-                                     .pathBounds = &gpu::cuda::runPathBounds,
-                                     .endIndex = &gpu::cuda::runEndIndex,
-                                     .chained = &gpu::cuda::runChained,
-                                     .selectIndices = &gpu::cuda::runSelectIndices,
-                                     .scan32 = &gpu::cuda::runScan32,
-                                     .scan64 = &gpu::cuda::runScan64,
-                                     .sweepChain = &gpu::cuda::runSweepChain,
-                                     .copyColumns = &gpu::cuda::runCopyColumns,
-                                     .gatherChunks = &gpu::cuda::runGatherChunks,
-                                     .flatObject = &gpu::cuda::runFlatObject,
-                                     .matBudgets = &gpu::cuda::runMatBudgets,
-                                     .selectionGlue = &gpu::cuda::runSelectionGlue,
-                                     .propagation = &gpu::cuda::runPropagation,
-                                     .laneGroups = &gpu::cuda::runLaneGroups,
-                                     .orderedRoadGlue = &gpu::cuda::runOrderedRoadGlue};
+  static const DeviceTestEntry entry{
+    .trig = &gpu::cuda::runTrig,
+    .runSynthetic = &gpu::cuda::runSynthetic,
+    .runSyntheticListed = &gpu::cuda::runSyntheticListed,
+    .runFlatSynthetic = &gpu::cuda::runFlatSynthetic,
+    .makeToyBarrel8Tracker = &gpu::cuda::makeToyBarrel8Tracker,
+    .permutation = &gpu::cuda::runPermutation,
+    .pathBounds = &gpu::cuda::runPathBounds,
+    .endIndex = &gpu::cuda::runEndIndex,
+    .chained = &gpu::cuda::runChained,
+    .selectIndices = &gpu::cuda::runSelectIndices,
+    .scan32 = &gpu::cuda::runScan32,
+    .scan64 = &gpu::cuda::runScan64,
+    .sweepChain = &gpu::cuda::runSweepChain,
+    .copyColumns = &gpu::cuda::runCopyColumns,
+    .gatherChunks = &gpu::cuda::runGatherChunks,
+    .flatObject = &gpu::cuda::runFlatObject,
+    .matBudgets = &gpu::cuda::runMatBudgets,
+    .selectionGlue = &gpu::cuda::runSelectionGlue,
+    .propagation = &gpu::cuda::runPropagation,
+    .laneGroups = &gpu::cuda::runLaneGroups,
+    .orderedRoadGlue = &gpu::cuda::runOrderedRoadGlue,
+  };
   return &entry;
 }
 #endif

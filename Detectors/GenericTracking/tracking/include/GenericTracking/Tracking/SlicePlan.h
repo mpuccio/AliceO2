@@ -172,12 +172,14 @@ struct SlicePlan {
   /// gate's core ranges pointing into this plan, which must outlive them.
   [[nodiscard]] TrackletInputs<Det> inputs(const IterationParameters<Det>& parameters, const std::array<std::uint32_t, kLayerCount>& maxCandidateWidthPS) const
   {
-    return {.parameters = &parameters,
-            .sources = &sources,
-            .targetBlocks = slice.haloBlocks,
-            .maxCandidateWidthPS = maxCandidateWidthPS,
-            .gate = {.core = slice.core.data(), .earliestPS = gateEarliestPS, .latestPS = gateLatestPS},
-            .halo = slice.halo};
+    return {
+      .parameters = &parameters,
+      .sources = &sources,
+      .targetBlocks = slice.haloBlocks,
+      .maxCandidateWidthPS = maxCandidateWidthPS,
+      .gate = {.core = slice.core.data(), .earliestPS = gateEarliestPS, .latestPS = gateLatestPS},
+      .halo = slice.halo,
+    };
   }
 };
 
@@ -254,9 +256,7 @@ struct TimeframePlan {
 /// from; \a beamLine the seed a beam-line iteration reads; \a vertices the
 /// timeframe's vertex list, sorted by time.
 template <DetectorLayout Det>
-[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, std::span<const IterationParameters<Det>> iterations,
-                                               std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine,
-                                               std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks, std::int64_t configuredHaloPS)
+[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, std::span<const IterationParameters<Det>> iterations, std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks, std::int64_t configuredHaloPS)
 {
   if (windowSettings.size() != iterations.size()) {
     throw std::invalid_argument("planTimeframe needs one window setting per iteration");

@@ -55,9 +55,7 @@ class NeighbourStage
 
   // The delegating constructor retains this output for later level writes.
   // NOLINTBEGIN(readability-non-const-parameter)
-  NeighbourStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const StageOutput<TrackletT>& tracklets,
-                 const StageOutput<TripletT>& triplets, const TripletEndIndex& ending, TrackletPathBounds paths, std::uint32_t* readyLevels = nullptr,
-                 OrderedRoadCounts roadCounts = {})
+  NeighbourStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const TripletEndIndex& ending, TrackletPathBounds paths, std::uint32_t* readyLevels = nullptr, OrderedRoadCounts roadCounts = {})
     : NeighbourStage(&parameters, &frame, tracklets.view(), triplets.view(), ending.offsets(), ending.triplets(), paths, readyLevels, roadCounts)
   {
   }
@@ -66,9 +64,7 @@ class NeighbourStage
   /// The same stage over inputs wherever they are -- a device's copies:
   /// every argument is only stored. The end
   /// index is `trackletCount + 1` offsets and the triplet indices they delimit.
-  NeighbourStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, TrackletConstView tracklets, TripletConstView triplets,
-                 const Index* endOffsets, const Index* endTriplets, TrackletPathBounds paths, std::uint32_t* readyLevels = nullptr,
-                 OrderedRoadCounts roadCounts = {})
+  NeighbourStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, TrackletConstView tracklets, TripletConstView triplets, const Index* endOffsets, const Index* endTriplets, TrackletPathBounds paths, std::uint32_t* readyLevels = nullptr, OrderedRoadCounts roadCounts = {})
     : mParameters(parameters),
       mFrame(frame),
       mTracklets(tracklets),
@@ -153,8 +149,7 @@ class NeighbourStage
         const Index first = mTriplets.first[from];
         const auto a = timedPointAt(columns, mTracklets.source[first]);
         TripletFitResult fit;
-        if (!neighbourCompatible(*mParameters, secondLayer, thirdLayer, a, b, c, d, terms, termsMade, termsValid, fit,
-                                 fromKinked ? mParameters->graphKinkScale2 : 1.F, thirdScale)) {
+        if (!neighbourCompatible(*mParameters, secondLayer, thirdLayer, a, b, c, d, terms, termsMade, termsValid, fit, fromKinked ? mParameters->graphKinkScale2 : 1.F, thirdScale)) {
           continue;
         }
         emitter.emit(Neighbour{.from = from});

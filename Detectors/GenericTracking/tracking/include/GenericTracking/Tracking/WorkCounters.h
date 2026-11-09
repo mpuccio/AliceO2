@@ -198,8 +198,7 @@ inline thread_local bool tFollowGrid = false;
 inline void countGridWork(WorkCounter counter, std::uint64_t amount = 1U)
 {
   if (detail::tFollowGrid) {
-    counter = static_cast<WorkCounter>(static_cast<std::size_t>(WorkCounter::kFollowGridQueries) + static_cast<std::size_t>(counter) -
-                                       static_cast<std::size_t>(WorkCounter::kGridQueries));
+    counter = static_cast<WorkCounter>(static_cast<std::size_t>(WorkCounter::kFollowGridQueries) + static_cast<std::size_t>(counter) - static_cast<std::size_t>(WorkCounter::kGridQueries));
   }
   countWork(counter, amount);
 }

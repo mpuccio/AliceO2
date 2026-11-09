@@ -378,8 +378,7 @@ struct IterationParameters {
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool vertexUsable(const IterationParameters<Det>& parameters, const TimeEstPS& source, const VertexSeed& vertex)
 {
-  if (parameters.vertexSource == VertexSource::kVertexList &&
-      o2::gpu::CAMath::Abs(vertex.z - parameters.vertexZCentre) + (parameters.pairCut.nSigma * o2::gpu::CAMath::Sqrt(vertex.varZ)) > parameters.vertexZReach) {
+  if (parameters.vertexSource == VertexSource::kVertexList && o2::gpu::CAMath::Abs(vertex.z - parameters.vertexZCentre) + (parameters.pairCut.nSigma * o2::gpu::CAMath::Sqrt(vertex.varZ)) > parameters.vertexZReach) {
     return false;
   }
   return vertexTimeCompatible(source, TimeEstPS{.start = vertex.timePS, .width = vertex.widthPS});
@@ -398,8 +397,7 @@ struct VertexWindowParameters {
 /// admits and with the pair cut's scattering table. \a settings are the ones
 /// \a parameters were derived from.
 template <DetectorLayout Det>
-[[nodiscard]] inline VertexWindowParameters<Det> vertexWindowParameters(const IterationParameters<Det>& parameters, const SearchWindowParams& settings,
-                                                                        std::span<const VertexSeed> vertices)
+[[nodiscard]] inline VertexWindowParameters<Det> vertexWindowParameters(const IterationParameters<Det>& parameters, const SearchWindowParams& settings, std::span<const VertexSeed> vertices)
 {
   double maxSigmaZ = 0.;
   double maxSigmaTransverse = 0.;
@@ -476,8 +474,7 @@ template <DetectorLayout Det>
 /// and table with equal `settings.windows`: the links' windows and bounds
 /// depend on those alone and are taken from it instead of derived again.
 template <DetectorLayout Det>
-[[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot,
-                                                                  const ScatteringTable<Det>& scattering, const IterationParameters<Det>* alike = nullptr)
+[[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, const IterationParameters<Det>* alike = nullptr)
 {
   if (settings.windows.impactMax > 0. && (settings.vertexSource != VertexSource::kBeamLine || !(settings.windows.impactZMax > 0.))) {
     throw std::invalid_argument("a displaced iteration (impactMax > 0) needs the beam line as its vertex and a z bound (impactZMax > 0)");

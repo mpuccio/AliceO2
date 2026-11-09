@@ -29,10 +29,7 @@ DeviceArena::DeviceArena(DeviceRuntime& runtime, DeviceBlock block) : mRuntime(&
   }
 }
 
-DeviceAllocation DeviceArena::refuse(std::size_t bytes, ArenaEnd end)
-{
-  return {.data = nullptr, .bytes = bytes, .tag = currentTag(end)};
-}
+DeviceAllocation DeviceArena::refuse(std::size_t bytes, ArenaEnd end) { return {.data = nullptr, .bytes = bytes, .tag = currentTag(end)}; }
 
 DeviceAllocation DeviceArena::allocate(std::size_t bytes, std::size_t alignment, ArenaEnd end)
 {
@@ -139,7 +136,10 @@ void DeviceArena::closeScope(ArenaEnd end, std::size_t depth, std::uint64_t seri
 ArenaScope::~ArenaScope() { close(); }
 
 ArenaScope::ArenaScope(ArenaScope&& other) noexcept
-  : mArena(std::exchange(other.mArena, nullptr)), mEnd(other.mEnd), mDepth(other.mDepth), mSerial(other.mSerial)
+  : mArena(std::exchange(other.mArena, nullptr)),
+    mEnd(other.mEnd),
+    mDepth(other.mDepth),
+    mSerial(other.mSerial)
 {
 }
 

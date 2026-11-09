@@ -41,18 +41,17 @@ inline void addRecoOptions(std::vector<o2::framework::ConfigParamSpec>& options,
   using o2::framework::VariantType;
   options.push_back(ConfigParamSpec{"disable-mc", VariantType::Bool, false, {"do not propagate MC labels"}});
   options.push_back(ConfigParamSpec{"configKeyValues", VariantType::String, "", {"semicolon separated key=value strings"}});
-  options.push_back(
-    ConfigParamSpec{"clusters-from-upstream", VariantType::Bool, false, {"the clusters from the workflow before this one in the pipe, not O2's readers"}});
-  options.push_back(
-    ConfigParamSpec{"vertices-from-upstream", VariantType::Bool, false, {"the native vertex seeds (GTRK/<DET>VERTICES) from the workflow before this one in the pipe"}});
+  options.push_back(ConfigParamSpec{"clusters-from-upstream", VariantType::Bool, false, {"the clusters from the workflow before this one in the pipe, not O2's readers"}});
+  options.push_back(ConfigParamSpec{"vertices-from-upstream", VariantType::Bool, false, {"the native vertex seeds (GTRK/<DET>VERTICES) from the workflow before this one in the pipe"}});
   if (o2Format) {
     options.push_back(ConfigParamSpec{"disable-adaptor", VariantType::Bool, false, {"only the native tracks and vertices (GTRK/<DET>...), not O2's formats nor their files"}});
     options.push_back(ConfigParamSpec{"disable-root-output", VariantType::Bool, false, {"O2's formats without O2's writers"}});
-    options.push_back(ConfigParamSpec{"tracking-in-gpu-reco", VariantType::Bool, false,
+    options.push_back(ConfigParamSpec{"tracking-in-gpu-reco",
+                                      VariantType::Bool,
+                                      false,
                                       {"the tracking runs inside o2-gpu-reco-workflow (--output-type gtrk-<det>-tracks), on the TPC's GPU: only the converter and "
                                        "the producer, before it in the pipe; the adaptor after it (--adaptor-only)"}});
-    options.push_back(ConfigParamSpec{"adaptor-only", VariantType::Bool, false,
-                                      {"only the adaptor (and O2's writers), after o2-gpu-reco-workflow in the pipe: its tracks, the measurements and clusters from upstream"}});
+    options.push_back(ConfigParamSpec{"adaptor-only", VariantType::Bool, false, {"only the adaptor (and O2's writers), after o2-gpu-reco-workflow in the pipe: its tracks, the measurements and clusters from upstream"}});
   }
   o2::raw::HBFUtilsInitializer::addConfigOption(options, o2::raw::HBFUtilsInitializer::HBFUSrc);
 }
@@ -60,14 +59,8 @@ inline void addRecoOptions(std::vector<o2::framework::ConfigParamSpec>& options,
 /// Whether the tracking runs inside o2-gpu-reco-workflow, this workflow
 /// before it (`--tracking-in-gpu-reco`), or this is the adaptor after it
 /// (`--adaptor-only`). False for a detector without the options.
-[[nodiscard]] inline bool trackingInGPUReco(const o2::framework::ConfigContext& context)
-{
-  return context.options().hasOption("tracking-in-gpu-reco") && context.options().get<bool>("tracking-in-gpu-reco");
-}
-[[nodiscard]] inline bool adaptorOnly(const o2::framework::ConfigContext& context)
-{
-  return context.options().hasOption("adaptor-only") && context.options().get<bool>("adaptor-only");
-}
+[[nodiscard]] inline bool trackingInGPUReco(const o2::framework::ConfigContext& context) { return context.options().hasOption("tracking-in-gpu-reco") && context.options().get<bool>("tracking-in-gpu-reco"); }
+[[nodiscard]] inline bool adaptorOnly(const o2::framework::ConfigContext& context) { return context.options().hasOption("adaptor-only") && context.options().get<bool>("adaptor-only"); }
 
 /// Detector \a Det's tracking: its \a readers (unless `--clusters-from-upstream`),
 /// the converter into our clusters, the measurement producer and the tracker

@@ -25,8 +25,7 @@
 namespace o2::gtrk::alice
 {
 
-std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns,
-                                        const o2::itsmft::TopologyDictionary& dictionary)
+std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary)
 {
   std::vector<LocalCluster> result;
   result.reserve(clusters.size());
@@ -35,12 +34,14 @@ std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterE
   for (const auto& cluster : clusters) {
     const auto read = pattern;
     const auto decoded = o2::itsmft::ioutils::extractClusterData<float>(cluster, pattern, &dictionary);
-    LocalCluster local{.chip = cluster.getSensorID(),
-                       .x = decoded.coordinates.X(),
-                       .z = decoded.coordinates.Z(),
-                       .sigma2X = decoded.sig2Row,
-                       .sigma2Z = decoded.sig2Col,
-                       .nPixels = decoded.nPixels};
+    LocalCluster local{
+      .chip = cluster.getSensorID(),
+      .x = decoded.coordinates.X(),
+      .z = decoded.coordinates.Z(),
+      .sigma2X = decoded.sig2Row,
+      .sigma2Z = decoded.sig2Col,
+      .nPixels = decoded.nPixels,
+    };
     const auto spans = [&local](const o2::itsmft::ClusterPattern& patt) {
       local.rowSpan = static_cast<std::uint8_t>(patt.getRowSpan());
       local.colSpan = static_cast<std::uint8_t>(patt.getColumnSpan());
@@ -59,11 +60,7 @@ std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterE
   return result;
 }
 
-std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames,
-                                std::uint32_t tfFirstOrbit)
-{
-  return detail::toClusters(local, rofs, frames, tfFirstOrbit, kActiveCentreX);
-}
+std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit) { return detail::toClusters(local, rofs, frames, tfFirstOrbit, kActiveCentreX); }
 
 ReadoutFrames readoutFrames(std::span<const o2::itsmft::ROFRecord> rofs) { return detail::readoutFrames(rofs); }
 

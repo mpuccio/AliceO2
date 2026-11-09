@@ -59,10 +59,7 @@ struct Propagator {
   /// kappa = (q/pT) * Bz * B2C, with q/pT = (q/p) / sin(theta). B2C carries
   /// its own sign, which is how the charge convention arrives without being
   /// restated here.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() ExactScalar curvature(ExactScalar qOverP, ExactScalar sinTheta) const
-  {
-    return (qOverP / sinTheta) * static_cast<ExactScalar>(bzKiloGauss) * static_cast<ExactScalar>(constants::math::B2C);
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() ExactScalar curvature(ExactScalar qOverP, ExactScalar sinTheta) const { return (qOverP / sinTheta) * static_cast<ExactScalar>(bzKiloGauss) * static_cast<ExactScalar>(constants::math::B2C); }
 };
 
 /// What a propagation did and how far it went.
@@ -88,8 +85,7 @@ struct PropagationResult {
 /// It takes indices rather than measurements so that a chain which reads its
 /// rows from columns (`RowChain`) is not read for a field that does not look.
 template <typename Geometry, typename Chain>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const Propagator& stepPropagator(const Propagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/,
-                                                                          int /*from*/, int /*to*/)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() const Propagator& stepPropagator(const Propagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
 {
   // The deleted rvalue overload below covers it; clang-tidy does not see that
   // for a template.
@@ -131,8 +127,7 @@ struct PropagationTrig {
 GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, ExactScalar loc0, ExactScalar loc1, ExactScalar global[3])
 {
   for (int i = 0; i < 3; ++i) {
-    global[i] =
-      static_cast<ExactScalar>(surface.origin[i]) + loc0 * static_cast<ExactScalar>(surface.axis0[i]) + loc1 * static_cast<ExactScalar>(surface.axis1[i]);
+    global[i] = static_cast<ExactScalar>(surface.origin[i]) + loc0 * static_cast<ExactScalar>(surface.axis0[i]) + loc1 * static_cast<ExactScalar>(surface.axis1[i]);
   }
 }
 
@@ -143,19 +138,16 @@ GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, Ex
 /// projection. Both origins are floats, so their difference is exact, and what
 /// the solve then carries is a distance between two sensors rather than a
 /// distance from the interaction point.
-GPUhdi() GPUAlwaysInline() void boundDisplacement(const TrackingSurface& from, const TrackingSurface& to, ExactScalar loc0, ExactScalar loc1,
-                                                  ExactScalar delta[3])
+GPUhdi() GPUAlwaysInline() void boundDisplacement(const TrackingSurface& from, const TrackingSurface& to, ExactScalar loc0, ExactScalar loc1, ExactScalar delta[3])
 {
   for (int i = 0; i < 3; ++i) {
-    delta[i] = (static_cast<ExactScalar>(from.origin[i]) - static_cast<ExactScalar>(to.origin[i])) + loc0 * static_cast<ExactScalar>(from.axis0[i]) +
-               loc1 * static_cast<ExactScalar>(from.axis1[i]);
+    delta[i] = (static_cast<ExactScalar>(from.origin[i]) - static_cast<ExactScalar>(to.origin[i])) + loc0 * static_cast<ExactScalar>(from.axis0[i]) + loc1 * static_cast<ExactScalar>(from.axis1[i]);
   }
 }
 
 /// Where a crossing displaced from the target by \a fromTarget + (dxy, dz)
 /// lands in the target plane, as local coordinates.
-GPUhdi() GPUAlwaysInline() void crossingLocal(const TrackingSurface& to, const ExactScalar fromTarget[3], const ExactScalar dxy[2], ExactScalar dz,
-                                              ExactScalar loc[2])
+GPUhdi() GPUAlwaysInline() void crossingLocal(const TrackingSurface& to, const ExactScalar fromTarget[3], const ExactScalar dxy[2], ExactScalar dz, ExactScalar loc[2])
 {
   const ExactScalar d[3] = {fromTarget[0] + dxy[0], fromTarget[1] + dxy[1], fromTarget[2] + dz};
   loc[0] = 0.;
@@ -215,8 +207,7 @@ GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to
 /// (`CrossingRule`); the default takes the first root ahead, and the others
 /// are their own instantiations.
 template <CrossingRule Rule = CrossingRule::kFirstAhead>
-GPUdi() PropagationResult propagate(const Propagator& prop, BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to,
-                                    PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
+GPUdi() PropagationResult propagate(const Propagator& prop, BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
   PropagationResult res;

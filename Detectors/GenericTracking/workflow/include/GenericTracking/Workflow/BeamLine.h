@@ -53,10 +53,7 @@ struct BeamLine {
 
 /// The run's, from its MeanVertex. The slopes are left out, as O2 leaves them:
 /// 2e-4 over the ITS's half length is 30 um, below the width.
-[[nodiscard]] inline BeamLine beamLineOf(const o2::dataformats::MeanVertexObject& object)
-{
-  return {.x = object.getX(), .y = object.getY(), .z = object.getZ(), .sigmaX = object.getSigmaX(), .sigmaY = object.getSigmaY(), .sigmaZ = object.getSigmaZ()};
-}
+[[nodiscard]] inline BeamLine beamLineOf(const o2::dataformats::MeanVertexObject& object) { return {.x = object.getX(), .y = object.getY(), .z = object.getZ(), .sigmaX = object.getSigmaX(), .sigmaY = object.getSigmaY(), .sigmaZ = object.getSigmaZ()}; }
 
 /// The trackers' constraint: z and its width, and across the beam the larger
 /// of the two widths, since the pair test's beam term is a bound. The windows
@@ -65,17 +62,16 @@ struct BeamLine {
 /// reach \a zReachNSigma of the beam's.
 [[nodiscard]] inline VertexConstraint beamSpotConstraint(const BeamLine& beam, double zReachNSigma, double windowNSigma)
 {
-  return {.z = beam.z,
-          .sigmaZ = beam.sigmaZ * zReachNSigma / windowNSigma,
-          .sigmaTransverse = std::max(beam.sigmaX, beam.sigmaY),
-          .x = beam.x,
-          .y = beam.y};
+  return {
+    .z = beam.z,
+    .sigmaZ = beam.sigmaZ * zReachNSigma / windowNSigma,
+    .sigmaTransverse = std::max(beam.sigmaX, beam.sigmaY),
+    .x = beam.x,
+    .y = beam.y,
+  };
 }
 
-[[nodiscard]] inline std::string describe(const BeamLine& beam)
-{
-  return std::format("({:.4f}, {:.4f}, {:.4f}) cm, widths ({:.4f}, {:.4f}, {:.3f}) cm", beam.x, beam.y, beam.z, beam.sigmaX, beam.sigmaY, beam.sigmaZ);
-}
+[[nodiscard]] inline std::string describe(const BeamLine& beam) { return std::format("({:.4f}, {:.4f}, {:.4f}) cm, widths ({:.4f}, {:.4f}, {:.3f}) cm", beam.x, beam.y, beam.z, beam.sigmaX, beam.sigmaY, beam.sigmaZ); }
 
 } // namespace o2::gtrk::workflow
 

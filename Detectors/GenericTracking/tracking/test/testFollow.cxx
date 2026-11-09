@@ -70,8 +70,7 @@ ToyTracks fittedRows(const toybarrel8::Fixture& fixture, const std::vector<std::
   std::ranges::copy(ordered, rows.index);
   const auto count = ordered.size();
   const UniformMaterial material;
-  const auto fit = fitMeasurements(Propagator{}, toybarrel8::trackingGeometry(), material,
-                                   RowChain<toybarrel8::Det>{.frame = fixture.frame.get(), .rows = rows.index}, static_cast<int>(count));
+  const auto fit = fitMeasurements(Propagator{}, toybarrel8::trackingGeometry(), material, RowChain<toybarrel8::Det>{.frame = fixture.frame.get(), .rows = rows.index}, static_cast<int>(count));
   BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
   ToyTracks tracks;
   tracks.setMemoryResource(pool.get());
@@ -143,9 +142,7 @@ IterationParameters<toybarrel8::Det> followParameters(int holes = 0, double kink
 /// \a EndDensity, the ends decided on the last row's density; with
 /// \a BeamEnd, the inward end against the beam line.
 template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
-ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used,
-                        const IterationParameters<toybarrel8::Det>& parameters, const UniformMaterial& material = UniformMaterial{},
-                        follow::KinkSteps* steps = nullptr, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
+ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, const UniformMaterial& material = UniformMaterial{}, follow::KinkSteps* steps = nullptr, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
   std::vector<ToyProposal> proposals(tracks.size());
@@ -153,32 +150,21 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
   // The end decided again starts from the fit without it, a pass of its own.
   std::vector<BoundTrackState> starts(tracks.size());
   if constexpr (DecidesEnd) {
-    const follow::EndFit<toybarrel8::Det, UniformMaterial> fit{.parameters = &parameters,
-                                                               .frame = fixture.frame.get(),
-                                                               .geometry = &toybarrel8::trackingGeometry(),
-                                                               .material = &material,
-                                                               .propagator = Propagator{},
-                                                               .tracks = tracks.view(),
-                                                               .starts = starts.data(),
-                                                               .trackOffset = 0U};
+    const follow::EndFit<toybarrel8::Det, UniformMaterial> fit{
+      .parameters = &parameters,
+      .frame = fixture.frame.get(),
+      .geometry = &toybarrel8::trackingGeometry(),
+      .material = &material,
+      .propagator = Propagator{},
+      .tracks = tracks.view(),
+      .starts = starts.data(),
+      .trackOffset = 0U,
+    };
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       fit(track);
     }
   }
-  const FollowStage<toybarrel8::Det, UniformMaterial, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters,
-                                                                                                               fixture.frame.get(),
-                                                                                                               &toybarrel8::trackingGeometry(),
-                                                                                                               &material,
-                                                                                                               Propagator{},
-                                                                                                               tracks.view(),
-                                                                                                               used.data(),
-                                                                                                               widths.data(),
-                                                                                                               toyCells().view(),
-                                                                                                               proposals.data(),
-                                                                                                               kinks.data(),
-                                                                                                               inward,
-                                                                                                               0U,
-                                                                                                               DecidesEnd ? starts.data() : nullptr};
+  const FollowStage<toybarrel8::Det, UniformMaterial, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), kinks.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
   if (threads == 0) {
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       stage(track);
@@ -195,24 +181,13 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
   return proposals.front();
 }
 
-bool sameProposal(const ToyProposal& a, const ToyProposal& b)
-{
-  return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && a.replacedEnd == b.replacedEnd && std::ranges::equal(a.outward, b.outward) &&
-         std::ranges::equal(a.inward, b.inward);
-}
+bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && a.replacedEnd == b.replacedEnd && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
 
 /// The follow's passes over \a tracks (`Follow::run`), serially.
-StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks,
-                      std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow, const UniformMaterial& material = UniformMaterial{})
-{
-  return follow.run(
-    SerialForEach{},
-    parameters, *fixture.frame, toybarrel8::trackingGeometry(), material, Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view());
-}
+StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow, const UniformMaterial& material = UniformMaterial{}) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), material, Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
 
 template <DetectorLayout Det>
-SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& propagator, const BoundTrackState& state, LayerID target,
-                       PropagationDirection direction)
+SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& propagator, const BoundTrackState& state, LayerID target, PropagationDirection direction)
 {
   const auto& from = geometry.surface(state.surface);
   const SensorID begin = firstSensorOfLayer<Det>(target);
@@ -227,8 +202,7 @@ SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& 
 }
 
 template <DetectorLayout Det>
-void checkAgainstSensor(const TrackingGeometry<Det>& geometry, const IterationParameters<Det>& iteration, const Propagator& propagator, BoundTrackState state,
-                        LayerID target, PropagationDirection direction)
+void checkAgainstSensor(const TrackingGeometry<Det>& geometry, const IterationParameters<Det>& iteration, const Propagator& propagator, BoundTrackState state, LayerID target, PropagationDirection direction)
 {
   const auto source = geometry.surface(state.surface).layer;
   const auto link = direction == PropagationDirection::kForward ? linkOf<Det>(source, target) : linkOf<Det>(target, source);
@@ -278,15 +252,13 @@ std::vector<toybarrel8::Hit> kinkedBeyond(std::vector<toybarrel8::Hit> hits, Lay
 
 /// The first step of a follow from \a state toward \a row, as the walk
 /// makes it (`updateCandidate`, nominal): its chi2 and sqrt|V| [cm^2].
-std::pair<double, double> firstStep(const toybarrel8::Fixture& fixture, const BoundTrackState& state, std::uint32_t row, PropagationDirection direction,
-                                    const UniformMaterial& material = UniformMaterial{})
+std::pair<double, double> firstStep(const toybarrel8::Fixture& fixture, const BoundTrackState& state, std::uint32_t row, PropagationDirection direction, const UniformMaterial& material = UniformMaterial{})
 {
   BoundTrackState updated;
   CovarianceFactors factors;
   Scalar chi2 = 0.F;
   Scalar determinant = 0.F;
-  BOOST_REQUIRE((follow::updateCandidate<false, true>(Propagator{}, toybarrel8::trackingGeometry(), material, measurementAt(*fixture.frame, row), direction,
-                                                      state, factorCovariance(state.cov), updated, factors, chi2, 1.F, &determinant)));
+  BOOST_REQUIRE((follow::updateCandidate<false, true>(Propagator{}, toybarrel8::trackingGeometry(), material, measurementAt(*fixture.frame, row), direction, state, factorCovariance(state.cov), updated, factors, chi2, 1.F, &determinant)));
   return {static_cast<double>(chi2), std::sqrt(static_cast<double>(determinant))};
 }
 
@@ -427,21 +399,22 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   BOOST_REQUIRE(sensor != kInvalidSensorID);
   BoundTrackState atTarget = state;
   BOOST_REQUIRE(propagate(propagator, atTarget, start, geometry.surface(sensor), PropagationDirection::kForward).status == PropagationStatus::kOk);
-  const Measurement measurement{.loc0 = atTarget.loc0(),
-                                .loc1 = atTarget.loc1(),
-                                .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
-                                .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
-                                .varLoc0 = 1.e-6F,
-                                .covLoc01 = 0.F,
-                                .varLoc1 = 1.e-6F,
-                                .clusterIndex = 0U,
-                                .surface = sensor};
+  const Measurement measurement{
+    .loc0 = atTarget.loc0(),
+    .loc1 = atTarget.loc1(),
+    .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
+    .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
+    .varLoc0 = 1.e-6F,
+    .covLoc01 = 0.F,
+    .varLoc1 = 1.e-6F,
+    .clusterIndex = 0U,
+    .surface = sensor,
+  };
 
   BoundTrackState output;
   CovarianceFactors outputFactors;
   Scalar chi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(propagator, geometry, material, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov),
-                                               output, outputFactors, chi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate<false>(propagator, geometry, material, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2, 1.F));
   BOOST_TEST(chi2 >= 0.F);
 
   // The source may also be the destination buffer. Material must still
@@ -452,13 +425,11 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   BoundTrackState separate;
   CovarianceFactors separateFactors;
   Scalar separateChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov),
-                                               separate, separateFactors, separateChi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2, 1.F));
   auto aliased = state;
   auto aliasedFactors = factorCovariance(state.cov);
   Scalar aliasedChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased,
-                                               aliasedFactors, aliasedChi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2, 1.F));
   // Bit identity is intentional, including floating-point encodings; these records have no padding.
   // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
   BOOST_TEST(std::memcmp(&aliased, &separate, sizeof(BoundTrackState)) == 0);
@@ -473,8 +444,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   state.variance(kLoc0) = -1.e-2F;
   Measurement displaced = measurement;
   displaced.loc0 += 0.01F;
-  BOOST_TEST(!follow::updateCandidate<false>(propagator, geometry, material, displaced, PropagationDirection::kForward, state, factorCovariance(state.cov),
-                                             output, outputFactors, chi2, 1.F));
+  BOOST_TEST(!follow::updateCandidate<false>(propagator, geometry, material, displaced, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2, 1.F));
 }
 
 /// Navigation, both ways: a track on layers 0-4 takes 5-7 outward, one on
@@ -740,9 +710,7 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
       const auto widths = widthBounds(fixture);
       std::vector<ToyProposal> proposals(1U);
       std::vector<follow::KinkSteps> kinks(1U);
-      const FollowStage<Det, UniformMaterial> stage{
-        &parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(),
-        toyCells().view(), proposals.data(), kinks.data(), true, 0U, nullptr};
+      const FollowStage<Det, UniformMaterial> stage{&parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), kinks.data(), true, 0U, nullptr};
       std::vector<std::tuple<LayerID, std::uint32_t, StepOutcome>> seen;
       const Seen observer{{}, &seen};
       const auto view = tracks.view();
@@ -1214,8 +1182,7 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
     BOOST_REQUIRE(followAll(fixture, parameters, tracks, used, follow) == StageStatus::kComplete);
     BOOST_REQUIRE(follow.proposals().size() == 1U);
     const auto view = std::as_const(tracks).view();
-    return std::tuple{static_cast<std::uint32_t>(view.count[0]), static_cast<std::uint32_t>(follow.proposals()[0].outwardCount),
-                      static_cast<std::uint32_t>(view.addedOutward[0]), used[fixture.row(kLayers - 1U)]};
+    return std::tuple{static_cast<std::uint32_t>(view.count[0]), static_cast<std::uint32_t>(follow.proposals()[0].outwardCount), static_cast<std::uint32_t>(view.addedOutward[0]), used[fixture.row(kLayers - 1U)]};
   };
   const auto [count, outward, added, last] = run(ambiguous, 100.F, 0U);
   BOOST_TEST(count == kLayers - 1U);
@@ -1223,8 +1190,7 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
   BOOST_TEST(added == 2U);
   BOOST_TEST(last == kFree);
   using Case = std::tuple<std::vector<Hit>, float, std::uint32_t>;
-  for (const auto& [hits, margin, minAfter] :
-       {Case{ambiguous, 0.F, 0U}, Case{ambiguous, 1e-6F, 0U}, Case{clean, 100.F, 0U}, Case{ambiguous, 100.F, static_cast<std::uint32_t>(kLayers)}}) {
+  for (const auto& [hits, margin, minAfter] : {Case{ambiguous, 0.F, 0U}, Case{ambiguous, 1e-6F, 0U}, Case{clean, 100.F, 0U}, Case{ambiguous, 100.F, static_cast<std::uint32_t>(kLayers)}}) {
     BOOST_TEST_CONTEXT("margin " << margin << ", rows " << hits.size() << ", length after the follow " << minAfter)
     {
       const auto [kept, keptOutward, keptAdded, keptLast] = run(hits, margin, minAfter);

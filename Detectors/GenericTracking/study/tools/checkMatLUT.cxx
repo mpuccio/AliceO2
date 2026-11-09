@@ -207,13 +207,11 @@ void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNa
     const auto& p = points[static_cast<std::size_t>(i)];
     const auto& q = points[static_cast<std::size_t>(i) + 1U];
     const std::size_t half = 2 * i < pieces ? 0U : 1U;
-    const auto geo = o2::base::GeometryManager::meanMaterialBudget(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]),
-                                                                   static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2]), navigator);
+    const auto geo = o2::base::GeometryManager::meanMaterialBudget(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]), static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2]), navigator);
     if (geo.length > 0.F) {
       step.geo[half] += static_cast<double>(geo.meanX2X0);
     }
-    const auto fromLut = lut.getMatBudget(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]), static_cast<float>(q[0]),
-                                          static_cast<float>(q[1]), static_cast<float>(q[2]));
+    const auto fromLut = lut.getMatBudget(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]), static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2]));
     step.lut[half] += static_cast<double>(fromLut.meanX2X0);
   }
 }
@@ -323,16 +321,18 @@ std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>&
         }
         seen[static_cast<std::size_t>(layer)] = true;
         const Point entry{.x = segment->start, .p = segment->momentum};
-        steps.push_back({.event = event,
-                         .track = id,
-                         .pdg = mc.GetPdgCode(),
-                         .pt = mc.GetPt(),
-                         .eta = mc.GetEta(),
-                         .mass = mc.GetMass(),
-                         .from = previousLayer,
-                         .to = layer,
-                         .a = previous,
-                         .b = entry});
+        steps.push_back({
+          .event = event,
+          .track = id,
+          .pdg = mc.GetPdgCode(),
+          .pt = mc.GetPt(),
+          .eta = mc.GetEta(),
+          .mass = mc.GetMass(),
+          .from = previousLayer,
+          .to = layer,
+          .a = previous,
+          .b = entry,
+        });
         previous = entry;
         previousLayer = layer;
       }
@@ -396,18 +396,14 @@ void report(const Options& options, const std::vector<Step>& steps)
     cells[{in.to, static_cast<int>(std::floor(coordinate / options.coordinateBin)), false}].add(g, l);
   }
   std::cout << std::format("\n== nodes: the material the fit applies at each layer's crossing, x/X0 [%]\n");
-  std::cout << std::format("{:>6} {:>8} | {:>8} {:>8} {:>7} | LUT/geometry per node: {:>6} {:>6} {:>6} | {:>9}\n", "layer", "n", "geometry", "LUT", "ratio",
-                           "5 %", "median", "95 %", "off 25 %");
+  std::cout << std::format("{:>6} {:>8} | {:>8} {:>8} {:>7} | LUT/geometry per node: {:>6} {:>6} {:>6} | {:>9}\n", "layer", "n", "geometry", "LUT", "ratio", "5 %", "median", "95 %", "off 25 %");
   for (const auto& [layer, sums] : nodes) {
     if (std::cmp_less(sums.size(), options.minSteps)) {
       continue;
     }
     const auto r = sums.ratios();
     const auto off = std::ranges::count_if(r, [](double x) { return x < 0.8 || x > 1.25; });
-    std::cout << std::format("{:>6} {:>8} | {:8.4f} {:8.4f} {:7.3f} | {:>22} {:6.3f} {:6.3f} {:6.3f} | {:8.1f}%\n", layerName<Det>(layer), sums.size(),
-                             100. * sums.geoSum / static_cast<double>(sums.size()), 100. * sums.lutSum / static_cast<double>(sums.size()), sums.ratio(), "",
-                             quantile(r, 0.05), quantile(r, 0.5), quantile(r, 0.95),
-                             r.empty() ? kNaN : 100. * static_cast<double>(off) / static_cast<double>(r.size()));
+    std::cout << std::format("{:>6} {:>8} | {:8.4f} {:8.4f} {:7.3f} | {:>22} {:6.3f} {:6.3f} {:6.3f} | {:8.1f}%\n", layerName<Det>(layer), sums.size(), 100. * sums.geoSum / static_cast<double>(sums.size()), 100. * sums.lutSum / static_cast<double>(sums.size()), sums.ratio(), "", quantile(r, 0.05), quantile(r, 0.5), quantile(r, 0.95), r.empty() ? kNaN : 100. * static_cast<double>(off) / static_cast<double>(r.size()));
   }
 
   struct StepStats {
@@ -441,10 +437,8 @@ void report(const Options& options, const std::vector<Step>& steps)
       s.pullLut.push_back(dTheta / lutTheta);
     }
   }
-  std::cout << std::format("\n== steps ({} of {} left out: the circle turned more than {} rad from the truth), x/X0 [%]\n", turned, steps.size(),
-                           options.maxTurn);
-  std::cout << std::format("{:>13} {:>8} | {:>8} {:>8} {:>7} | near half: {:>5} {:>5} | dtheta/theta0 core, >3: geometry {:>5} {:>5}  LUT {:>5} {:>5}\n",
-                           "step", "n", "geometry", "LUT", "ratio", "geo", "LUT", "", "", "", "");
+  std::cout << std::format("\n== steps ({} of {} left out: the circle turned more than {} rad from the truth), x/X0 [%]\n", turned, steps.size(), options.maxTurn);
+  std::cout << std::format("{:>13} {:>8} | {:>8} {:>8} {:>7} | near half: {:>5} {:>5} | dtheta/theta0 core, >3: geometry {:>5} {:>5}  LUT {:>5} {:>5}\n", "step", "n", "geometry", "LUT", "ratio", "geo", "LUT", "", "", "", "");
   for (const auto& [key, s] : pairs) {
     if (std::cmp_less(s.material.size(), options.minSteps)) {
       continue;
@@ -452,11 +446,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     const double cg = core(s.pullGeo);
     const double cl = core(s.pullLut);
     const auto n = static_cast<double>(s.material.size());
-    std::cout << std::format("{:>13} {:>8} | {:8.4f} {:8.4f} {:7.3f} | {:>11} {:5.2f} {:5.2f} | {:>32} {:5.3f} {:5.2f}  {:>3} {:5.3f} {:5.2f}\n",
-                             layerName<Det>(key.first) + "->" + layerName<Det>(key.second), s.material.size(), 100. * s.material.geoSum / n,
-                             100. * s.material.lutSum / n, s.material.ratio(), "", s.material.geoSum > 0. ? s.geoNear / s.material.geoSum : kNaN,
-                             s.material.lutSum > 0. ? s.lutNear / s.material.lutSum : kNaN, "", cg, beyond(s.pullGeo, cg, 3.), "", cl,
-                             beyond(s.pullLut, cl, 3.));
+    std::cout << std::format("{:>13} {:>8} | {:8.4f} {:8.4f} {:7.3f} | {:>11} {:5.2f} {:5.2f} | {:>32} {:5.3f} {:5.2f}  {:>3} {:5.3f} {:5.2f}\n", layerName<Det>(key.first) + "->" + layerName<Det>(key.second), s.material.size(), 100. * s.material.geoSum / n, 100. * s.material.lutSum / n, s.material.ratio(), "", s.material.geoSum > 0. ? s.geoNear / s.material.geoSum : kNaN, s.material.lutSum > 0. ? s.lutNear / s.material.lutSum : kNaN, "", cg, beyond(s.pullGeo, cg, 3.), "", cl, beyond(s.pullLut, cl, 3.));
   }
 
   std::vector<std::pair<double, std::tuple<int, int, bool>>> ranked;
@@ -467,10 +457,8 @@ void report(const Options& options, const std::vector<Step>& steps)
     ranked.emplace_back(std::abs(std::log(sums.ratio())), key);
   }
   std::ranges::sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
-  std::cout << std::format("\n== worst cells: nodes by layer and azimuth ({} deg) or z / r ({} cm), at least {} nodes, x/X0 [%]\n", options.phiBinDeg,
-                           options.coordinateBin, options.minCell);
-  std::cout << std::format("{:>6} {:>24} {:>6} | {:>8} {:>8} {:>7} | LUT/geometry per node {:>6} {:>6} {:>6}\n", "layer", "cell", "n", "geometry", "LUT",
-                           "ratio", "5 %", "median", "95 %");
+  std::cout << std::format("\n== worst cells: nodes by layer and azimuth ({} deg) or z / r ({} cm), at least {} nodes, x/X0 [%]\n", options.phiBinDeg, options.coordinateBin, options.minCell);
+  std::cout << std::format("{:>6} {:>24} {:>6} | {:>8} {:>8} {:>7} | LUT/geometry per node {:>6} {:>6} {:>6}\n", "layer", "cell", "n", "geometry", "LUT", "ratio", "5 %", "median", "95 %");
   for (std::size_t i = 0; i < ranked.size() && std::cmp_less(i, options.worst); ++i) {
     const auto& [layer, bin, azimuth] = ranked[i].second;
     const auto& sums = cells.at(ranked[i].second);
@@ -483,8 +471,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     const std::string cell = std::format("{} {:.1f} .. {:.1f} {}", axis, bin * width, (bin + 1) * width, azimuth ? "deg" : "cm");
     const auto r = sums.ratios();
     const auto n = static_cast<double>(sums.size());
-    std::cout << std::format("{:>6} {:>24} {:>6} | {:8.4f} {:8.4f} {:7.3f} | {:>21} {:6.3f} {:6.3f} {:6.3f}\n", layerName<Det>(layer), cell, sums.size(),
-                             100. * sums.geoSum / n, 100. * sums.lutSum / n, sums.ratio(), "", quantile(r, 0.05), quantile(r, 0.5), quantile(r, 0.95));
+    std::cout << std::format("{:>6} {:>24} {:>6} | {:8.4f} {:8.4f} {:7.3f} | {:>21} {:6.3f} {:6.3f} {:6.3f}\n", layerName<Det>(layer), cell, sums.size(), 100. * sums.geoSum / n, 100. * sums.lutSum / n, sums.ratio(), "", quantile(r, 0.05), quantile(r, 0.5), quantile(r, 0.95));
   }
 }
 
@@ -555,8 +542,7 @@ int runFor(const Options& options)
   }
   int events = 0;
   auto steps = collect<Det>(options, *geometry, events);
-  std::cout << std::format("{} steps of the particles above {} GeV{} in {} events\n", steps.size(), options.minPt, options.secondaries ? "" : " (primaries)",
-                           events);
+  std::cout << std::format("{} steps of the particles above {} GeV{} in {} events\n", steps.size(), options.minPt, options.secondaries ? "" : " (primaries)", events);
 
   int threads = options.threads < 0 ? static_cast<int>(std::thread::hardware_concurrency()) : options.threads;
   threads = std::max(threads, 1);

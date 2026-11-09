@@ -193,10 +193,7 @@ static void checkMonteCarloClosure(const TrackingSurface& from, const TrackingSu
   }
 }
 
-BOOST_AUTO_TEST_CASE(TransportedCovarianceMatchesAMonteCarloInTheBarrel)
-{
-  checkMonteCarloClosure(barrelPlane(3.4, 1), barrelPlane(17.2, 2), makeState(1, 0.1, 1.2, 1. / 2.), 0.05);
-}
+BOOST_AUTO_TEST_CASE(TransportedCovarianceMatchesAMonteCarloInTheBarrel) { checkMonteCarloClosure(barrelPlane(3.4, 1), barrelPlane(17.2, 2), makeState(1, 0.1, 1.2, 1. / 2.), 0.05); }
 
 BOOST_AUTO_TEST_CASE(TransportedCovarianceMatchesAMonteCarloAtHighEta)
 {
@@ -223,8 +220,7 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
   // reach 150 at high eta. So: an absolute floor for what the reference cannot
   // resolve, and a relative term for what it can.
   const Propagator prop;
-  const TrackingSurface pairs[3][2] = {
-    {barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
+  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
 
   int checked = 0;
   for (const auto& pair : pairs) {
@@ -248,9 +244,7 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
             BOOST_REQUIRE(propagate(prop, arrived, pair[0], pair[1], PropagationDirection::kForward).status == PropagationStatus::kOk);
             const auto arrivedTheta = static_cast<double>(arrived.theta());
             const auto arrivedPhi = static_cast<double>(arrived.phi());
-            const double incidence = std::abs((std::sin(arrivedTheta) * ((std::cos(arrivedPhi) * static_cast<double>(pair[1].normal[0])) +
-                                                                         (std::sin(arrivedPhi) * static_cast<double>(pair[1].normal[1])))) +
-                                              (std::cos(arrivedTheta) * static_cast<double>(pair[1].normal[2])));
+            const double incidence = std::abs((std::sin(arrivedTheta) * ((std::cos(arrivedPhi) * static_cast<double>(pair[1].normal[0])) + (std::sin(arrivedPhi) * static_cast<double>(pair[1].normal[1])))) + (std::cos(arrivedTheta) * static_cast<double>(pair[1].normal[2])));
             const double floor = 1e-3 / incidence;
             BOOST_TEST((jacobianAnalytic<Scalar>(prop, st, pair[0], pair[1], PropagationDirection::kForward, sol) == PropagationStatus::kOk));
             BOOST_TEST((jacobianAnalytic<ExactScalar>(prop, st, pair[0], pair[1], PropagationDirection::kForward, exactSol) == PropagationStatus::kOk));
@@ -351,8 +345,7 @@ BOOST_AUTO_TEST_CASE(ScatteringProjectsOntoTheTwoAngles)
 BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
 {
   const Propagator prop;
-  const TrackingSurface pairs[3][2] = {
-    {barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
+  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
   std::mt19937 rng(11);
   std::uniform_real_distribution<double> unit(-1., 1.);
   std::uniform_real_distribution<double> positive(0.1, 1.);
@@ -388,7 +381,12 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
           // A third of the trials without noise, the rest with every kind.
           const auto pick = [&](double scale) { return trial % 3 == 0 ? 0.F : static_cast<Scalar>(positive(rng) * scale); };
           const StepNoise noise{
-            .phiBefore = pick(1e-6), .thetaBefore = pick(1e-6), .phiAfter = pick(1e-6), .thetaAfter = pick(1e-6), .qOverPAfter = pick(1e-5)};
+            .phiBefore = pick(1e-6),
+            .thetaBefore = pick(1e-6),
+            .phiAfter = pick(1e-6),
+            .thetaAfter = pick(1e-6),
+            .qOverPAfter = pick(1e-5),
+          };
 
           auto factors = factorCovariance(cov);
           BOOST_REQUIRE(transportFactors(jac, noise, factors));
@@ -466,8 +464,7 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionKeepsWhatAFloatCovarianceLoses)
   asState.variance(kPhi) += noise.phiAfter;
   asState.variance(kTheta) += noise.thetaAfter;
   const auto rounded = factorCovariance(asState.cov);
-  BOOST_TEST_MESSAGE("loc1 given the rest: double " << conditional << ", factors " << factors.diagonal[kLoc1] << ", factored float P "
-                                                    << rounded.diagonal[kLoc1]);
+  BOOST_TEST_MESSAGE("loc1 given the rest: double " << conditional << ", factors " << factors.diagonal[kLoc1] << ", factored float P " << rounded.diagonal[kLoc1]);
   BOOST_TEST(std::abs(static_cast<double>(rounded.diagonal[kLoc1]) / conditional - 1.) > 0.5);
 }
 

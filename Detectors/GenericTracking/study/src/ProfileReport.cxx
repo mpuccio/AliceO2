@@ -90,9 +90,7 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
     return depth;
   };
 
-  out << std::format("{:<36} {:>8} {:>6} {:>6} {:>8} {:>11} {:>8} {:>5} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}\n", "phase", "wall s", "share",
-                     "calls", "serial s", "elements", "ns/elem", "util", "imbal", "tail s", "chunk50", "chunk99", "chunkmax", "faults", "alloc MB", "peak MB",
-                     "+peak MB");
+  out << std::format("{:<36} {:>8} {:>6} {:>6} {:>8} {:>11} {:>8} {:>5} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}\n", "phase", "wall s", "share", "calls", "serial s", "elements", "ns/elem", "util", "imbal", "tail s", "chunk50", "chunk99", "chunkmax", "faults", "alloc MB", "peak MB", "+peak MB");
   // The parallel columns describe the loops opened directly in a phase: on a
   // leaf's row, or on the `(other)` row under a parent.
   const auto parallelColumns = [](const profile::PhaseStats& stats) {
@@ -100,21 +98,14 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
       return std::format("{:>11} {:>8} {:>5} {:>5} {:>7} {:>8} {:>8} {:>8}", "", "", "", "", "", "", "", "");
     }
     const double concurrency = stats.capacitySeconds / stats.regionSeconds;
-    return std::format("{:>11} {:>8.1f} {:>5.2f} {:>5.2f} {:>7.4f} {:>8.1e} {:>8.1e} {:>8.1e}", stats.elements,
-                       stats.elements != 0U ? 1.e9 * stats.busySeconds / static_cast<double>(stats.elements) : 0., stats.busySeconds / stats.capacitySeconds,
-                       stats.maxSlotSeconds * concurrency / stats.busySeconds, stats.tailSeconds / concurrency, chunkQuantile(stats, 0.5),
-                       chunkQuantile(stats, 0.99), stats.maxChunkSeconds);
+    return std::format("{:>11} {:>8.1f} {:>5.2f} {:>5.2f} {:>7.4f} {:>8.1e} {:>8.1e} {:>8.1e}", stats.elements, stats.elements != 0U ? 1.e9 * stats.busySeconds / static_cast<double>(stats.elements) : 0., stats.busySeconds / stats.capacitySeconds, stats.maxSlotSeconds * concurrency / stats.busySeconds, stats.tailSeconds / concurrency, chunkQuantile(stats, 0.5), chunkQuantile(stats, 0.99), stats.maxChunkSeconds);
   };
-  const auto row = [&](std::string_view label, int depth, double seconds, double parentSeconds, std::uint64_t calls, double serial, const std::string& parallel,
-                       std::uint64_t faults, std::uint64_t bytes, const std::string& peak) {
+  const auto row = [&](std::string_view label, int depth, double seconds, double parentSeconds, std::uint64_t calls, double serial, const std::string& parallel, std::uint64_t faults, std::uint64_t bytes, const std::string& peak) {
     const std::string indented = std::string(static_cast<std::size_t>(2 * depth), ' ') + std::string{label};
-    out << std::format("{:<36} {:>8.4f} {:>5.1f}% {:>6} {:>8.4f} {} {:>8} {:>8.1f} {}\n", indented, seconds,
-                       parentSeconds > 0. ? 100. * seconds / parentSeconds : 100., calls, serial, parallel, faults, static_cast<double>(bytes) / 1.e6, peak);
+    out << std::format("{:<36} {:>8.4f} {:>5.1f}% {:>6} {:>8.4f} {} {:>8} {:>8.1f} {}\n", indented, seconds, parentSeconds > 0. ? 100. * seconds / parentSeconds : 100., calls, serial, parallel, faults, static_cast<double>(bytes) / 1.e6, peak);
   };
   // A peak is the phase's own; the `(other)` row has none.
-  const auto peakColumn = [](const profile::PhaseStats& stats) {
-    return std::format("{:>8.1f} {:>8.1f}", static_cast<double>(stats.peakBytes) / 1.e6, static_cast<double>(stats.peakGrowthBytes) / 1.e6);
-  };
+  const auto peakColumn = [](const profile::PhaseStats& stats) { return std::format("{:>8.1f} {:>8.1f}", static_cast<double>(stats.peakBytes) / 1.e6, static_cast<double>(stats.peakGrowthBytes) / 1.e6); };
 
   double idle = 0.;
   double tails = 0.;
@@ -131,12 +122,9 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
     if (stats.calls != 0U) {
       const double parentSeconds = static_cast<profile::Phase>(index) == root ? stats.seconds : profile[parentOf(index)].seconds;
       const bool parent = childSeconds[index] > 0.;
-      row(info(static_cast<profile::Phase>(index)).name, depthOf(index), stats.seconds, parentSeconds, stats.calls, subtreeSerial[index],
-          parent ? parallelColumns(profile::PhaseStats{}) : parallelColumns(stats), stats.minorFaults, stats.allocatedBytes, peakColumn(stats));
+      row(info(static_cast<profile::Phase>(index)).name, depthOf(index), stats.seconds, parentSeconds, stats.calls, subtreeSerial[index], parent ? parallelColumns(profile::PhaseStats{}) : parallelColumns(stats), stats.minorFaults, stats.allocatedBytes, peakColumn(stats));
       if (parent) {
-        row("(other)", depthOf(index) + 1, stats.seconds - childSeconds[index], stats.seconds, stats.calls, ownSerial[index], parallelColumns(stats),
-            stats.minorFaults - std::min(stats.minorFaults, childFaults[index]), stats.allocatedBytes - std::min(stats.allocatedBytes, childBytes[index]),
-            std::format("{:>8} {:>8}", "", ""));
+        row("(other)", depthOf(index) + 1, stats.seconds - childSeconds[index], stats.seconds, stats.calls, ownSerial[index], parallelColumns(stats), stats.minorFaults - std::min(stats.minorFaults, childFaults[index]), stats.allocatedBytes - std::min(stats.allocatedBytes, childBytes[index]), std::format("{:>8} {:>8}", "", ""));
       }
       idle += stats.capacitySeconds - stats.busySeconds;
       tails += stats.tailSeconds;
@@ -154,8 +142,7 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
   out << std::format(
     "{}: {:.4f} s; serial {:.4f} s ({:.1f} %); opaque parallel {:.4f} s; parallel loops idle {:.4f} s of {} threads "
     "({:.1f} %), of which tails {:.4f} s\n",
-    info(root).name, wall, serial, wall > 0. ? 100. * serial / wall : 0., opaque, perThread(idle), threads, wall > 0. ? 100. * perThread(idle) / wall : 0.,
-    perThread(tails));
+    info(root).name, wall, serial, wall > 0. ? 100. * serial / wall : 0., opaque, perThread(idle), threads, wall > 0. ? 100. * perThread(idle) / wall : 0., perThread(tails));
 }
 
 void writeJson(std::ostream& out, const profile::Profile& profile)
@@ -169,14 +156,10 @@ void writeJson(std::ostream& out, const profile::Profile& profile)
     }
     out << (first ? "" : ",");
     first = false;
-    out << std::format(
-      R"("{}":{{"parent":"{}","seconds":{:.9f},"calls":{},"elements":{},"outputs":{},"regions":{},"chunks":{},)"
-      R"("regionSeconds":{:.9f},"capacitySeconds":{:.9f},"busySeconds":{:.9f},"maxSlotSeconds":{:.9f},"tailSeconds":{:.9f},)"
-      R"("maxChunkSeconds":{:.9f},"opaqueSeconds":{:.9f},"minorFaults":{},"dramBytes":{},"allocations":{},"allocatedBytes":{},"peakBytes":{},"peakGrowthBytes":{},"chunkHistogram":[)",
-      info(static_cast<profile::Phase>(phase)).name, info(static_cast<profile::Phase>(phase)).parent == kNone ? "" : info(info(static_cast<profile::Phase>(phase)).parent).name, stats.seconds, stats.calls, stats.elements, stats.outputs,
-      stats.regions, stats.chunks, stats.regionSeconds, stats.capacitySeconds, stats.busySeconds, stats.maxSlotSeconds, stats.tailSeconds,
-      stats.maxChunkSeconds, stats.opaqueSeconds, stats.minorFaults, stats.dramBytes, stats.allocations, stats.allocatedBytes, stats.peakBytes,
-      stats.peakGrowthBytes);
+    out << std::format(R"("{}":{{"parent":"{}","seconds":{:.9f},"calls":{},"elements":{},"outputs":{},"regions":{},"chunks":{},)"
+                       R"("regionSeconds":{:.9f},"capacitySeconds":{:.9f},"busySeconds":{:.9f},"maxSlotSeconds":{:.9f},"tailSeconds":{:.9f},)"
+                       R"("maxChunkSeconds":{:.9f},"opaqueSeconds":{:.9f},"minorFaults":{},"dramBytes":{},"allocations":{},"allocatedBytes":{},"peakBytes":{},"peakGrowthBytes":{},"chunkHistogram":[)",
+                       info(static_cast<profile::Phase>(phase)).name, info(static_cast<profile::Phase>(phase)).parent == kNone ? "" : info(info(static_cast<profile::Phase>(phase)).parent).name, stats.seconds, stats.calls, stats.elements, stats.outputs, stats.regions, stats.chunks, stats.regionSeconds, stats.capacitySeconds, stats.busySeconds, stats.maxSlotSeconds, stats.tailSeconds, stats.maxChunkSeconds, stats.opaqueSeconds, stats.minorFaults, stats.dramBytes, stats.allocations, stats.allocatedBytes, stats.peakBytes, stats.peakGrowthBytes);
     for (std::size_t bin = 0; bin < profile::kChunkBins; ++bin) {
       out << (bin == 0U ? "" : ",") << stats.chunkHistogram[bin];
     }

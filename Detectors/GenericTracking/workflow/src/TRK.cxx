@@ -76,14 +76,12 @@ static_assert(exactlyEqual(detectors::trkft3::vdWidth(1), specs::VD::petal::laye
 static_assert(exactlyEqual(detectors::trkft3::vdWidth(2), specs::VD::petal::layer::width[2]));
 static_assert(exactlyEqual(detectors::trkft3::kVDLength, specs::VD::petal::layer::length));
 static_assert(exactlyEqual(detectors::trkft3::kVDThickness, specs::VD::silicon::thickness));
-static_assert(exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchX) &&
-              exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchZ));
+static_assert(exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchX) && exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchZ));
 static_assert(exactlyEqual(detectors::trkft3::kChipWidth, specs::moduleMLOT::chip::width));
 static_assert(exactlyEqual(detectors::trkft3::kChipPassiveEdgeReadOut, specs::moduleMLOT::chip::passiveEdgeReadOut));
 static_assert(exactlyEqual(detectors::trkft3::kChipLength, specs::moduleMLOT::chip::length));
 static_assert(exactlyEqual(detectors::trkft3::kChipThickness, specs::moduleMLOT::silicon::thickness));
-static_assert(exactlyEqual(detectors::trkft3::kChipPitch, specs::moduleMLOT::chip::pitchX) &&
-              exactlyEqual(detectors::trkft3::kChipPitch, specs::moduleMLOT::chip::pitchZ));
+static_assert(exactlyEqual(detectors::trkft3::kChipPitch, specs::moduleMLOT::chip::pitchX) && exactlyEqual(detectors::trkft3::kChipPitch, specs::moduleMLOT::chip::pitchZ));
 
 } // namespace
 
@@ -119,8 +117,7 @@ namespace
 /// \a firstSensor plus O2's chip ID; \a subDetectors, the sub-detectors their
 /// clusters may name (a cluster naming another is refused).
 template <typename ClusterType, typename Dictionary>
-std::vector<LocalCluster> alice3LocalClusters(std::span<const ClusterType> clusters, std::span<const unsigned char> patterns, const Dictionary& dictionary,
-                                              std::uint32_t firstSensor, std::initializer_list<int> subDetectors)
+std::vector<LocalCluster> alice3LocalClusters(std::span<const ClusterType> clusters, std::span<const unsigned char> patterns, const Dictionary& dictionary, std::uint32_t firstSensor, std::initializer_list<int> subDetectors)
 {
   std::vector<LocalCluster> result;
   result.reserve(clusters.size());
@@ -168,20 +165,11 @@ std::vector<LocalCluster> alice3LocalClusters(std::span<const ClusterType> clust
 
 } // namespace
 
-std::vector<LocalCluster> trkLocalClusters(std::span<const o2::trkft3::TRKCluster> clusters, std::span<const unsigned char> patterns,
-                                           const TrkDictionary& dictionary)
-{
-  return alice3LocalClusters(clusters, patterns, dictionary, 0U, {0, 1});
-}
+std::vector<LocalCluster> trkLocalClusters(std::span<const o2::trkft3::TRKCluster> clusters, std::span<const unsigned char> patterns, const TrkDictionary& dictionary) { return alice3LocalClusters(clusters, patterns, dictionary, 0U, {0, 1}); }
 
-std::vector<LocalCluster> ft3LocalClusters(std::span<const o2::trkft3::FT3Cluster> clusters, std::span<const unsigned char> patterns,
-                                           const Ft3Dictionary& dictionary)
-{
-  return alice3LocalClusters(clusters, patterns, dictionary, static_cast<std::uint32_t>(detectors::TRKFT3::kFirstDiscSensor), {2});
-}
+std::vector<LocalCluster> ft3LocalClusters(std::span<const o2::trkft3::FT3Cluster> clusters, std::span<const unsigned char> patterns, const Ft3Dictionary& dictionary) { return alice3LocalClusters(clusters, patterns, dictionary, static_cast<std::uint32_t>(detectors::TRKFT3::kFirstDiscSensor), {2}); }
 
-std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::trkft3::ROFRecord> rofs, ReadoutFrames frames,
-                                std::uint32_t tfFirstOrbit)
+std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::trkft3::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit)
 {
   // The TRK's sensor volume is its active matrix: our origin is O2's (TRK.cxx's placeChips).
   return detail::toClusters(local, rofs, frames, tfFirstOrbit, 0.);
@@ -221,8 +209,7 @@ double alice3BzKiloGauss()
 {
   const char* macro = std::getenv("ALICE3_MAGFIELD_MACRO");
   if (macro == nullptr || !std::filesystem::exists(macro)) {
-    throw std::runtime_error(std::string{"ALICE3_MAGFIELD_MACRO names no file ("} + (macro == nullptr ? "unset" : macro) +
-                             "): the ALICE 3 field is unknown, and O2 would take a toy one");
+    throw std::runtime_error(std::string{"ALICE3_MAGFIELD_MACRO names no file ("} + (macro == nullptr ? "unset" : macro) + "): the ALICE 3 field is unknown, and O2 would take a toy one");
   }
   o2::field::ALICE3MagneticField field;
   const double origin[3] = {0., 0., 0.};
@@ -257,14 +244,8 @@ class TrkClusterConverterTask : public Task
   static constexpr int kBarrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
 
   /// Our layer \a layer's stream: TRK's barrel layer, or FT3's disc after them.
-  [[nodiscard]] static o2::header::DataOrigin originOf(int layer)
-  {
-    return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"};
-  }
-  [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(int layer)
-  {
-    return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers);
-  }
+  [[nodiscard]] static o2::header::DataOrigin originOf(int layer) { return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"}; }
+  [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(int layer) { return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers); }
 
   TrkClusterConverterTask(bool useMC, TrkDictionaryConditions dictionaries) : mUseMC(useMC), mDictionaries(dictionaries) {}
 
@@ -342,11 +323,13 @@ DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(bool useMC)
     outputs.emplace_back(gDataOrigin, description<detectors::TRKFT3>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
   TrkDictionaryConditions dictionaries(inputs);
-  return DataProcessorSpec{.name = deviceName<detectors::TRKFT3>("cluster-converter"),
-                           .inputs = inputs,
-                           .outputs = outputs,
-                           .algorithm = AlgorithmSpec{adaptFromTask<TrkClusterConverterTask>(useMC, dictionaries)},
-                           .options = Options{}};
+  return DataProcessorSpec{
+    .name = deviceName<detectors::TRKFT3>("cluster-converter"),
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<TrkClusterConverterTask>(useMC, dictionaries)},
+    .options = Options{},
+  };
 }
 
 template DataProcessorSpec getMeasurementProducerSpec<detectors::TRKFT3>();

@@ -55,8 +55,7 @@ namespace o2::gtrk
 /// seed, from a few percent of the target to
 /// all of it, so no cell width follows from it.
 template <DetectorLayout Det>
-[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations,
-                                                                                                             const VertexConstraint& beamSpot)
+[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot)
 {
   std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> result{};
   const auto widen = [&](LayerID layer, const LayerPairWindow& window) {

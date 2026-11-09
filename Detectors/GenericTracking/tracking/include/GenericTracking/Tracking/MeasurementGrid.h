@@ -362,10 +362,7 @@ class GridGeometry
   /// Layer \a layer's readout frames; none without.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const FrameTiming& frames(LayerID layer) const { return mFrames[layer]; }
   /// Where block \a block starts [parts from the timeframe's start].
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t blockStart(std::int32_t block) const
-  {
-    return mBlockOrigin + (static_cast<std::int64_t>(block) * mBlockWidth);
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t blockStart(std::int32_t block) const { return mBlockOrigin + (static_cast<std::int64_t>(block) * mBlockWidth); }
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const LayerAxes& axes(LayerID layer) const { return mAxes[layer]; }
   [[nodiscard]] GPUhdi() GPUAlwaysInline() BlockRange allBlocks() const { return {.begin = 0, .end = mBlockCount}; }
 
@@ -413,10 +410,7 @@ class GridGeometry
 
   /// The bucket a measurement belongs to, from its own coordinates: the
   /// block of its time box's start.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t bucketAt(LayerID layer, std::uint32_t timePS, Scalar phi, Scalar second) const
-  {
-    return bucket(layer, blockOfPS(timePS), phiBinOf(layer, phi), secondBinOf(layer, second));
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t bucketAt(LayerID layer, std::uint32_t timePS, Scalar phi, Scalar second) const { return bucket(layer, blockOfPS(timePS), phiBinOf(layer, phi), secondBinOf(layer, second)); }
 
   /// Blocks a slice of \a widthPS covers, 0 for one slice over the
   /// timeframe; at least one block.
@@ -455,10 +449,7 @@ class GridGeometry
     return width > 0 ? width : 1;
   }
 
-  [[nodiscard]] static std::int32_t blocksCovering(std::int64_t span, std::int64_t width)
-  {
-    return span > width ? static_cast<std::int32_t>(ceilDiv(span, width)) : 1;
-  }
+  [[nodiscard]] static std::int32_t blocksCovering(std::int64_t span, std::int64_t width) { return span > width ? static_cast<std::int32_t>(ceilDiv(span, width)) : 1; }
 
   // Declaration order is initialisation order, and the block count is derived
   // from the width -- so the width comes first here, not for tidiness.
@@ -515,8 +506,7 @@ struct SecondRun {
 /// bound as the vertex approaches the seed. Such a corner opens the window to
 /// the disc's outer edge. With no corner valid, the whole extent is returned,
 /// which the seed's source interval normally prevents from being asked.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange crossingRange(const LayerPairWindow& pair, Scalar seedR, Scalar seedZ, Scalar vertexLow, Scalar vertexHigh,
-                                                                   Scalar padding)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange crossingRange(const LayerPairWindow& pair, Scalar seedR, Scalar seedZ, Scalar vertexLow, Scalar vertexHigh, Scalar padding)
 {
   const Scalar vertices[2] = {vertexLow, vertexHigh};
   const Scalar targets[2] = {pair.targetLow, pair.targetHigh};
@@ -555,16 +545,12 @@ struct SecondRun {
   return {.centre = 0.5F * (low + high), .halfWidth = (0.5F * (high - low)) + padding};
 }
 
-[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange crossingRange(const LayerPairWindow& pair, Scalar seedR, Scalar seedZ)
-{
-  return crossingRange(pair, seedR, seedZ, pair.vertexLow, pair.vertexHigh, pair.secondHalfWidth);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange crossingRange(const LayerPairWindow& pair, Scalar seedR, Scalar seedZ) { return crossingRange(pair, seedR, seedZ, pair.vertexLow, pair.vertexHigh, pair.secondHalfWidth); }
 
 /// One source/link/vertex interval. Its host-derived half-width is shared by
 /// the timeframe's vertices; only the centre and the vertex's own z reach are
 /// evaluated here.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange vertexSecondRange(const LayerPairWindow& pair, const VertexPairWindow& bounds, Scalar seedR, Scalar seedZ,
-                                                                       Scalar vertexZ, Scalar vertexVarZ, Scalar nSigma)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() SecondRange vertexSecondRange(const LayerPairWindow& pair, const VertexPairWindow& bounds, Scalar seedR, Scalar seedZ, Scalar vertexZ, Scalar vertexVarZ, Scalar nSigma)
 {
   if (pair.kind != PairKind::kBarrel && pair.kind != PairKind::kDisc) {
     const Scalar reach = nSigma * o2::gpu::CAMath::Sqrt(vertexVarZ);
@@ -579,10 +565,7 @@ struct SecondRun {
   return {.centre = centre, .halfWidth = halfWidth};
 }
 
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool secondRangeContains(const SecondRange& range, Scalar second)
-{
-  return o2::gpu::CAMath::Abs(second - range.centre) <= range.halfWidth;
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool secondRangeContains(const SecondRange& range, Scalar second) { return o2::gpu::CAMath::Abs(second - range.centre) <= range.halfWidth; }
 
 /// Assemble one from a precomputed pair window and a seed.
 ///
@@ -590,8 +573,7 @@ struct SecondRun {
 /// reads the seed's second coordinate from them, a crossing pair both.
 /// \a maxCandidateWidthPS must bound the boxes' widths over the searched rows:
 /// a box overlapping the seed's starts less than its own width before it.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() CandidateWindow candidateWindow(const LayerPairWindow& pair, const TimeEstPS& seed, Scalar seedPhi, Scalar seedR,
-                                                                         Scalar seedZ, std::uint32_t maxCandidateWidthPS)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() CandidateWindow candidateWindow(const LayerPairWindow& pair, const TimeEstPS& seed, Scalar seedPhi, Scalar seedR, Scalar seedZ, std::uint32_t maxCandidateWidthPS)
 {
   SecondRange second;
   if (pair.kind == PairKind::kBarrel || pair.kind == PairKind::kDisc) {
@@ -600,13 +582,15 @@ struct SecondRun {
   } else {
     second = crossingRange(pair, seedR, seedZ);
   }
-  return {.earliestPS = static_cast<std::int64_t>(seed.lower()) - static_cast<std::int64_t>(maxCandidateWidthPS) + 1,
-          .latestPS = static_cast<std::int64_t>(seed.upper()) - 1,
-          .afterPS = seed.lower(),
-          .phiCentre = seedPhi,
-          .phiHalfWidth = pair.phiHalfWidth,
-          .secondCentre = second.centre,
-          .secondHalfWidth = second.halfWidth};
+  return {
+    .earliestPS = static_cast<std::int64_t>(seed.lower()) - static_cast<std::int64_t>(maxCandidateWidthPS) + 1,
+    .latestPS = static_cast<std::int64_t>(seed.upper()) - 1,
+    .afterPS = seed.lower(),
+    .phiCentre = seedPhi,
+    .phiHalfWidth = pair.phiHalfWidth,
+    .secondCentre = second.centre,
+    .secondHalfWidth = second.halfWidth,
+  };
 }
 
 /// Apply the exact spatial cuts after the grid cells have supplied a
@@ -632,10 +616,7 @@ struct CellSpan {
   std::int32_t firstSecond = 0;
   std::int32_t lastSecond = -1; ///< inclusive
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t cellCount() const
-  {
-    return blocks.empty() ? 0 : blocks.size() * (phiEnd - firstPhi + wrapEnd) * (lastSecond - firstSecond + 1);
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t cellCount() const { return blocks.empty() ? 0 : blocks.size() * (phiEnd - firstPhi + wrapEnd) * (lastSecond - firstSecond + 1); }
 };
 
 /// The index, bound to the columns whose order it describes.
@@ -649,7 +630,9 @@ class MeasurementGrid
   using Index = std::uint32_t;
 
   MeasurementGrid(MeasurementView measurements, const GridGeometry<Det>& grid, std::span<const Index> offsets)
-    : mMeasurements(measurements), mGrid(grid), mOffsets(offsets.data())
+    : mMeasurements(measurements),
+      mGrid(grid),
+      mOffsets(offsets.data())
   {
     assert(offsets.size() == static_cast<std::size_t>(grid.bucketCount()) + 1U);
   }
@@ -726,8 +709,7 @@ class MeasurementGrid
   /// twice when different runs clamp to or overlap the same grid cell; with
   /// \a lanes a share or a group, as the overload above.
   template <typename Visitor, typename Share = Lanes>
-  GPUhdi() void visitCandidates(LayerID target, const CandidateWindow& window, const SecondRun* secondRuns, std::uint32_t secondRunCount, BlockRange blocks,
-                                Visitor visit, Share lanes = {}) const
+  GPUhdi() void visitCandidates(LayerID target, const CandidateWindow& window, const SecondRun* secondRuns, std::uint32_t secondRunCount, BlockRange blocks, Visitor visit, Share lanes = {}) const
   {
     const auto span = querySpan(target, window, blocks);
     for (auto block = span.blocks.begin; block < span.blocks.end; ++block) {
@@ -823,8 +805,7 @@ class MeasurementGrid
   }
 
   template <typename Visitor, typename Share>
-  GPUhdi() GPUAlwaysInline() void visitRuns(LayerID target, std::int32_t block, std::int32_t phiBin, const CellSpan& span, const SecondRun* secondRuns,
-                                            std::uint32_t secondRunCount, Visitor& visit, Share lanes) const
+  GPUhdi() GPUAlwaysInline() void visitRuns(LayerID target, std::int32_t block, std::int32_t phiBin, const CellSpan& span, const SecondRun* secondRuns, std::uint32_t secondRunCount, Visitor& visit, Share lanes) const
   {
     std::int32_t previousLast = -1;
     for (std::uint32_t i = 0; i < secondRunCount; ++i) {
@@ -842,8 +823,7 @@ class MeasurementGrid
   /// One `(block, phi)` pair's second cells `[firstSecond, lastSecond]`:
   /// consecutive buckets, because the second coordinate is the innermost key.
   template <typename Visitor, typename Share>
-  GPUhdi() GPUAlwaysInline() void visitSecondRun(LayerID target, std::int32_t block, std::int32_t phiBin, std::int32_t firstSecond, std::int32_t lastSecond,
-                                                 const CellSpan& span, Visitor& visit, Share lanes) const
+  GPUhdi() GPUAlwaysInline() void visitSecondRun(LayerID target, std::int32_t block, std::int32_t phiBin, std::int32_t firstSecond, std::int32_t lastSecond, const CellSpan& span, Visitor& visit, Share lanes) const
   {
     visitBuckets(mGrid.bucket(target, block, phiBin, firstSecond), mGrid.bucket(target, block, phiBin, lastSecond) + 1U, span, visit, lanes);
   }
@@ -929,8 +909,7 @@ class MeasurementGrid
     countGridWork(WorkCounter::kGridSearchedCells, endBucket - firstBucket);
     for (auto bucket = firstBucket; bucket < endBucket; ++bucket) {
       const MeasurementRange range{.begin = mOffsets[bucket], .end = mOffsets[bucket + 1]};
-      for (Index first = lowerBound(range, span.earliestPS); first < range.end && !(span.latestPS < std::int64_t{mMeasurements.timePS[first]});
-           first += kLanes) {
+      for (Index first = lowerBound(range, span.earliestPS); first < range.end && !(span.latestPS < std::int64_t{mMeasurements.timePS[first]}); first += kLanes) {
         const Index row = first + lane;
         const bool has = row < range.end && !(span.latestPS < std::int64_t{mMeasurements.timePS[row]}) && compatibleInBound(row, span);
         visit(row, has);

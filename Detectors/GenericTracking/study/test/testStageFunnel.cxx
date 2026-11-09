@@ -35,8 +35,7 @@ namespace
 using Controller = toybarrel8::Controller;
 using Funnel = StageFunnel<toybarrel8::Det, Controller>;
 
-std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<const TruthRow> rows, const ParticleTable& truth,
-                                  const std::vector<IterationSettings>& settings)
+std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<const TruthRow> rows, const ParticleTable& truth, const std::vector<IterationSettings>& settings)
 {
   using namespace toybarrel8;
   Controller tracker{settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 1};
@@ -101,8 +100,7 @@ BOOST_AUTO_TEST_CASE(EachParticleIsSeededByTheIterationsWithARoadOfItsOwn)
   const Fixture fixture{hits, 300.};
   // Each row's particle: its hit's track.
   const auto rows = truthRows(fixture);
-  const ParticleTable truth{{1, {.pt = 2.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}},
-                            {2, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}};
+  const ParticleTable truth{{1, {.pt = 2.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}, {2, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}};
   auto first = iterationSettings();
   auto second = iterationSettings();
   second.windows.minPtGeV = 0.3;
@@ -134,9 +132,7 @@ BOOST_AUTO_TEST_CASE(APairCountsAsLostOnlyIfNoIterationKeptIt)
   hits.insert(hits.end(), late.begin(), late.end());
   const Fixture fixture{hits, 300.};
   const auto rows = truthRows(fixture);
-  const ParticleTable truth{{1, {.pt = 2.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}},
-                            {2, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}},
-                            {3, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}};
+  const ParticleTable truth{{1, {.pt = 2.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}, {2, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}, {3, {.pt = 0.45F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary}}};
   auto first = iterationSettings();
   auto second = iterationSettings();
   second.windows.minPtGeV = 0.3;

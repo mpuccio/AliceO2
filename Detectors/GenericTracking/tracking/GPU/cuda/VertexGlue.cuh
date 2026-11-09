@@ -446,9 +446,7 @@ struct Score {
     const Index begin = candidates.frameBegin[f];
     const Index end = candidates.frameEnd(f);
     const long long z = candidates.z[i];
-    const auto countIn = [&](std::int64_t low, std::int64_t high) {
-      return countBefore[candidates.at(begin, end, high)] - countBefore[candidates.at(begin, end, low)];
-    };
+    const auto countIn = [&](std::int64_t low, std::int64_t high) { return countBefore[candidates.at(begin, end, high)] - countBefore[candidates.at(begin, end, low)]; };
     const std::int64_t score = peakExcess(z, window, claim, minContributors, k2, countIn);
     if (score <= 0) {
       return;
@@ -627,8 +625,7 @@ struct Grow {
       return;
     }
     const auto at = static_cast<Index>(v);
-    if (withinError(selection.candidates.z[i], selection.candidates.weight[i], ZMoments{.mean = selection.mean[at], .varMean = selection.varMean[at]},
-                    nSigma)) {
+    if (withinError(selection.candidates.z[i], selection.candidates.weight[i], ZMoments{.mean = selection.mean[at], .varMean = selection.varMean[at]}, nSigma)) {
       selection.select(i, at);
       *changed = 1U;
     }
@@ -658,11 +655,7 @@ struct RoundStorage {
   DeviceSpan<Index> earliest;
   DeviceSpan<Index> latest;
 
-  [[nodiscard]] bool allocate(DeviceArena& arena, Index frames)
-  {
-    return bestExcess.allocate(arena, frames) && bestIndex.allocate(arena, frames) && centre.allocate(arena, frames) && contributors.allocate(arena, frames) &&
-           earliest.allocate(arena, frames) && latest.allocate(arena, frames);
-  }
+  [[nodiscard]] bool allocate(DeviceArena& arena, Index frames) { return bestExcess.allocate(arena, frames) && bestIndex.allocate(arena, frames) && centre.allocate(arena, frames) && contributors.allocate(arena, frames) && earliest.allocate(arena, frames) && latest.allocate(arena, frames); }
   void reset(DeviceRuntime& runtime, DeviceStream& stream, Index frames)
   {
     runtime.fill(bestExcess.data(), 0U, frames * sizeof(Counter), stream);
@@ -673,12 +666,14 @@ struct RoundStorage {
   }
   [[nodiscard]] Round view()
   {
-    return {.bestExcess = bestExcess.data(),
-            .bestIndex = bestIndex.data(),
-            .centre = centre.data(),
-            .contributors = contributors.data(),
-            .earliest = earliest.data(),
-            .latest = latest.data()};
+    return {
+      .bestExcess = bestExcess.data(),
+      .bestIndex = bestIndex.data(),
+      .centre = centre.data(),
+      .contributors = contributors.data(),
+      .earliest = earliest.data(),
+      .latest = latest.data(),
+    };
   }
 };
 
@@ -692,9 +687,7 @@ struct RoundStorage {
 /// Its arrays on the base end, in the caller's scope; kOutOfMemory if the
 /// arena refuses.
 template <DetectorLayout Det>
-[[nodiscard]] StageStatus findVertices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, MeasurementView measurements, Index rows,
-                                       TrackletConstView tracklets, TripletConstView triplets, Index tripletCount, const IterationParameters<Det>* pass,
-                                       const VertexerSettings& settings, const VertexConstraint& beamSpot, const OwnedFrames& owned, VertexerResult& result)
+[[nodiscard]] StageStatus findVertices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, MeasurementView measurements, Index rows, TrackletConstView tracklets, TripletConstView triplets, Index tripletCount, const IterationParameters<Det>* pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, const OwnedFrames& owned, VertexerResult& result)
 {
   using namespace detail;
   result = {};
@@ -709,23 +702,24 @@ template <DetectorLayout Det>
   DeviceSpan<std::uint64_t> weights;
   DeviceSpan<Index> lower;
   DeviceSpan<Index> upper;
-  if (!keys.allocate(arena, tripletCount) || !sourceKeys.allocate(arena, tripletCount) || !chi2.allocate(arena, tripletCount) ||
-      !weights.allocate(arena, tripletCount) || !lower.allocate(arena, tripletCount) || !upper.allocate(arena, tripletCount)) {
+  if (!keys.allocate(arena, tripletCount) || !sourceKeys.allocate(arena, tripletCount) || !chi2.allocate(arena, tripletCount) || !weights.allocate(arena, tripletCount) || !lower.allocate(arena, tripletCount) || !upper.allocate(arena, tripletCount)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, tripletCount,
-                      CandidateMap<Det>{.measurements = measurements,
-                                        .tracklets = tracklets,
-                                        .triplets = triplets,
-                                        .settings = settings,
-                                        .pass = pass,
-                                        .varTransverse = static_cast<float>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse),
-                                        .keys = keys.data(),
-                                        .sourceKeys = sourceKeys.data(),
-                                        .chi2 = chi2.data(),
-                                        .weights = weights.data(),
-                                        .lower = lower.data(),
-                                        .upper = upper.data()});
+                      CandidateMap<Det>{
+                        .measurements = measurements,
+                        .tracklets = tracklets,
+                        .triplets = triplets,
+                        .settings = settings,
+                        .pass = pass,
+                        .varTransverse = static_cast<float>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse),
+                        .keys = keys.data(),
+                        .sourceKeys = sourceKeys.data(),
+                        .chi2 = chi2.data(),
+                        .weights = weights.data(),
+                        .lower = lower.data(),
+                        .upper = upper.data(),
+                      });
   DeviceSpan<Index> accepted;
   Index acceptedCount = 0U;
   StageStatus status = algorithms::selectIndices(runtime, arena, stream, tripletCount, Accepted{keys.data()}, accepted, acceptedCount);
@@ -749,13 +743,15 @@ template <DetectorLayout Det>
   }
   runtime.fill(state.data(), kLive, acceptedCount, stream);
   runtime.fill(taken.data(), 0U, rows, stream);
-  const Deduplication deduplication{.accepted = accepted.data(),
-                                    .tracklets = tracklets,
-                                    .triplets = triplets,
-                                    .chi2 = chi2.data(),
-                                    .state = state.data(),
-                                    .slots = slots.data(),
-                                    .taken = taken.data()};
+  const Deduplication deduplication{
+    .accepted = accepted.data(),
+    .tracklets = tracklets,
+    .triplets = triplets,
+    .chi2 = chi2.data(),
+    .state = state.data(),
+    .slots = slots.data(),
+    .taken = taken.data(),
+  };
   const auto deduplicated = algorithms::sweepToFixedPoint<1U>(runtime, arena, stream, acceptedCount + 1U, [&](Index* changed) {
     algorithms::forEach(runtime, stream, acceptedCount, Reopen{deduplication});
     algorithms::forEach(runtime, stream, acceptedCount, Bid{deduplication});
@@ -781,13 +777,11 @@ template <DetectorLayout Det>
   DeviceSpan<Index> candidateTriplets;
   DeviceSpan<std::uint64_t> sortedKeys;
   DeviceSpan<Index> sortedTriplets;
-  if (!candidateKeys.allocate(arena, count) || !candidateTriplets.allocate(arena, count) || !sortedKeys.allocate(arena, count) ||
-      !sortedTriplets.allocate(arena, count)) {
+  if (!candidateKeys.allocate(arena, count) || !candidateTriplets.allocate(arena, count) || !sortedKeys.allocate(arena, count) || !sortedTriplets.allocate(arena, count)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, count, GatherKept{kept.data(), accepted.data(), keys.data(), candidateKeys.data(), candidateTriplets.data()});
-  status = algorithms::sortPairs(runtime, arena, stream, std::as_const(candidateKeys).data(), sortedKeys.data(), std::as_const(candidateTriplets).data(),
-                                 sortedTriplets.data(), count, 64);
+  status = algorithms::sortPairs(runtime, arena, stream, std::as_const(candidateKeys).data(), sortedKeys.data(), std::as_const(candidateTriplets).data(), sortedTriplets.data(), count, 64);
   if (status != StageStatus::kComplete) {
     return status;
   }
@@ -798,21 +792,22 @@ template <DetectorLayout Det>
   DeviceSpan<Index> startsBefore;
   DeviceSpan<Index> frameOf;
   DeviceSpan<std::uint64_t> weight;
-  if (!weight.allocate(arena, count) || !z.allocate(arena, count) || !boxLower.allocate(arena, count) || !boxUpper.allocate(arena, count) ||
-      !frameStart.allocate(arena, count) || !startsBefore.allocate(arena, count) || !frameOf.allocate(arena, count)) {
+  if (!weight.allocate(arena, count) || !z.allocate(arena, count) || !boxLower.allocate(arena, count) || !boxUpper.allocate(arena, count) || !frameStart.allocate(arena, count) || !startsBefore.allocate(arena, count) || !frameOf.allocate(arena, count)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, count,
-                      SortedColumns{.sortedKeys = sortedKeys.data(),
-                                    .sortedTriplets = sortedTriplets.data(),
-                                    .lower = lower.data(),
-                                    .upper = upper.data(),
-                                    .weights = weights.data(),
-                                    .z = z.data(),
-                                    .weight = weight.data(),
-                                    .boxLower = boxLower.data(),
-                                    .boxUpper = boxUpper.data(),
-                                    .frameStart = frameStart.data()});
+                      SortedColumns{
+                        .sortedKeys = sortedKeys.data(),
+                        .sortedTriplets = sortedTriplets.data(),
+                        .lower = lower.data(),
+                        .upper = upper.data(),
+                        .weights = weights.data(),
+                        .z = z.data(),
+                        .weight = weight.data(),
+                        .boxLower = boxLower.data(),
+                        .boxUpper = boxUpper.data(),
+                        .frameStart = frameStart.data(),
+                      });
   DeviceSpan<Index> frameBegin;
   Index frames = 0U;
   status = algorithms::selectIndices(runtime, arena, stream, count, FrameStarts{frameStart.data()}, frameBegin, frames);
@@ -824,14 +819,16 @@ template <DetectorLayout Det>
     return status;
   }
   algorithms::forEach(runtime, stream, count, FrameOf{frameStart.data(), startsBefore.data(), frameOf.data()});
-  const Candidates candidates{.z = z.data(),
-                              .weight = weight.data(),
-                              .boxLower = boxLower.data(),
-                              .boxUpper = boxUpper.data(),
-                              .frame = frameOf.data(),
-                              .frameBegin = frameBegin.data(),
-                              .frames = frames,
-                              .count = count};
+  const Candidates candidates{
+    .z = z.data(),
+    .weight = weight.data(),
+    .boxLower = boxLower.data(),
+    .boxUpper = boxUpper.data(),
+    .frame = frameOf.data(),
+    .frameBegin = frameBegin.data(),
+    .frames = frames,
+    .count = count,
+  };
 
   // The ownership's sources and slots.
   DeviceSpan<Index> sources;
@@ -847,11 +844,13 @@ template <DetectorLayout Det>
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, sourceCount,
-                      SlotKeys{.sources = std::as_const(sources).data(),
-                               .sourceKeys = std::as_const(sourceKeys).data(),
-                               .tracklets = tracklets,
-                               .triplets = triplets,
-                               .slotKeys = slotKeys.data()});
+                      SlotKeys{
+                        .sources = std::as_const(sources).data(),
+                        .sourceKeys = std::as_const(sourceKeys).data(),
+                        .tracklets = tracklets,
+                        .triplets = triplets,
+                        .slotKeys = slotKeys.data(),
+                      });
   status = algorithms::sortKeys(runtime, arena, stream, std::as_const(slotKeys).data(), sortedSlotKeys.data(), slotEntries, 64);
   if (status != StageStatus::kComplete) {
     return status;
@@ -868,28 +867,31 @@ template <DetectorLayout Det>
   DeviceSpan<long long> sourceZ;
   DeviceSpan<Index> sourceFrame;
   DeviceSpan<Index> candidateSlots;
-  if (!uniqueSlots.allocate(arena, slotCount) || !ownedSlots.allocate(arena, slotCount) || !sourceSlots.allocate(arena, slotEntries) ||
-      !sourceZ.allocate(arena, sourceCount) || !sourceFrame.allocate(arena, sourceCount) || !candidateSlots.allocate(arena, 3U * count)) {
+  if (!uniqueSlots.allocate(arena, slotCount) || !ownedSlots.allocate(arena, slotCount) || !sourceSlots.allocate(arena, slotEntries) || !sourceZ.allocate(arena, sourceCount) || !sourceFrame.allocate(arena, sourceCount) || !candidateSlots.allocate(arena, 3U * count)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, slotCount, GatherSlots{std::as_const(slotStarts).data(), std::as_const(sortedSlotKeys).data(), uniqueSlots.data()});
   runtime.fill(ownedSlots.data(), 0U, slotCount, stream);
   const SlotsOf slotsOf{.unique = std::as_const(uniqueSlots).data(), .slots = slotCount, .tracklets = tracklets, .triplets = triplets};
   algorithms::forEach(runtime, stream, sourceCount,
-                      SourceColumns{.sources = std::as_const(sources).data(),
-                                    .sourceKeys = std::as_const(sourceKeys).data(),
-                                    .slotsOf = slotsOf,
-                                    .sortedKeys = std::as_const(sortedKeys).data(),
-                                    .frameBegin = std::as_const(frameBegin).data(),
-                                    .frames = frames,
-                                    .sourceSlots = sourceSlots.data(),
-                                    .sourceZ = sourceZ.data(),
-                                    .sourceFrame = sourceFrame.data()});
+                      SourceColumns{
+                        .sources = std::as_const(sources).data(),
+                        .sourceKeys = std::as_const(sourceKeys).data(),
+                        .slotsOf = slotsOf,
+                        .sortedKeys = std::as_const(sortedKeys).data(),
+                        .frameBegin = std::as_const(frameBegin).data(),
+                        .frames = frames,
+                        .sourceSlots = sourceSlots.data(),
+                        .sourceZ = sourceZ.data(),
+                        .sourceFrame = sourceFrame.data(),
+                      });
   algorithms::forEach(runtime, stream, count,
-                      CandidateSlots{.sortedKeys = std::as_const(sortedKeys).data(),
-                                     .sortedTriplets = std::as_const(sortedTriplets).data(),
-                                     .slotsOf = slotsOf,
-                                     .candidateSlots = candidateSlots.data()});
+                      CandidateSlots{
+                        .sortedKeys = std::as_const(sortedKeys).data(),
+                        .sortedTriplets = std::as_const(sortedTriplets).data(),
+                        .slotsOf = slotsOf,
+                        .candidateSlots = candidateSlots.data(),
+                      });
 
   // Rounds: every frame at once.
   DeviceSpan<std::int32_t> claims;
@@ -899,8 +901,7 @@ template <DetectorLayout Det>
   DeviceSpan<long long> zBefore;
   DeviceSpan<long long> excess;
   const Index scanned = count + 1U;
-  if (!claims.allocate(arena, count) || !freeCount.allocate(arena, scanned) || !freeZ.allocate(arena, scanned) || !countBefore.allocate(arena, scanned) ||
-      !zBefore.allocate(arena, scanned) || !excess.allocate(arena, count)) {
+  if (!claims.allocate(arena, count) || !freeCount.allocate(arena, scanned) || !freeZ.allocate(arena, scanned) || !countBefore.allocate(arena, scanned) || !zBefore.allocate(arena, scanned) || !excess.allocate(arena, count)) {
     return StageStatus::kOutOfMemory;
   }
   runtime.fill(claims.data(), 0xFFU, std::size_t{count} * sizeof(std::int32_t), stream);
@@ -924,38 +925,42 @@ template <DetectorLayout Det>
       round.reset(runtime, stream, frames);
       const auto roundView = round.view();
       algorithms::forEach(runtime, stream, scanned, FreeColumns{candidates, std::as_const(claims).data(), freeCount.data(), freeZ.data()});
-      if (algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeCount).data(), countBefore.data(), scanned) != StageStatus::kComplete ||
-          algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeZ).data(), zBefore.data(), scanned) != StageStatus::kComplete) {
+      if (algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeCount).data(), countBefore.data(), scanned) != StageStatus::kComplete || algorithms::exclusiveScan(runtime, arena, stream, std::as_const(freeZ).data(), zBefore.data(), scanned) != StageStatus::kComplete) {
         outOfMemory = true;
         return;
       }
       algorithms::forEach(runtime, stream, count,
-                          Score{.candidates = candidates,
-                                .claims = std::as_const(claims).data(),
-                                .countBefore = std::as_const(countBefore).data(),
-                                .window = window,
-                                .claim = claim,
-                                .minContributors = minContributors,
-                                .k2 = k2,
-                                .skipped = skipped,
-                                .excess = excess.data(),
-                                .round = roundView});
+                          Score{
+                            .candidates = candidates,
+                            .claims = std::as_const(claims).data(),
+                            .countBefore = std::as_const(countBefore).data(),
+                            .window = window,
+                            .claim = claim,
+                            .minContributors = minContributors,
+                            .k2 = k2,
+                            .skipped = skipped,
+                            .excess = excess.data(),
+                            .round = roundView,
+                          });
       algorithms::forEach(runtime, stream, count, Pick{candidates, std::as_const(excess).data(), roundView});
-      algorithms::forEach(runtime, stream, frames,
-                          Centre{candidates, std::as_const(countBefore).data(), std::as_const(zBefore).data(), window, roundView, changed});
+      algorithms::forEach(runtime, stream, frames, Centre{candidates, std::as_const(countBefore).data(), std::as_const(zBefore).data(), window, roundView, changed});
       algorithms::forEach(runtime, stream, count,
-                          Claim{.candidates = candidates,
-                                .claims = claims.data(),
-                                .claim = static_cast<float>(claim),
-                                .vertexBase = static_cast<std::int32_t>((rounds.size() - 1U) * frames),
-                                .round = roundView});
+                          Claim{
+                            .candidates = candidates,
+                            .claims = claims.data(),
+                            .claim = static_cast<float>(claim),
+                            .vertexBase = static_cast<std::int32_t>((rounds.size() - 1U) * frames),
+                            .round = roundView,
+                          });
       algorithms::forEach(runtime, stream, sourceCount,
-                          Own{.sourceSlots = std::as_const(sourceSlots).data(),
-                              .sourceZ = std::as_const(sourceZ).data(),
-                              .sourceFrame = std::as_const(sourceFrame).data(),
-                              .ownedSlots = ownedSlots.data(),
-                              .claim = static_cast<float>(claim),
-                              .round = roundView});
+                          Own{
+                            .sourceSlots = std::as_const(sourceSlots).data(),
+                            .sourceZ = std::as_const(sourceZ).data(),
+                            .sourceFrame = std::as_const(sourceFrame).data(),
+                            .ownedSlots = ownedSlots.data(),
+                            .claim = static_cast<float>(claim),
+                            .round = roundView,
+                          });
       algorithms::forEach(runtime, stream, count, DropOwned{std::as_const(candidateSlots).data(), std::as_const(ownedSlots).data(), claims.data()});
     });
   };
@@ -997,9 +1002,7 @@ template <DetectorLayout Det>
   DeviceSpan<float> mean;
   DeviceSpan<float> varMean;
   if (vertexSlots != 0U) {
-    if (!centres.allocate(arena, vertexSlots) || !selected.allocate(arena, count) || !selectedWeightSum.allocate(arena, vertexSlots) ||
-        !selectedWeightedZSum.allocate(arena, vertexSlots) || !selectedScatterSum.allocate(arena, vertexSlots) || !selectedCount.allocate(arena, vertexSlots) ||
-        !mean.allocate(arena, vertexSlots) || !varMean.allocate(arena, vertexSlots)) {
+    if (!centres.allocate(arena, vertexSlots) || !selected.allocate(arena, count) || !selectedWeightSum.allocate(arena, vertexSlots) || !selectedWeightedZSum.allocate(arena, vertexSlots) || !selectedScatterSum.allocate(arena, vertexSlots) || !selectedCount.allocate(arena, vertexSlots) || !mean.allocate(arena, vertexSlots) || !varMean.allocate(arena, vertexSlots)) {
       return StageStatus::kOutOfMemory;
     }
     for (std::size_t r = 0; r < found; ++r) {
@@ -1010,15 +1013,17 @@ template <DetectorLayout Det>
     runtime.fill(selectedWeightedZSum.data(), 0U, vertexSlots * sizeof(Counter), stream);
     runtime.fill(selectedScatterSum.data(), 0U, vertexSlots * sizeof(Counter), stream);
     runtime.fill(selectedCount.data(), 0U, vertexSlots * sizeof(Counter), stream);
-    const Selection selection{.candidates = candidates,
-                              .claims = std::as_const(claims).data(),
-                              .selected = selected.data(),
-                              .weightSum = selectedWeightSum.data(),
-                              .weightedZSum = selectedWeightedZSum.data(),
-                              .scatterSum = selectedScatterSum.data(),
-                              .count = selectedCount.data(),
-                              .mean = mean.data(),
-                              .varMean = varMean.data()};
+    const Selection selection{
+      .candidates = candidates,
+      .claims = std::as_const(claims).data(),
+      .selected = selected.data(),
+      .weightSum = selectedWeightSum.data(),
+      .weightedZSum = selectedWeightedZSum.data(),
+      .scatterSum = selectedScatterSum.data(),
+      .count = selectedCount.data(),
+      .mean = mean.data(),
+      .varMean = varMean.data(),
+    };
     algorithms::forEach(runtime, stream, count, CoreStart{selection, std::as_const(centres).data(), static_cast<float>(window)});
     algorithms::forEach(runtime, stream, vertexSlots, Moments{selection});
     const auto grown = algorithms::sweepToFixedPoint<1U>(runtime, arena, stream, count + 1U, [&](Index* changed) {
@@ -1067,12 +1072,14 @@ template <DetectorLayout Det>
       if (bestIndex[at] == kNoIndex) {
         continue;
       }
-      const VertexClaim sums{.weightSum = static_cast<std::uint64_t>(weightSum[at]),
-                             .weightedZSum = static_cast<std::int64_t>(weightedZSum[at]),
-                             .scatterSum = static_cast<std::uint64_t>(scatterSum[at]),
-                             .count = static_cast<std::int64_t>(members[at]),
-                             .earliestPS = earliest[at],
-                             .latestPS = latest[at]};
+      const VertexClaim sums{
+        .weightSum = static_cast<std::uint64_t>(weightSum[at]),
+        .weightedZSum = static_cast<std::int64_t>(weightedZSum[at]),
+        .scatterSum = static_cast<std::uint64_t>(scatterSum[at]),
+        .count = static_cast<std::int64_t>(members[at]),
+        .earliestPS = earliest[at],
+        .latestPS = latest[at],
+      };
       inFrame.push_back({.seed = vertexSeedOf(sums, beamSpot), .contributors = contributors[at]});
     }
     mostInFrame = std::max(mostInFrame, static_cast<std::uint32_t>(inFrame.size()));

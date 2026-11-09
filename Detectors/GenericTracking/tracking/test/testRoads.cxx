@@ -73,8 +73,7 @@ std::vector<Road> enumerate(ForEach forEach, const RoadWalk& walk, RoadCount::In
 /// The road count of one tracker run, serial when \a threads is 0, else on
 /// the CPU backend in chunks of \a chunk.
 template <typename Result>
-Counted countRoads(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel,
-                   int threads = 0, RoadCount::Index chunk = 1U, std::uint64_t endLayers = 0U)
+Counted countRoads(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel, int threads = 0, RoadCount::Index chunk = 1U, std::uint64_t endLayers = 0U)
 {
   const RoadStartRule rule{.minLevel = minStartLevel, .endLayers = endLayers, .linkTargets = parameters.linkTargets};
   RoadCount count;
@@ -88,9 +87,7 @@ Counted countRoads(const Result& run, const IterationParameters<Det>& parameters
   CpuStage<NeighbourT> cpu{cpuArena};
   cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   const auto parallel = [&](RoadCount::Index elements, const auto& body) { cpu.forEachElement(elements, chunk, body); };
-  const auto status = threads == 0
-                        ? fixedPointRoads(count, serial, parameters.linkSources, core.data(), rule, *run.tracklets, *run.triplets, *run.neighbours)
-                        : fixedPointRoads(count, parallel, parameters.linkSources, core.data(), rule, *run.tracklets, *run.triplets, *run.neighbours);
+  const auto status = threads == 0 ? fixedPointRoads(count, serial, parameters.linkSources, core.data(), rule, *run.tracklets, *run.triplets, *run.neighbours) : fixedPointRoads(count, parallel, parameters.linkSources, core.data(), rule, *run.tracklets, *run.triplets, *run.neighbours);
   BOOST_REQUIRE(status == StageStatus::kComplete);
   // An independently scheduled ordered pass uses the final graph, rather
   // than the fitter's generation. It must give the reference's numbering.
@@ -129,8 +126,7 @@ Counted countRoads(const Result& run, const IterationParameters<Det>& parameters
       BOOST_TEST(std::ranges::equal(ordered.roads(), count.roads()));
       BOOST_TEST(std::ranges::equal(ordered.starts(), count.starts()));
       BOOST_TEST(std::ranges::equal(ordered.roadOffsets(), count.roadOffsets()));
-      BOOST_TEST((enumerate(forEach, ordered.walk(*run.triplets, *run.neighbours), ordered.roadCount()) ==
-                  enumerate(forEach, count.walk(*run.triplets, *run.neighbours), count.roadCount())));
+      BOOST_TEST((enumerate(forEach, ordered.walk(*run.triplets, *run.neighbours), ordered.roadCount()) == enumerate(forEach, count.walk(*run.triplets, *run.neighbours), count.roadCount())));
     }
   };
   if (run.triplets->size() != 0U) {
@@ -141,11 +137,13 @@ Counted countRoads(const Result& run, const IterationParameters<Det>& parameters
     }
   }
   const auto walk = count.walk(*run.triplets, *run.neighbours);
-  return {.successorAbove = {count.successorAbove().begin(), count.successorAbove().end()},
-          .roads = {count.roads().begin(), count.roads().end()},
-          .starts = {count.starts().begin(), count.starts().end()},
-          .roadOffsets = {count.roadOffsets().begin(), count.roadOffsets().end()},
-          .enumerated = threads == 0 ? enumerate(serial, walk, count.roadCount()) : enumerate(parallel, walk, count.roadCount())};
+  return {
+    .successorAbove = {count.successorAbove().begin(), count.successorAbove().end()},
+    .roads = {count.roads().begin(), count.roads().end()},
+    .starts = {count.starts().begin(), count.starts().end()},
+    .roadOffsets = {count.roadOffsets().begin(), count.roadOffsets().end()},
+    .enumerated = threads == 0 ? enumerate(serial, walk, count.roadCount()) : enumerate(parallel, walk, count.roadCount()),
+  };
 }
 
 /// By brute force: the successor flags from every edge, the roads by a
@@ -154,8 +152,7 @@ Counted countRoads(const Result& run, const IterationParameters<Det>& parameters
 /// allowed to start, that the walks from the starts cover every triplet with
 /// a road.
 template <typename Result>
-void checkAgainstBruteForce(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel,
-                            const Counted& counted)
+void checkAgainstBruteForce(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel, const Counted& counted)
 {
   const auto tracklets = run.tracklets->view();
   const auto triplets = run.triplets->view();
@@ -551,8 +548,7 @@ BOOST_AUTO_TEST_CASE(OrderedNumberingChecksEmptyIndividualAndTotalOverflow)
   StageOutput<TrackletT> tracklets;
   tracklets.setMemoryPool(pool);
   tracklets.prepare(1U);
-  const auto madeTracklets =
-    runSerial(tracklets, [](auto, auto& emitter) { emitter.emit(Tracklet{.source = 0U, .target = 0U, .link = 0U, .lambda = 0.F, .phi = 0.F}); });
+  const auto madeTracklets = runSerial(tracklets, [](auto, auto& emitter) { emitter.emit(Tracklet{.source = 0U, .target = 0U, .link = 0U, .lambda = 0.F, .phi = 0.F}); });
   BOOST_REQUIRE(madeTracklets == StageStatus::kComplete);
   std::array<MeasurementRange, kLayers> core{};
   core[parameters.linkSources[0]] = {.begin = 0U, .end = 1U};
@@ -560,9 +556,7 @@ BOOST_AUTO_TEST_CASE(OrderedNumberingChecksEmptyIndividualAndTotalOverflow)
     StageOutput<TripletT> triplets;
     triplets.setMemoryPool(pool);
     triplets.prepare(2U * depth);
-    const auto madeTriplets = runSerial(triplets, [](auto element, auto& emitter) {
-      emitter.emit(Triplet{.first = 0U, .second = 0U, .curvature = 0.F, .varCurvature = 0.F, .level = element / 2U + 1U, .kinked = 0U});
-    });
+    const auto madeTriplets = runSerial(triplets, [](auto element, auto& emitter) { emitter.emit(Triplet{.first = 0U, .second = 0U, .curvature = 0.F, .varCurvature = 0.F, .level = element / 2U + 1U, .kinked = 0U}); });
     BOOST_REQUIRE(madeTriplets == StageStatus::kComplete);
     RoadCount counter;
     counter.setMemoryPool(pool);

@@ -76,8 +76,7 @@ class MCVertexReaderTask : public Task
       LOG(fatal) << "GTRKMCVertex: the smearing sigmas must be finite and non-negative";
       return;
     }
-    const auto filename = o2::utils::Str::concat_string(o2::utils::Str::rectifyDirectory(ic.options().get<std::string>("input-dir")),
-                                                        ic.options().get<std::string>("collision-context"));
+    const auto filename = o2::utils::Str::concat_string(o2::utils::Str::rectifyDirectory(ic.options().get<std::string>("input-dir")), ic.options().get<std::string>("collision-context"));
     mContext.reset(o2::steer::DigitizationContext::loadFromFile(filename));
     if (!mContext) {
       LOGP(fatal, "cannot load collision context from {}", filename);
@@ -134,11 +133,13 @@ class MCVertexReaderTask : public Task
       // The collision's time, a box of width 0.
       constexpr double kPSPerNS = 1.e3;
       const auto timePS = std::max<std::int64_t>(std::llround((record->getTimeNS() - startNS) * kPSPerNS), 0);
-      const VertexSeed vertex{.timePS = static_cast<std::uint32_t>(timePS),
-                              .widthPS = 0U,
-                              .z = static_cast<Scalar>(header.GetZ() + param.sigmaZ * zSmear),
-                              .varZ = varZ,
-                              .varTransverse = varTransverse};
+      const VertexSeed vertex{
+        .timePS = static_cast<std::uint32_t>(timePS),
+        .widthPS = 0U,
+        .z = static_cast<Scalar>(header.GetZ() + param.sigmaZ * zSmear),
+        .varZ = varZ,
+        .varTransverse = varTransverse,
+      };
       vertices.push_back(vertex);
     }
     std::ranges::sort(vertices, {}, &VertexSeed::timePS);
@@ -158,12 +159,13 @@ template <DetectorLayout Det>
 DataProcessorSpec getMCVertexReaderSpec()
 {
   // The clusters only trigger each timeframe; their content is not read.
-  return DataProcessorSpec{.name = workflow::deviceName<Det>("mc-vertex-reader"),
-                           .inputs = Inputs{InputSpec{"clusters", workflow::gDataOrigin, workflow::description<Det>(workflow::kClusters), 0, Lifetime::Timeframe}},
-                           .outputs = Outputs{OutputSpec{workflow::gDataOrigin, workflow::description<Det>(workflow::kVertices), 0, Lifetime::Timeframe}},
-                           .algorithm = AlgorithmSpec{adaptFromTask<MCVertexReaderTask<Det>>()},
-                           .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}},
-                                              {"input-dir", VariantType::String, "none", {"input directory"}}}};
+  return DataProcessorSpec{
+    .name = workflow::deviceName<Det>("mc-vertex-reader"),
+    .inputs = Inputs{InputSpec{"clusters", workflow::gDataOrigin, workflow::description<Det>(workflow::kClusters), 0, Lifetime::Timeframe}},
+    .outputs = Outputs{OutputSpec{workflow::gDataOrigin, workflow::description<Det>(workflow::kVertices), 0, Lifetime::Timeframe}},
+    .algorithm = AlgorithmSpec{adaptFromTask<MCVertexReaderTask<Det>>()},
+    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}},
+  };
 }
 
 template DataProcessorSpec getMCVertexReaderSpec<detectors::ITS>();

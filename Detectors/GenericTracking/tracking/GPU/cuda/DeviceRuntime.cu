@@ -151,7 +151,12 @@ class Runtime final : public DeviceRuntime
         const std::size_t units = copy.bytes >> shift;
         const auto tail = static_cast<unsigned>(copy.bytes - (units << shift));
         batch.copies[taken] = {
-          .to = static_cast<std::byte*>(copy.to), .from = static_cast<const std::byte*>(copy.from), .units = units, .unitShift = shift, .tail = tail};
+          .to = static_cast<std::byte*>(copy.to),
+          .from = static_cast<const std::byte*>(copy.from),
+          .units = units,
+          .unitShift = shift,
+          .tail = tail,
+        };
         largest = std::max({largest, units, std::size_t{tail}});
         ++taken;
       }
@@ -168,10 +173,7 @@ class Runtime final : public DeviceRuntime
     }
   }
 
-  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final
-  {
-    GPUChkErrS(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream)));
-  }
+  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { GPUChkErrS(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream))); }
 
   void registerHost(void* host, std::size_t bytes) final { GPUChkErrS(cudaHostRegister(host, bytes, cudaHostRegisterDefault)); }
   void unregisterHost(void* host) noexcept final { GPUChkErrSI(cudaHostUnregister(host)); }
@@ -187,27 +189,15 @@ class Runtime final : public DeviceRuntime
  private:
   [[nodiscard]] static cudaStream_t nativeStreamOf(DeviceStream& stream) { return static_cast<cudaStream_t>(nativeStream(stream)); }
 
-  static void copy(void* to, const void* from, std::size_t bytes, cudaMemcpyKind kind, DeviceStream& stream)
-  {
-    GPUChkErrS(cudaMemcpyAsync(to, from, bytes, kind, nativeStreamOf(stream)));
-  }
+  static void copy(void* to, const void* from, std::size_t bytes, cudaMemcpyKind kind, DeviceStream& stream) { GPUChkErrS(cudaMemcpyAsync(to, from, bytes, kind, nativeStreamOf(stream))); }
 
   void destroyStreamHandle(void* handle) noexcept final { GPUChkErrSI(cudaStreamDestroy(static_cast<cudaStream_t>(handle))); }
 
   void synchronizeStreamHandle(void* handle) final { GPUChkErrS(cudaStreamSynchronize(static_cast<cudaStream_t>(handle))); }
 
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) final
-  {
-    return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block);
-  }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) final
-  {
-    return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block);
-  }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) final
-  {
-    return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block);
-  }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block); }
 
   DeviceProperties mProperties;
 };

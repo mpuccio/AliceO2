@@ -22,9 +22,6 @@ namespace o2::gtrk
 
 std::size_t FlatObjectPort<ToyFlatObject>::bufferBytes(const ToyFlatObject& source) { return flatObjectBufferBytes(source); }
 
-void FlatObjectPort<ToyFlatObject>::image(const ToyFlatObject& source, char* futureBuffer, FlatObjectImage& image)
-{
-  flatObjectImage(source, futureBuffer, image);
-}
+void FlatObjectPort<ToyFlatObject>::image(const ToyFlatObject& source, char* futureBuffer, FlatObjectImage& image) { flatObjectImage(source, futureBuffer, image); }
 
 } // namespace o2::gtrk

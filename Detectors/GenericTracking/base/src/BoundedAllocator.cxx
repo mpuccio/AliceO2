@@ -34,10 +34,7 @@ BoundedMemoryResource::MemoryLimitExceeded::MemoryLimitExceeded(size_t attempted
   mMsg = buf;
 }
 
-const char* BoundedMemoryResource::MemoryLimitExceeded::what() const noexcept
-{
-  return mMsg.c_str();
-}
+const char* BoundedMemoryResource::MemoryLimitExceeded::what() const noexcept { return mMsg.c_str(); }
 
 std::pmr::memory_resource* BoundedMemoryResource::cachingUpstream()
 {
@@ -46,12 +43,15 @@ std::pmr::memory_resource* BoundedMemoryResource::cachingUpstream()
 }
 
 BoundedMemoryResource::BoundedMemoryResource(size_t maxBytes, std::pmr::memory_resource* upstream)
-  : mMaxMemory(maxBytes), mUpstream(upstream != nullptr ? upstream : cachingUpstream())
+  : mMaxMemory(maxBytes),
+    mUpstream(upstream != nullptr ? upstream : cachingUpstream())
 {
 }
 
 BoundedMemoryResource::BoundedMemoryResource(std::unique_ptr<std::pmr::memory_resource> upstream, size_t maxBytes)
-  : mMaxMemory(maxBytes), mOwnedUpstream(std::move(upstream)), mUpstream(mOwnedUpstream.get())
+  : mMaxMemory(maxBytes),
+    mOwnedUpstream(std::move(upstream)),
+    mUpstream(mOwnedUpstream.get())
 {
 }
 
@@ -97,30 +97,15 @@ void BoundedMemoryResource::do_deallocate(void* p, size_t bytes, size_t alignmen
   mUsedMemory.fetch_sub(bytes, std::memory_order_relaxed);
 }
 
-bool BoundedMemoryResource::do_is_equal(const std::pmr::memory_resource& other) const noexcept
-{
-  return this == &other;
-}
+bool BoundedMemoryResource::do_is_equal(const std::pmr::memory_resource& other) const noexcept { return this == &other; }
 
-size_t BoundedMemoryResource::getUsedMemory() const noexcept
-{
-  return mUsedMemory.load(std::memory_order_relaxed);
-}
+size_t BoundedMemoryResource::getUsedMemory() const noexcept { return mUsedMemory.load(std::memory_order_relaxed); }
 
-size_t BoundedMemoryResource::getMaxMemory() const noexcept
-{
-  return mMaxMemory.load(std::memory_order_relaxed);
-}
+size_t BoundedMemoryResource::getMaxMemory() const noexcept { return mMaxMemory.load(std::memory_order_relaxed); }
 
-size_t BoundedMemoryResource::getThrowCount() const noexcept
-{
-  return mCountThrow.load(std::memory_order_relaxed);
-}
+size_t BoundedMemoryResource::getThrowCount() const noexcept { return mCountThrow.load(std::memory_order_relaxed); }
 
-size_t BoundedMemoryResource::getPeakMemory() const noexcept
-{
-  return mPeakUsedMemory.load(std::memory_order_relaxed);
-}
+size_t BoundedMemoryResource::getPeakMemory() const noexcept { return mPeakUsedMemory.load(std::memory_order_relaxed); }
 
 size_t BoundedMemoryResource::getPeakMemoryDelta() const noexcept
 {
@@ -180,9 +165,6 @@ std::string BoundedMemoryResource::asString() const
   return result;
 }
 
-void BoundedMemoryResource::print() const
-{
-  LOGP(info, "{}", asString());
-}
+void BoundedMemoryResource::print() const { LOGP(info, "{}", asString()); }
 
 } // namespace o2::gtrk

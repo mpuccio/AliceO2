@@ -44,8 +44,7 @@ BOOST_AUTO_TEST_CASE(ClaimsDetermineCoverageSplitsFakesAndMerges)
     }
   }
   rows.emplace_back(); // noise
-  const std::vector<TripletClaim> claims{
-    {.rows = {0, 1, 2}, .vertex = 0}, {.rows = {1, 2, 3}, .vertex = 0}, {.rows = {0, 1, 3}, .vertex = 1}, {.rows = {4, 5, 6}, .vertex = 0}, {.rows = {8, 8, 8}, .vertex = 2}};
+  const std::vector<TripletClaim> claims{{.rows = {0, 1, 2}, .vertex = 0}, {.rows = {1, 2, 3}, .vertex = 0}, {.rows = {0, 1, 3}, .vertex = 1}, {.rows = {4, 5, 6}, .vertex = 0}, {.rows = {8, 8, 8}, .vertex = 2}};
   VertexerResult found;
   found.vertices = {{.z = 0.01F, .varZ = 0.0001F}, {.z = 0.02F, .varZ = 0.0001F}, {.z = 3.F}};
   found.contributors = {3U, 1U, 1U};

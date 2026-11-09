@@ -58,13 +58,10 @@ inline void addStudyOptions(std::vector<o2::framework::ConfigParamSpec>& options
   using o2::framework::VariantType;
   options.push_back(ConfigParamSpec{"disable-mc", VariantType::Bool, false, {"do not propagate MC labels"}});
   options.push_back(ConfigParamSpec{"configKeyValues", VariantType::String, "", {"semicolon separated key=value strings"}});
-  options.push_back(
-    ConfigParamSpec{"clusters-from-upstream", VariantType::Bool, false, {"the clusters from the workflow before this one in the pipe, not O2's readers"}});
+  options.push_back(ConfigParamSpec{"clusters-from-upstream", VariantType::Bool, false, {"the clusters from the workflow before this one in the pipe, not O2's readers"}});
   options.push_back(ConfigParamSpec{"mc-vertices", VariantType::Bool, false, {"the MC vertices as the vertex list (any detector with an MC collision context)"}});
-  options.push_back(ConfigParamSpec{
-    "compare-tracks", VariantType::Bool, false, {"also run the tracking device; the sink compares its tracks and vertices with its own tracker's"}});
-  options.push_back(ConfigParamSpec{
-    "tracker-digests", VariantType::Bool, false, {"also run the tracking device; the sink logs its tracks' and vertices' digests, as the bench prints a device's"}});
+  options.push_back(ConfigParamSpec{"compare-tracks", VariantType::Bool, false, {"also run the tracking device; the sink compares its tracks and vertices with its own tracker's"}});
+  options.push_back(ConfigParamSpec{"tracker-digests", VariantType::Bool, false, {"also run the tracking device; the sink logs its tracks' and vertices' digests, as the bench prints a device's"}});
   // Use the HBFUtils instance updated by --configKeyValues. This also makes
   // the timer advance TimingInfo::firstTForbit by nHBFPerTF for every entry.
   o2::raw::HBFUtilsInitializer::addConfigOption(options, o2::raw::HBFUtilsInitializer::HBFUSrc);

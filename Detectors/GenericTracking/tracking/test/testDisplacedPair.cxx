@@ -146,8 +146,7 @@ Circle circleThrough(double x1, double y1, double z1, double x2, double y2, doub
 /// The scan's verdict: whether some curvature on a fine grid of [-k_max,
 /// k_max] gives an outward circle within the impact and z bounds; the z
 /// range of the circles within the impact bound into \a range.
-bool scanned(double x1, double y1, double z1, double x2, double y2, double z2, double maxCurvature, double maxImpact, double zLow, double zHigh,
-             std::pair<double, double>* range = nullptr)
+bool scanned(double x1, double y1, double z1, double x2, double y2, double z2, double maxCurvature, double maxImpact, double zLow, double zHigh, std::pair<double, double>* range = nullptr)
 {
   const double h = 0.5 * std::hypot(x2 - x1, y2 - y1);
   const double bound = std::min(maxCurvature, 0.999999 / h);
@@ -184,12 +183,14 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixsPairsPassAtTheirOwnImpactAndZ)
     const double pt = 0.05 * std::exp(unit(rng) * std::log(60.));
     const double production = 18. * unit(rng);
     const double azimuth = 2. * kPi * unit(rng);
-    const Helix h{.x0 = production * std::cos(azimuth),
-                  .y0 = production * std::sin(azimuth),
-                  .z0 = -10. + (20. * unit(rng)),
-                  .phi = 2. * kPi * unit(rng),
-                  .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
-                  .tanLambda = -1. + (2. * unit(rng))};
+    const Helix h{
+      .x0 = production * std::cos(azimuth),
+      .y0 = production * std::sin(azimuth),
+      .z0 = -10. + (20. * unit(rng)),
+      .phi = 2. * kPi * unit(rng),
+      .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
+      .tanLambda = -1. + (2. * unit(rng)),
+    };
     std::size_t first = 0;
     while (first < kRadii.size() && kRadii[first] <= production) {
       ++first;
@@ -208,10 +209,7 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixsPairsPassAtTheirOwnImpactAndZ)
         ++pairs;
         const auto exact = displacedPair(a->x, a->y, a->z, b->x, b->y, b->z, std::abs(h.k), std::abs(own.impact) + 1.e-9, *own.z - 1.e-6, *own.z + 1.e-6);
         BOOST_TEST((exact.transverse && exact.longitudinal));
-        const auto single =
-          displacedPair<float>(static_cast<float>(a->x), static_cast<float>(a->y), static_cast<float>(a->z), static_cast<float>(b->x), static_cast<float>(b->y),
-                               static_cast<float>(b->z), static_cast<float>(std::abs(h.k) * 1.001), static_cast<float>(std::abs(own.impact) + 1.e-3),
-                               static_cast<float>(*own.z - 1.e-2), static_cast<float>(*own.z + 1.e-2));
+        const auto single = displacedPair<float>(static_cast<float>(a->x), static_cast<float>(a->y), static_cast<float>(a->z), static_cast<float>(b->x), static_cast<float>(b->y), static_cast<float>(b->z), static_cast<float>(std::abs(h.k) * 1.001), static_cast<float>(std::abs(own.impact) + 1.e-3), static_cast<float>(*own.z - 1.e-2), static_cast<float>(*own.z + 1.e-2));
         BOOST_TEST((single.transverse && single.longitudinal));
         BOOST_TEST(!displacedPair(b->x, b->y, b->z, a->x, a->y, a->z, std::abs(h.k), 100., -kInfinity, kInfinity).transverse);
       }
@@ -296,14 +294,18 @@ BOOST_AUTO_TEST_CASE(AtZeroImpactItIsThePairCutsTransverseTest)
     const std::size_t outer = inner + 1U;
     const double phi1 = 2. * kPi * unit(rng);
     const double phi2 = phi1 + std::normal_distribution<double>{0., 0.2}(rng);
-    const PairPoint source{.x = static_cast<Scalar>(kRadii[inner] * std::cos(phi1)),
-                           .y = static_cast<Scalar>(kRadii[inner] * std::sin(phi1)),
-                           .z = 0.F,
-                           .r = static_cast<Scalar>(kRadii[inner])};
-    const PairPoint target{.x = static_cast<Scalar>(kRadii[outer] * std::cos(phi2)),
-                           .y = static_cast<Scalar>(kRadii[outer] * std::sin(phi2)),
-                           .z = 0.F,
-                           .r = static_cast<Scalar>(kRadii[outer])};
+    const PairPoint source{
+      .x = static_cast<Scalar>(kRadii[inner] * std::cos(phi1)),
+      .y = static_cast<Scalar>(kRadii[inner] * std::sin(phi1)),
+      .z = 0.F,
+      .r = static_cast<Scalar>(kRadii[inner]),
+    };
+    const PairPoint target{
+      .x = static_cast<Scalar>(kRadii[outer] * std::cos(phi2)),
+      .y = static_cast<Scalar>(kRadii[outer] * std::sin(phi2)),
+      .z = 0.F,
+      .r = static_cast<Scalar>(kRadii[outer]),
+    };
     const double maxCurvature = curvatureAt(0.05 + unit(rng));
     PairCut cut{};
     cut.twoRMin = static_cast<Scalar>(2. / maxCurvature);
@@ -372,12 +374,14 @@ BOOST_AUTO_TEST_CASE(SmearedPairsPassAtThreeSigmaOfTheirOwnImpactAndZ)
     const double pt = 0.05 * std::exp(unit(rng) * std::log(60.));
     const double production = 18. * unit(rng);
     const double azimuth = 2. * kPi * unit(rng);
-    const Helix h{.x0 = production * std::cos(azimuth),
-                  .y0 = production * std::sin(azimuth),
-                  .z0 = -10. + (20. * unit(rng)),
-                  .phi = 2. * kPi * unit(rng),
-                  .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
-                  .tanLambda = -1. + (2. * unit(rng))};
+    const Helix h{
+      .x0 = production * std::cos(azimuth),
+      .y0 = production * std::sin(azimuth),
+      .z0 = -10. + (20. * unit(rng)),
+      .phi = 2. * kPi * unit(rng),
+      .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
+      .tanLambda = -1. + (2. * unit(rng)),
+    };
     std::size_t layer = 0;
     while (layer < kRadii.size() && kRadii[layer] <= production) {
       ++layer;

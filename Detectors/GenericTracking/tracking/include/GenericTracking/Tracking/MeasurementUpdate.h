@@ -82,10 +82,7 @@ GPUhdi() GPUAlwaysInline() void applySpatialGain(BoundTrackState& state, const S
   return factors;
 }
 
-GPUhdi() GPUAlwaysInline() void covarianceFromFactors(const CovarianceFactors& factors, Scalar (&cov)[kBoundCovSize])
-{
-  detail::covarianceFromUD(factors.upper, factors.diagonal, cov);
-}
+GPUhdi() GPUAlwaysInline() void covarianceFromFactors(const CovarianceFactors& factors, Scalar (&cov)[kBoundCovSize]) { detail::covarianceFromUD(factors.upper, factors.diagonal, cov); }
 
 /// Update of a bound state with (loc0, loc1), its covariance as factors: the
 /// factors themselves are updated (Bierman), and `state.cov` is not touched.
@@ -102,9 +99,7 @@ GPUhdi() GPUAlwaysInline() void covarianceFromFactors(const CovarianceFactors& f
 /// determinant over (loc0, loc1), det(H P H^T + R) [cm^4]: the product of the
 /// two innovations.
 template <bool Determinant = false>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() MeasurementUpdateResult updateWithMeasurement(BoundTrackState& state, CovarianceFactors& factors,
-                                                                                       const Measurement& measurement,
-                                                                                       [[maybe_unused]] Scalar* determinant = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() MeasurementUpdateResult updateWithMeasurement(BoundTrackState& state, CovarianceFactors& factors, const Measurement& measurement, [[maybe_unused]] Scalar* determinant = nullptr)
 {
   MeasurementUpdateResult result;
   result.residualLoc0 = measurement.loc0 - state.loc0();

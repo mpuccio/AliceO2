@@ -67,8 +67,7 @@ struct ChipStack {
 /// and position stay its silicon's, a disc layer whole. The material bands of
 /// the LUT and of the passive scatterers end there, so that a chip's stack is
 /// its layer's material.
-[[nodiscard]] std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors,
-                                                    std::span<const SensorSpec> specs, std::span<const ChipStack> stack);
+[[nodiscard]] std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const ChipStack> stack);
 
 /// The VD petals' side walls: O2's `VD_SideWall`s, flat plates between the
 /// petals, along r and z [cm].

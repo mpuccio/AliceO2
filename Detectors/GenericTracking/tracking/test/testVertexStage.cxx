@@ -153,10 +153,7 @@ class Event
 
   static TimeEstPS frameTime(std::int64_t frame) { return frameBox(frame * kFrameBC, (frame + 1) * kFrameBC, 0); }
 
-  [[nodiscard]] VertexerResult find(const VertexerSettings& settings, detail::TaskArena* arena = nullptr) const
-  {
-    return Vertexer{settings, VertexConstraint{}}.find(m, t, p, p.first.size(), arena, true, LineErrors{});
-  }
+  [[nodiscard]] VertexerResult find(const VertexerSettings& settings, detail::TaskArena* arena = nullptr) const { return Vertexer{settings, VertexConstraint{}}.find(m, t, p, p.first.size(), arena, true, LineErrors{}); }
 
   Measurements m;
   Tracklets t;

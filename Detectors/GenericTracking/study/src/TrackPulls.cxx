@@ -46,8 +46,7 @@ std::string summary(std::vector<double> residuals, std::vector<double> pulls, do
   std::string text = std::format("{:7} residual median {:8.2f} sigma {:8.2f}", residuals.size(), scale * median(residuals), scale * robustSigma(residuals));
   if (!pulls.empty()) {
     const auto tail = std::ranges::count_if(pulls, [](double pull) { return std::abs(pull) > 5.; });
-    text += std::format("; pull median {:6.3f} sigma {:6.3f} beyond 5 {:5.2f} %", median(pulls), robustSigma(pulls),
-                        percent(static_cast<std::uint64_t>(tail), pulls.size()));
+    text += std::format("; pull median {:6.3f} sigma {:6.3f} beyond 5 {:5.2f} %", median(pulls), robustSigma(pulls), percent(static_cast<std::uint64_t>(tail), pulls.size()));
   }
   return text;
 }
@@ -55,7 +54,9 @@ std::string summary(std::vector<double> residuals, std::vector<double> pulls, do
 } // namespace
 
 PullTable::PullTable(std::string name, std::vector<PullParameter> parameters)
-  : mName(std::move(name)), mParameters(std::move(parameters)), mSamples(mParameters.size())
+  : mName(std::move(name)),
+    mParameters(std::move(parameters)),
+    mSamples(mParameters.size())
 {
 }
 
@@ -87,8 +88,7 @@ std::vector<std::string> PullTable::report() const
       const auto& samples = mSamples[parameter][bin];
       allResiduals.insert(allResiduals.end(), samples.residuals.begin(), samples.residuals.end());
       allPulls.insert(allPulls.end(), samples.pulls.begin(), samples.pulls.end());
-      lines.push_back(std::format("    {:>8} [{}] pT [{:g}, {:g}): {}", p.name, p.unit, kPtEdges[bin], kPtEdges[bin + 1U],
-                                  summary(samples.residuals, samples.pulls, p.scale)));
+      lines.push_back(std::format("    {:>8} [{}] pT [{:g}, {:g}): {}", p.name, p.unit, kPtEdges[bin], kPtEdges[bin + 1U], summary(samples.residuals, samples.pulls, p.scale)));
     }
     lines.push_back(std::format("    {:>8} [{}] all pT:      {}", p.name, p.unit, summary(allResiduals, allPulls, p.scale)));
   }

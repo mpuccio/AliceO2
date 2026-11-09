@@ -108,8 +108,7 @@ BOOST_AUTO_TEST_CASE(ThePermutationIsTheHostOrder)
         const auto range = sources.ranges[iteration.linkTargets[link]];
         // Every other tracklet one row past its range: ineligible.
         const std::uint32_t span = std::max(range.size(), 1U);
-        const std::uint32_t target =
-          (i % 2U == 0U) ? range.begin + (static_cast<std::uint32_t>(random()) % span) : range.end + (static_cast<std::uint32_t>(random()) % 7U);
+        const std::uint32_t target = (i % 2U == 0U) ? range.begin + (static_cast<std::uint32_t>(random()) % span) : range.end + (static_cast<std::uint32_t>(random()) % 7U);
         emitter.emit(Tracklet{.source = row.row, .target = target, .link = link, .lambda = 0.F, .phi = 0.F});
       }
     };
@@ -123,9 +122,7 @@ BOOST_AUTO_TEST_CASE(ThePermutationIsTheHostOrder)
       host.setMemoryPool(pool);
       BOOST_REQUIRE(host.build(iteration, sources, tracklets, paths.bounds(), SerialForEach{}, 256U) == StageStatus::kComplete);
       std::vector<std::uint32_t> onDevice;
-      BOOST_REQUIRE(
-        (kernels().permutation(*device.runtime, device.stream, *device.arena, iteration, sources, tracklets, std::span{paths.bounds().prefix, sources.size()},
-                               std::span{paths.bounds().suffix, sources.size()}, onDevice) == StageStatus::kComplete));
+      BOOST_REQUIRE((kernels().permutation(*device.runtime, device.stream, *device.arena, iteration, sources, tracklets, std::span{paths.bounds().prefix, sources.size()}, std::span{paths.bounds().suffix, sources.size()}, onDevice) == StageStatus::kComplete));
       BOOST_TEST_CONTEXT("sources " << sourceCount << " length " << length)
       {
         BOOST_TEST(host.size() < tracklets.size());
@@ -143,12 +140,14 @@ BOOST_AUTO_TEST_CASE(TheEndIndexIsTheHostIndex)
     constexpr std::uint32_t kTriplets = 50000U;
     std::vector<Triplet> records(kTriplets);
     for (std::uint32_t i = 0; i < kTriplets; ++i) {
-      records[i] = Triplet{.first = static_cast<std::uint32_t>(random()) % trackletCount,
-                           .second = static_cast<std::uint32_t>(random()) % trackletCount,
-                           .curvature = 0.F,
-                           .varCurvature = 0.F,
-                           .level = 1U,
-                           .kinked = 0U};
+      records[i] = Triplet{
+        .first = static_cast<std::uint32_t>(random()) % trackletCount,
+        .second = static_cast<std::uint32_t>(random()) % trackletCount,
+        .curvature = 0.F,
+        .varCurvature = 0.F,
+        .level = 1U,
+        .kinked = 0U,
+      };
     }
     const auto triplets = recordsOf<TripletT>(records);
     TripletEndIndex host;
@@ -270,8 +269,7 @@ BOOST_AUTO_TEST_CASE(ThePathBoundsAndPrunedPermutationMatchTheHost)
         acceptedPaths.build(iteration, sources, tracklets, permutation, placedTriplets(triplets), SerialForEach{});
         BOOST_REQUIRE(pruned.build(iteration, sources, tracklets, measurements.bounds(), SerialForEach{}, 256U) == StageStatus::kComplete);
         PathBoundsResult result;
-        BOOST_REQUIRE(kernels().pathBounds(*device.runtime, device.stream, *device.arena, iteration, sources, tracklets, triplets, permutation.indices(),
-                                           result) == StageStatus::kComplete);
+        BOOST_REQUIRE(kernels().pathBounds(*device.runtime, device.stream, *device.arena, iteration, sources, tracklets, triplets, permutation.indices(), result) == StageStatus::kComplete);
         BOOST_TEST_CONTEXT("graph " << graph << " mask " << mask << " length " << length)
         {
           BOOST_TEST(std::ranges::equal(result.measurementPrefix, std::span{measurements.bounds().prefix, sources.size()}));

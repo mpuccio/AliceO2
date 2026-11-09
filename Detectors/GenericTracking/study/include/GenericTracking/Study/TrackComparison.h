@@ -284,8 +284,7 @@ inline constexpr std::array<std::string_view, 3> kPopulationNames{"primaries", "
       return particle.origin == ParticleOrigin::kDecay;
     case Population::kV0s: {
       const auto family = decayFamily(particle.motherPdg);
-      return particle.origin == ParticleOrigin::kDecay &&
-             (family == DecayFamily::kK0S || family == DecayFamily::kLambda || family == DecayFamily::kSigma || family == DecayFamily::kCascade);
+      return particle.origin == ParticleOrigin::kDecay && (family == DecayFamily::kK0S || family == DecayFamily::kLambda || family == DecayFamily::kSigma || family == DecayFamily::kCascade);
     }
   }
   return false;
@@ -302,10 +301,7 @@ struct ParticleLayers {
 /// Whether a particle of transverse momentum \a pt [GeV] whose longest chain
 /// has \a chain layers is findable: at or above
 /// the pT floor, on a chain of `minLayers`.
-[[nodiscard]] constexpr bool isFindable(float pt, const ParticleLayers& layers, const ComparisonSettings& settings)
-{
-  return static_cast<double>(pt) >= settings.minPtGeV && settings.minLayers > 0 && std::cmp_greater_equal(layers.chain, settings.minLayers);
-}
+[[nodiscard]] constexpr bool isFindable(float pt, const ParticleLayers& layers, const ComparisonSettings& settings) { return static_cast<double>(pt) >= settings.minPtGeV && settings.minLayers > 0 && std::cmp_greater_equal(layers.chain, settings.minLayers); }
 
 /// Each particle the rows carry, with its rows in ascending order: every row
 /// among whose labels it is.
@@ -395,9 +391,7 @@ struct TrackScore {
 [[nodiscard]] std::vector<std::string> describeScore(const TrackScore& score, const ComparisonSettings& settings, const std::string& name);
 
 /// The comparison's report, one line per entry.
-[[nodiscard]] std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& ours,
-                                                        const TrackRows& theirs, const ComparisonSettings& settings, const std::string& ourName,
-                                                        const std::string& theirName);
+[[nodiscard]] std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& ours, const TrackRows& theirs, const ComparisonSettings& settings, const std::string& ourName, const std::string& theirName);
 
 } // namespace o2::gtrk::study
 

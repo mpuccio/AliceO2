@@ -80,15 +80,17 @@ template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Measurement measurementAt(const TimeFrame<Det>& frame, std::uint32_t row)
 {
   const auto columns = frame.measurements();
-  return Measurement{.loc0 = columns.loc0[row],
-                     .loc1 = columns.loc1[row],
-                     .timePS = columns.timePS[row],
-                     .widthPS = columns.widthPS[row],
-                     .varLoc0 = columns.varLoc0[row],
-                     .covLoc01 = columns.covLoc01[row],
-                     .varLoc1 = columns.varLoc1[row],
-                     .clusterIndex = columns.clusterIndex[row],
-                     .surface = columns.surface[row]};
+  return Measurement{
+    .loc0 = columns.loc0[row],
+    .loc1 = columns.loc1[row],
+    .timePS = columns.timePS[row],
+    .widthPS = columns.widthPS[row],
+    .varLoc0 = columns.varLoc0[row],
+    .covLoc01 = columns.covLoc01[row],
+    .varLoc1 = columns.varLoc1[row],
+    .clusterIndex = columns.clusterIndex[row],
+    .surface = columns.surface[row],
+  };
 }
 
 /// A road's measurements by their rows in the frame's columns: the fit reads
@@ -129,12 +131,9 @@ template <DetectorLayout Det>
 /// the nominal update is above the gate. False if either fails or the update
 /// is above the iteration's gate; \a chi2 is the update's.
 template <DetectorLayout Det, typename Material>
-[[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame,
-                                          const TrackingGeometry<Det>& geometry, const Material& material, const std::uint32_t* rows, std::uint32_t count,
-                                          const BoundTrackState& outwardState, Scalar& chi2)
+[[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
 {
-  const auto inward =
-    fitInward(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
+  const auto inward = fitInward(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
   if (inward.status != PropagationStatus::kOk) {
     return false;
   }
@@ -180,16 +179,14 @@ class RoadFitStage
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using Record = memlayout::Wrapper<SelectionRecordOf<kMaxClusters>::template RecordT, memlayout::value>;
 
-  RoadFitStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material,
-               const Propagator& propagator, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const RoadWalk& walk)
+  RoadFitStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const RoadWalk& walk)
     : RoadFitStage(&parameters, &frame, &geometry, &material, propagator, tracklets.view(), triplets.view(), walk)
   {
   }
 
   /// The same stage over inputs wherever they are -- a device's copies:
   /// every argument is only stored.
-  RoadFitStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material,
-               const Propagator& propagator, TrackletConstView tracklets, TripletConstView triplets, const RoadWalk& walk)
+  RoadFitStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator, TrackletConstView tracklets, TripletConstView triplets, const RoadWalk& walk)
     : mParameters(parameters),
       mFrame(frame),
       mGeometry(geometry),
@@ -258,8 +255,7 @@ class RoadFitStage
       }
       common += box;
     }
-    const auto fit =
-      fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<int>(count));
+    const auto fit = fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<int>(count));
     countWork(WorkCounter::kRoadFits);
     if (fit.status != RoadFitStatus::kAccepted) {
       return false;

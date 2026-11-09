@@ -114,8 +114,7 @@ GPUhdi() GPUAlwaysInline() void factorUD(const T (&matrix)[kBoundCovSize], T (&u
 /// nearly equal floats. The gain updates the state mean; the return value
 /// is the innovation variance, `H P H^T + variance`, for the chi2.
 template <typename T>
-GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)[kNBoundParams], const T (&measurement)[kNBoundParams], T variance,
-                                      T (&gain)[kNBoundParams])
+GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)[kNBoundParams], const T (&measurement)[kNBoundParams], T variance, T (&gain)[kNBoundParams])
 {
   T projected[kNBoundParams]{};
   T weighted[kNBoundParams]{};

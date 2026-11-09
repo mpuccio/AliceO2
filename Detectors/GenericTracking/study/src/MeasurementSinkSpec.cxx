@@ -120,9 +120,7 @@ using Funnel = StageFunnel<Det, Controller>;
 constexpr std::size_t kTrackletBytes = Tracklet{}.apply([](const auto&... field) { return (sizeof(field) + ... + 0U); });
 constexpr std::size_t kCountBins = 20U;
 constexpr std::array<Scalar, 13> kPtEdges{0.F, 0.1F, 0.2F, 0.3F, 0.5F, 1.F, 1.25F, 1.5F, 2.F, 3.F, 5.F, 10.F, std::numeric_limits<Scalar>::infinity()};
-constexpr std::array<Scalar, 17> kCotThetaEdges{
-  -std::numeric_limits<Scalar>::infinity(), -3.F, -2.F, -1.5F, -1.F, -0.75F, -0.5F, -0.25F, 0.F, 0.25F, 0.5F, 0.75F, 1.F, 1.5F, 2.F, 3.F,
-  std::numeric_limits<Scalar>::infinity()};
+constexpr std::array<Scalar, 17> kCotThetaEdges{-std::numeric_limits<Scalar>::infinity(), -3.F, -2.F, -1.5F, -1.F, -0.75F, -0.5F, -0.25F, 0.F, 0.25F, 0.5F, 0.75F, 1.F, 1.5F, 2.F, 3.F, std::numeric_limits<Scalar>::infinity()};
 constexpr std::size_t kPtBins = kPtEdges.size() - 1U;
 constexpr std::size_t kCotThetaBins = kCotThetaEdges.size() - 1U;
 using TruthBreakdown = std::array<std::array<std::array<std::uint64_t, kCotThetaBins>, kPtBins>, nLinks<Det>>;
@@ -266,15 +264,13 @@ void logTripletCurvature(const TrackletRunSummary& summary)
   const auto count = static_cast<double>(summary.trueTripletsKept);
   if (count > 0.) {
     const double mean = summary.curvaturePullSum / count;
-    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean,
-         std::sqrt(std::max(summary.curvaturePullSum2 / count - (mean * mean), 0.)), std::sqrt(summary.curvatureResidualSum2 / count));
+    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, std::sqrt(std::max(summary.curvaturePullSum2 / count - (mean * mean), 0.)), std::sqrt(summary.curvatureResidualSum2 / count));
     std::string pullByPt;
     for (std::size_t bin = 1; bin < kPtBins; ++bin) {
       const auto inBin = static_cast<double>(summary.trueTripletsKeptByPt[bin]);
       if (inBin > 0.) {
         const double binMean = summary.curvaturePullSumByPt[bin] / inBin;
-        pullByPt += fmt::format(" {}-{}: {:.2f} ({:.2f})", kPtEdges[bin], kPtEdges[bin + 1U], binMean,
-                                std::sqrt(std::max(summary.curvaturePullSum2ByPt[bin] / inBin - (binMean * binMean), 0.)));
+        pullByPt += fmt::format(" {}-{}: {:.2f} ({:.2f})", kPtEdges[bin], kPtEdges[bin + 1U], binMean, std::sqrt(std::max(summary.curvaturePullSum2ByPt[bin] / inBin - (binMean * binMean), 0.)));
       }
     }
     LOGP(info, "    by pT [GeV], pull mean (rms), the scattering at pT_min:{}", pullByPt);
@@ -340,8 +336,7 @@ struct TrueCrossingReport {
 
 /// \a crossings' reports, one per layer (a second crossing of the same layer,
 /// in a stave overlap, is skipped).
-std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const ScatteringTable<Det>& scattering, double bzKiloGauss,
-                                            std::span<const TrueCrossing> crossings, const o2::base::MatLayerCylSet* lut = nullptr)
+std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const ScatteringTable<Det>& scattering, double bzKiloGauss, std::span<const TrueCrossing> crossings, const o2::base::MatLayerCylSet* lut = nullptr)
 {
   std::vector<TrueCrossingReport> result;
   const TrueCrossing* previous = nullptr;
@@ -379,8 +374,7 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const Scattering
         const std::array<double, 3> expected{std::cos(lambda) * std::cos(phi), std::cos(lambda) * std::sin(phi), std::sin(lambda)};
         const std::array<double, 3> actual{p[0] / pB, p[1] / pB, p[2] / pB};
         const double dot = (expected[0] * actual[0]) + (expected[1] * actual[1]) + (expected[2] * actual[2]);
-        const std::array<double, 3> cross{(expected[1] * actual[2]) - (expected[2] * actual[1]), (expected[2] * actual[0]) - (expected[0] * actual[2]),
-                                          (expected[0] * actual[1]) - (expected[1] * actual[0])};
+        const std::array<double, 3> cross{(expected[1] * actual[2]) - (expected[2] * actual[1]), (expected[2] * actual[0]) - (expected[0] * actual[2]), (expected[0] * actual[1]) - (expected[1] * actual[0])};
         const double angle = std::atan2(std::hypot(cross[0], cross[1], cross[2]), dot);
         // Highland's theta0 for the previous layer at the true momentum and
         // incidence: k x (path factor) / (beta p)^2.
@@ -399,9 +393,7 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const Scattering
         if (lut != nullptr) {
           // The LUT along the straight path between the two crossings; its
           // x/X0 is the path's own, so no path factor.
-          const auto budget =
-            lut->getMatBudget(static_cast<float>(previous->position[0]), static_cast<float>(previous->position[1]), static_cast<float>(previous->position[2]),
-                              static_cast<float>(position[0]), static_cast<float>(position[1]), static_cast<float>(position[2]));
+          const auto budget = lut->getMatBudget(static_cast<float>(previous->position[0]), static_cast<float>(previous->position[1]), static_cast<float>(previous->position[2]), static_cast<float>(position[0]), static_cast<float>(position[1]), static_cast<float>(position[2]));
           report.pathX2X0 = static_cast<double>(budget.meanX2X0);
           report.pathNormalX2X0 = report.pathX2X0 / pathFactor;
           const double theta0Path = std::sqrt(detail::highlandFactor(report.pathX2X0)) / (beta * pA);
@@ -448,8 +440,7 @@ constexpr double kOffsetCM = 0.003;
 /// the comparison's truth). A pair carried by two particles is the first's.
 /// \a mcOf: a particle's MC track, by id.
 template <typename McOf>
-[[nodiscard]] std::vector<TruePair> mcTruePairs(const Frame& frame, std::span<const TruthRow> rows, const McOf& mcOf, const Geometry<Det>& geometry,
-                                                const RecoSettings& param, double bzKiloGauss)
+[[nodiscard]] std::vector<TruePair> mcTruePairs(const Frame& frame, std::span<const TruthRow> rows, const McOf& mcOf, const Geometry<Det>& geometry, const RecoSettings& param, double bzKiloGauss)
 {
   struct SignalRow {
     std::uint64_t track = 0U;
@@ -494,8 +485,7 @@ template <typename McOf>
     }
     const auto distance = [&](Frame::Index row) {
       const auto measurement = frame.measurement(row);
-      return std::hypot(static_cast<double>(measurement.x) - mc->Vx(), static_cast<double>(measurement.y) - mc->Vy(),
-                        static_cast<double>(measurement.z) - mc->Vz());
+      return std::hypot(static_cast<double>(measurement.x) - mc->Vx(), static_cast<double>(measurement.y) - mc->Vy(), static_cast<double>(measurement.z) - mc->Vz());
     };
     std::ranges::sort(firstPass, {}, distance);
 
@@ -518,12 +508,14 @@ template <typename McOf>
       if (link != kNoLink) {
         for (std::size_t source = from; source < fromEnd; ++source) {
           for (std::size_t target = fromEnd; target < toEnd; ++target) {
-            result.push_back({.key = pairKey(firstPass[source], firstPass[target]),
-                              .particle = signalRows[begin].track,
-                              .link = static_cast<std::uint16_t>(link),
-                              .pt = static_cast<Scalar>(mc->GetPt()),
-                              .cotTheta = static_cast<Scalar>(mc->GetStartVertexMomentumZ() / mc->GetPt()),
-                              .originR = static_cast<Scalar>(std::hypot(mc->Vx(), mc->Vy()))});
+            result.push_back({
+              .key = pairKey(firstPass[source], firstPass[target]),
+              .particle = signalRows[begin].track,
+              .link = static_cast<std::uint16_t>(link),
+              .pt = static_cast<Scalar>(mc->GetPt()),
+              .cotTheta = static_cast<Scalar>(mc->GetStartVertexMomentumZ() / mc->GetPt()),
+              .originR = static_cast<Scalar>(std::hypot(mc->Vx(), mc->Vy())),
+            });
           }
         }
       }
@@ -591,10 +583,7 @@ inline constexpr std::size_t kSpeciesCount = 6U;
 /// layer, in an iteration without holes) cannot be found and are counted
 /// apart.
 /// The cut is the stage funnel's (pairCutLoss, StageFunnel.h).
-void reportLostPairs(const Frame& frame, const IterationParameters<Det>& parameters, const VertexSeed& beamLine, std::span<const TruePair> truePairs,
-                     const std::vector<bool>& pairKept, std::span<const TruthRow> rows, const TrueCrossings& crossings = {},
-                     const ScatteringTable<Det>* scattering = nullptr, double bzKiloGauss = 0., double minPtGeV = 0.,
-                     const o2::base::MatLayerCylSet* material = nullptr)
+void reportLostPairs(const Frame& frame, const IterationParameters<Det>& parameters, const VertexSeed& beamLine, std::span<const TruePair> truePairs, const std::vector<bool>& pairKept, std::span<const TruthRow> rows, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, double bzKiloGauss = 0., double minPtGeV = 0., const o2::base::MatLayerCylSet* material = nullptr)
 {
   if (!truePairs.empty()) {
     // The pairs the two spatial cuts lost, for the MC hits' verdict below.
@@ -667,13 +656,11 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
         // How many of the source's boxes apart the two start.
         const auto sourceRow = frame.measurement(sourceIndex);
         const auto targetRow = frame.measurement(targetIndex);
-        const auto ticks =
-          std::lround((static_cast<double>(targetRow.timePS) - static_cast<double>(sourceRow.timePS)) / static_cast<double>(sourceRow.widthPS));
+        const auto ticks = std::lround((static_cast<double>(targetRow.timePS) - static_cast<double>(sourceRow.timePS)) / static_cast<double>(sourceRow.widthPS));
         ++timeTicksByLayer[from][static_cast<std::size_t>(std::clamp<long>(ticks, -3L, 3L) + 3L)];
       } else if (reason == PairLoss::kCurvature) {
         ++originCurvature[binOf(truth.originR, kOriginEdges)];
-        const auto pullAt = pullBin(
-          (static_cast<double>(terms.curvature) - static_cast<double>(terms.bound)) / std::sqrt(static_cast<double>(terms.varCurvature)), curvaturePulls);
+        const auto pullAt = pullBin((static_cast<double>(terms.curvature) - static_cast<double>(terms.bound)) / std::sqrt(static_cast<double>(terms.varCurvature)), curvaturePulls);
         lostSpatial.push_back({.pair = pair, .pullBin = pullAt, .reason = reason});
       } else if (reason == PairLoss::kLongitudinal) {
         const auto pullAt = pullBin(std::sqrt(static_cast<double>(terms.collinearity2) / static_cast<double>(terms.varCollinearity)), longitudinalPulls);
@@ -689,23 +676,20 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
         if (std::accumulate(slots.begin(), slots.end(), std::uint64_t{0}) == 0U) {
           continue;
         }
-        ticksLine +=
-          fmt::format(" {}->: <=-3 {} -2 {} -1 {} 0 {} +1 {} +2 {} >=+3 {};", layer, slots[0], slots[1], slots[2], slots[3], slots[4], slots[5], slots[6]);
+        ticksLine += fmt::format(" {}->: <=-3 {} -2 {} -1 {} 0 {} +1 {} +2 {} >=+3 {};", layer, slots[0], slots[1], slots[2], slots[3], slots[4], slots[5], slots[6]);
       }
       LOGP(info, "    true pairs lost to time, target less source in source boxes, by the link's inner layer:{}", ticksLine);
     }
     constexpr std::array<const char*, 3> kKindNames{"barrel-barrel", "with a disc", "disc-disc"};
     const auto taken = std::accumulate(pairsByKind.begin(), pairsByKind.end(), std::uint64_t{0});
     const auto lost = std::accumulate(lostByKind.begin(), lostByKind.end(), std::uint64_t{0});
-    LOGP(info, "  true pairs on the links the iteration takes: {}/{} found ({:.3f}%); {} more on links it does not take", taken - lost, taken,
-         percent(taken - lost, taken), notTaken);
+    LOGP(info, "  true pairs on the links the iteration takes: {}/{} found ({:.3f}%); {} more on links it does not take", taken - lost, taken, percent(taken - lost, taken), notTaken);
     for (std::size_t kind = 0; kind < kKindNames.size(); ++kind) {
       std::string reasons;
       for (const auto reason : kPairCutLosses) {
         reasons += fmt::format(" {} {}", kPairLossNames[static_cast<std::size_t>(reason)], byKind[kind][static_cast<std::size_t>(reason)]);
       }
-      LOGP(info, "  true pairs lost, {:<13}: {}/{} ({:.3f}%):{}", kKindNames[kind], lostByKind[kind], pairsByKind[kind],
-           percent(lostByKind[kind], pairsByKind[kind]), reasons);
+      LOGP(info, "  true pairs lost, {:<13}: {}/{} ({:.3f}%):{}", kKindNames[kind], lostByKind[kind], pairsByKind[kind], percent(lostByKind[kind], pairsByKind[kind]), reasons);
     }
     for (std::size_t bin = 1; bin < kPtBins; ++bin) {
       if (pairsByPt[bin] == 0U) {
@@ -715,8 +699,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
       for (const auto reason : kPairCutLosses) {
         reasons += fmt::format(" {} {}", kPairLossNames[static_cast<std::size_t>(reason)], byPt[bin][static_cast<std::size_t>(reason)]);
       }
-      LOGP(info, "    pT [{:.2f},{:.2f}): {}/{} found ({:.2f}%), {} lost:{}", kPtEdges[bin], kPtEdges[bin + 1U], keptByPt[bin], pairsByPt[bin],
-           percent(keptByPt[bin], pairsByPt[bin]), pairsByPt[bin] - keptByPt[bin], reasons);
+      LOGP(info, "    pT [{:.2f},{:.2f}): {}/{} found ({:.2f}%), {} lost:{}", kPtEdges[bin], kPtEdges[bin + 1U], keptByPt[bin], pairsByPt[bin], percent(keptByPt[bin], pairsByPt[bin]), pairsByPt[bin] - keptByPt[bin], reasons);
     }
     std::string longitudinal;
     std::string curvature;
@@ -762,8 +745,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
                                     kVerdictNone,
                                     kVerdictNoHits,
                                     kVerdicts };
-      constexpr std::array<const char*, kVerdicts> kVerdictNames{
-        "kink >= 5 theta0", "cluster off", "pT below the floor", "pT drops > 10 % on the link", "origin beyond 50 um", "none", "no hits"};
+      constexpr std::array<const char*, kVerdicts> kVerdictNames{"kink >= 5 theta0", "cluster off", "pT below the floor", "pT drops > 10 % on the link", "origin beyond 50 um", "none", "no hits"};
       constexpr std::array<const char*, kSpeciesCount> kSpeciesNames{"e", "mu", "pi", "K", "p", "other"};
       std::array<std::array<std::uint64_t, kSpeciesCount>, 2> noneBySpecies{};
       std::array<std::array<std::array<std::uint64_t, kVerdicts>, kPullEdges.size()>, 2> byPull{}; // curvature, longitudinal
@@ -867,9 +849,7 @@ class StageTruth
 {
  public:
   /// At the iteration's first slice, with the used mask it read.
-  StageTruth(const Frame& frame, const Controller& tracker, std::size_t iteration, const RecoSettings& param, const Propagator& propagator,
-             std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const ScatteringTable<Det>& scattering,
-             const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
+  StageTruth(const Frame& frame, const Controller& tracker, std::size_t iteration, const RecoSettings& param, const Propagator& propagator, std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const ScatteringTable<Det>& scattering, const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
     : mFrame{&frame},
       mParam{&param},
       mIteration{iteration},
@@ -922,8 +902,7 @@ class StageTruth
     mTrueTripletStates.assign(mTrueTriplets.size(), TrueTripletState{});
     mChainKept.assign(mTrueChains.size(), false);
     if (!mRows.empty()) {
-      LOGP(info, "iteration {} in the run: {} MC-true pairs above {} GeV on the clusters it found free", mIteration, truePairs.size(),
-           mSettings.windows.minPtGeV);
+      LOGP(info, "iteration {} in the run: {} MC-true pairs above {} GeV on the clusters it found free", mIteration, truePairs.size(), mSettings.windows.minPtGeV);
     }
   }
 
@@ -1005,15 +984,13 @@ class StageTruth
       const bool trueFirst = firstPair != truePairs.end() && firstPair->key == pairKey(tracklets[first].source, tracklets[first].target);
       const bool trueSecond = secondPair != truePairs.end() && secondPair->key == pairKey(tracklets[second].source, tracklets[second].target);
       if (!trueFirst || !trueSecond) {
-        classify({tracklets[first].source, tracklets[first].target, tracklets[second].target}, summary.notTrueCombinatorial, summary.notTrueSecondary,
-                 summary.notTrueSoftPrimary, summary.notTrueOtherPrimary);
+        classify({tracklets[first].source, tracklets[first].target, tracklets[second].target}, summary.notTrueCombinatorial, summary.notTrueSecondary, summary.notTrueSoftPrimary, summary.notTrueOtherPrimary);
         continue;
       }
       ++summary.trueTripletsKept;
       summary.trueTripletsKinked += kinkedTriplet ? 1U : 0U;
       ++summary.trueTripletsKeptByPt[binOf(firstPair->pt, kPtEdges)];
-      const auto trueIndex =
-        trueTripletIndex(static_cast<std::size_t>(firstPair - truePairs.begin()), static_cast<std::size_t>(secondPair - truePairs.begin()));
+      const auto trueIndex = trueTripletIndex(static_cast<std::size_t>(firstPair - truePairs.begin()), static_cast<std::size_t>(secondPair - truePairs.begin()));
       if (trueIndex < trueTriplets.size()) {
         trueTripletStates[trueIndex] = {.kept = true, .level = tripletView.level[i]};
       }
@@ -1069,8 +1046,7 @@ class StageTruth
             continue;
           }
         }
-        classify({a, b, c, d}, summary.neighboursNotTrueCombinatorial, summary.neighboursNotTrueSecondary, summary.neighboursNotTrueSoftPrimary,
-                 summary.neighboursNotTrueOtherPrimary);
+        classify({a, b, c, d}, summary.neighboursNotTrueCombinatorial, summary.neighboursNotTrueSecondary, summary.neighboursNotTrueSoftPrimary, summary.neighboursNotTrueOtherPrimary);
       }
     }
   }
@@ -1098,8 +1074,7 @@ class StageTruth
     const std::int64_t requiredHalo = sliceReach(frameBounds(frame), frame.grid().geometry()).haloPS();
     auto& summary = mSummary;
     if (vertexSource == VertexSource::kBeamLine) {
-      reportLostPairs(frame, parameters, beamLine, truePairs, pairKept, rows, crossings, &scattering, mBzKiloGauss, settings.windows.minPtGeV,
-                      material);
+      reportLostPairs(frame, parameters, beamLine, truePairs, pairKept, rows, crossings, &scattering, mBzKiloGauss, settings.windows.minPtGeV, material);
     }
 
     // The true neighbours whose triplets were both kept, and of them the ones
@@ -1178,8 +1153,7 @@ class StageTruth
     const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : "vertex list");
     const double trackletSeconds = observed.summary->seconds(profile::Phase::kTracklets);
     const double timePerSourceNS = summary.sources == 0U ? 0. : 1.e9 * trackletSeconds / static_cast<double>(summary.sources);
-    LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, trackletSeconds,
-         timePerSourceNS);
+    LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, trackletSeconds, timePerSourceNS);
     const auto allTracklets = summary.tracklets + summary.haloSourceTracklets;
     const double haloTrackletFraction = allTracklets == 0U ? 0. : static_cast<double>(summary.haloSourceTracklets) / static_cast<double>(allTracklets);
     LOGP(info, "  halo-source tracklets, within the slice gate: {}/{} ({:.3f}%)", summary.haloSourceTracklets, allTracklets, 100. * haloTrackletFraction);
@@ -1187,9 +1161,7 @@ class StageTruth
     LOGP(info,
          "  arena/staging high-water {} / {} records ({:.1f} / {:.1f} MB), "
          "pool {:.1f} MB, {} staging prediction misses",
-         summary.trackletHighWater, summary.stagingHighWater, static_cast<double>(summary.trackletHighWater * kTrackletBytes) / 1.e6,
-         static_cast<double>(summary.stagingHighWater * kTrackletBytes) / 1.e6, static_cast<double>(summary.poolHighWater) / 1.e6,
-         summary.stagingPredictionMisses);
+         summary.trackletHighWater, summary.stagingHighWater, static_cast<double>(summary.trackletHighWater * kTrackletBytes) / 1.e6, static_cast<double>(summary.stagingHighWater * kTrackletBytes) / 1.e6, static_cast<double>(summary.poolHighWater) / 1.e6, summary.stagingPredictionMisses);
     LOGP(info, "  accepted per source, max {}: {}", summary.maxPerSource, histogramText(summary.countHistogram));
     std::uint64_t trueTotal = 0U;
     std::uint64_t trueKept = 0U;
@@ -1200,39 +1172,28 @@ class StageTruth
     if (trueTotal != 0U) {
       LOGP(info, "  MC-true primary pairs: {}/{} kept ({:.3f}%)", trueKept, trueTotal, percent(trueKept, trueTotal));
       for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-        LOGP(info, "    {:>2} -> {:<2}: {}/{} ({:.3f}%)", Det::layerLinks[link].from, Det::layerLinks[link].to, summary.truePairsKept[link],
-             summary.truePairs[link], percent(summary.truePairsKept[link], summary.truePairs[link]));
+        LOGP(info, "    {:>2} -> {:<2}: {}/{} ({:.3f}%)", Det::layerLinks[link].from, Det::layerLinks[link].to, summary.truePairsKept[link], summary.truePairs[link], percent(summary.truePairsKept[link], summary.truePairs[link]));
       }
     }
 
     const double tripletSeconds = observed.summary->seconds(profile::Phase::kTriplets);
     const double timePerFirstNS = summary.firstTracklets == 0U ? 0. : 1.e9 * tripletSeconds / static_cast<double>(summary.firstTracklets);
-    LOGP(info, "triplets, {}: {} from {} first tracklets, {:.3f} s, {:.1f} ns/first tracklet", label, summary.triplets, summary.firstTracklets,
-         tripletSeconds, timePerFirstNS);
-    LOGP(info, "  arena high-water {} records ({:.1f} MB); halo-owned triplets, within the slice gate: {} ({:.3f}%)", summary.tripletHighWater,
-         static_cast<double>(summary.tripletHighWater * sizeof(Triplet)) / 1.e6, summary.haloTriplets,
-         percent(summary.haloTriplets, summary.triplets + summary.haloTriplets));
+    LOGP(info, "triplets, {}: {} from {} first tracklets, {:.3f} s, {:.1f} ns/first tracklet", label, summary.triplets, summary.firstTracklets, tripletSeconds, timePerFirstNS);
+    LOGP(info, "  arena high-water {} records ({:.1f} MB); halo-owned triplets, within the slice gate: {} ({:.3f}%)", summary.tripletHighWater, static_cast<double>(summary.tripletHighWater * sizeof(Triplet)) / 1.e6, summary.haloTriplets, percent(summary.haloTriplets, summary.triplets + summary.haloTriplets));
     if (summary.trueTriplets != 0U) {
-      LOGP(info, "  MC-true triplets: {}/{} kept ({:.3f}%); with both pairs kept as tracklets {}/{} ({:.3f}%)", summary.trueTripletsKept, summary.trueTriplets,
-           percent(summary.trueTripletsKept, summary.trueTriplets), summary.trueTripletsKept, summary.trueTripletsPairsKept,
-           percent(summary.trueTripletsKept, summary.trueTripletsPairsKept));
+      LOGP(info, "  MC-true triplets: {}/{} kept ({:.3f}%); with both pairs kept as tracklets {}/{} ({:.3f}%)", summary.trueTripletsKept, summary.trueTriplets, percent(summary.trueTripletsKept, summary.trueTriplets), summary.trueTripletsKept, summary.trueTripletsPairsKept, percent(summary.trueTripletsKept, summary.trueTripletsPairsKept));
       if (summary.tripletsKinked != 0U) {
-        LOGP(info, "  kept only with the kink allowance: {} triplets ({:.3f}%), {} of them MC-true ({:.3f}% of the kinked; {:.3f}% of the true kept)",
-             summary.tripletsKinked, percent(summary.tripletsKinked, summary.triplets), summary.trueTripletsKinked,
-             percent(summary.trueTripletsKinked, summary.tripletsKinked), percent(summary.trueTripletsKinked, summary.trueTripletsKept));
+        LOGP(info, "  kept only with the kink allowance: {} triplets ({:.3f}%), {} of them MC-true ({:.3f}% of the kinked; {:.3f}% of the true kept)", summary.tripletsKinked, percent(summary.tripletsKinked, summary.triplets), summary.trueTripletsKinked, percent(summary.trueTripletsKinked, summary.tripletsKinked), percent(summary.trueTripletsKinked, summary.trueTripletsKept));
       }
       const auto notTrue = summary.triplets - summary.trueTripletsKept;
       LOGP(info, "  not MC-true: {}/{} ({:.3f}%)", notTrue, summary.triplets, percent(notTrue, summary.triplets));
       LOGP(info,
            "    one particle: secondary {} ({:.2f}%), primary below pT_min {} ({:.2f}%), other primary {} ({:.2f}%); "
            "combinatorial {} ({:.2f}%)",
-           summary.notTrueSecondary, percent(summary.notTrueSecondary, summary.triplets), summary.notTrueSoftPrimary,
-           percent(summary.notTrueSoftPrimary, summary.triplets), summary.notTrueOtherPrimary, percent(summary.notTrueOtherPrimary, summary.triplets),
-           summary.notTrueCombinatorial, percent(summary.notTrueCombinatorial, summary.triplets));
+           summary.notTrueSecondary, percent(summary.notTrueSecondary, summary.triplets), summary.notTrueSoftPrimary, percent(summary.notTrueSoftPrimary, summary.triplets), summary.notTrueOtherPrimary, percent(summary.notTrueOtherPrimary, summary.triplets), summary.notTrueCombinatorial, percent(summary.notTrueCombinatorial, summary.triplets));
       std::string byPt;
       for (std::size_t bin = 1; bin < kPtBins; ++bin) {
-        byPt +=
-          fmt::format(" {}-{}: {:.2f}%", kPtEdges[bin], kPtEdges[bin + 1U], percent(summary.trueTripletsKeptByPt[bin], summary.trueTripletsPairsKeptByPt[bin]));
+        byPt += fmt::format(" {}-{}: {:.2f}%", kPtEdges[bin], kPtEdges[bin + 1U], percent(summary.trueTripletsKeptByPt[bin], summary.trueTripletsPairsKeptByPt[bin]));
       }
       LOGP(info, "  kept with both pairs kept, by pT [GeV]:{}", byPt);
       logTripletCurvature(summary);
@@ -1240,25 +1201,20 @@ class StageTruth
 
     const double neighbourSeconds = observed.summary->seconds(profile::Phase::kNeighbours);
     const double neighbourPerTripletNS = summary.tripletsWorked == 0U ? 0. : 1.e9 * neighbourSeconds / static_cast<double>(summary.tripletsWorked);
-    LOGP(info, "neighbours, {}: {} from {} triplets worked, {:.3f} s, {:.1f} ns/triplet", label, summary.neighbours, summary.tripletsWorked,
-         neighbourSeconds, neighbourPerTripletNS);
-    LOGP(info, "  arena high-water {} records ({:.1f} MB); swept {:.2f}% of the triplets", summary.neighbourHighWater,
-         static_cast<double>(summary.neighbourHighWater * sizeof(Neighbour)) / 1.e6, percent(summary.chained, summary.tripletsWorked));
+    LOGP(info, "neighbours, {}: {} from {} triplets worked, {:.3f} s, {:.1f} ns/triplet", label, summary.neighbours, summary.tripletsWorked, neighbourSeconds, neighbourPerTripletNS);
+    LOGP(info, "  arena high-water {} records ({:.1f} MB); swept {:.2f}% of the triplets", summary.neighbourHighWater, static_cast<double>(summary.neighbourHighWater * sizeof(Neighbour)) / 1.e6, percent(summary.chained, summary.tripletsWorked));
     LOGP(info, "  predecessors per triplet, max {}: {}", summary.maxNeighbours, histogramText(summary.neighbourHistogram));
     if (summary.trueNeighbours != 0U) {
-      LOGP(info, "  MC-true neighbours: {}/{} kept; with both triplets kept {}/{} ({:.3f}%)", summary.trueNeighboursKept, summary.trueNeighbours,
-           summary.trueNeighboursKept, summary.trueNeighboursTripletsKept, percent(summary.trueNeighboursKept, summary.trueNeighboursTripletsKept));
+      LOGP(info, "  MC-true neighbours: {}/{} kept; with both triplets kept {}/{} ({:.3f}%)", summary.trueNeighboursKept, summary.trueNeighbours, summary.trueNeighboursKept, summary.trueNeighboursTripletsKept, percent(summary.trueNeighboursKept, summary.trueNeighboursTripletsKept));
       std::string byPt;
       for (std::size_t bin = 1; bin < kPtBins; ++bin) {
-        byPt += fmt::format(" [{:.2f},{:.2f}) {:.2f}%", kPtEdges[bin], kPtEdges[bin + 1U],
-                            percent(summary.trueNeighboursKeptByPt[bin], summary.trueNeighboursTripletsKeptByPt[bin]));
+        byPt += fmt::format(" [{:.2f},{:.2f}) {:.2f}%", kPtEdges[bin], kPtEdges[bin + 1U], percent(summary.trueNeighboursKeptByPt[bin], summary.trueNeighboursTripletsKeptByPt[bin]));
       }
       LOGP(info, "    kept with both triplets kept, by pT [GeV]:{}", byPt);
       std::string byCot;
       for (std::size_t bin = 0; bin < kCotThetaBins; ++bin) {
         if (summary.trueNeighboursTripletsKeptByCot[bin] != 0U) {
-          byCot += fmt::format(" [{:.2f},{:.2f}) {:.2f}%", kCotThetaEdges[bin], kCotThetaEdges[bin + 1U],
-                               percent(summary.trueNeighboursKeptByCot[bin], summary.trueNeighboursTripletsKeptByCot[bin]));
+          byCot += fmt::format(" [{:.2f},{:.2f}) {:.2f}%", kCotThetaEdges[bin], kCotThetaEdges[bin + 1U], percent(summary.trueNeighboursKeptByCot[bin], summary.trueNeighboursTripletsKeptByCot[bin]));
         }
       }
       LOGP(info, "    by cot(theta):{}", byCot);
@@ -1266,16 +1222,11 @@ class StageTruth
       LOGP(info,
            "  not MC-true: {}/{} ({:.3f}%); one particle: secondary {:.2f}%, primary below pT_min {:.2f}%, other primary {:.2f}%; "
            "combinatorial {:.2f}%",
-           notTrue, summary.neighbours, percent(notTrue, summary.neighbours), percent(summary.neighboursNotTrueSecondary, summary.neighbours),
-           percent(summary.neighboursNotTrueSoftPrimary, summary.neighbours), percent(summary.neighboursNotTrueOtherPrimary, summary.neighbours),
-           percent(summary.neighboursNotTrueCombinatorial, summary.neighbours));
+           notTrue, summary.neighbours, percent(notTrue, summary.neighbours), percent(summary.neighboursNotTrueSecondary, summary.neighbours), percent(summary.neighboursNotTrueSoftPrimary, summary.neighbours), percent(summary.neighboursNotTrueOtherPrimary, summary.neighbours), percent(summary.neighboursNotTrueCombinatorial, summary.neighbours));
       std::string byChain;
       for (std::size_t chain = 1; chain < summary.tracksByChain.size(); ++chain) {
         if (summary.tracksByChain[chain] != 0U) {
-          byChain += fmt::format(" {}: {} ({:.2f}% reach it, {:.2f}% below, {:.2f}% above)", chain, summary.tracksByChain[chain],
-                                 percent(summary.tracksReachingChain[chain], summary.tracksByChain[chain]),
-                                 percent(summary.tracksBelowChain[chain], summary.tracksByChain[chain]),
-                                 percent(summary.tracksAboveChain[chain], summary.tracksByChain[chain]));
+          byChain += fmt::format(" {}: {} ({:.2f}% reach it, {:.2f}% below, {:.2f}% above)", chain, summary.tracksByChain[chain], percent(summary.tracksReachingChain[chain], summary.tracksByChain[chain]), percent(summary.tracksBelowChain[chain], summary.tracksByChain[chain]), percent(summary.tracksAboveChain[chain], summary.tracksByChain[chain]));
         }
       }
       LOGP(info, "  MC tracks by their longest chain of kept true triplets, and the level they reach:{}", byChain);
@@ -1287,8 +1238,7 @@ class StageTruth
   /// Counts a stage's element that is no MC-true one by what made it: no
   /// particle on every row of \a of, a secondary's, a primary's below the
   /// iteration's pT_min, another primary's.
-  void classify(std::initializer_list<Frame::Index> of, std::uint64_t& combinatorial, std::uint64_t& secondary, std::uint64_t& softPrimary,
-                std::uint64_t& otherPrimary) const
+  void classify(std::initializer_list<Frame::Index> of, std::uint64_t& combinatorial, std::uint64_t& secondary, std::uint64_t& softPrimary, std::uint64_t& otherPrimary) const
   {
     if (mRows.empty()) {
       return;
@@ -1339,16 +1289,13 @@ struct TrueRoadFitFailure {
   TrackFitResult fit;
 };
 
-void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFailure> failures, const ParticleTable& particles,
-                               const TrackingGeometry<Det>& tracking, const Propagator& propagator, const TrueCrossings& crossings,
-                               const ScatteringTable<Det>& scattering, const o2::base::MatLayerCylSet& material)
+void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFailure> failures, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const Propagator& propagator, const TrueCrossings& crossings, const ScatteringTable<Det>& scattering, const o2::base::MatLayerCylSet& material)
 {
   if (failures.empty()) {
     return;
   }
   constexpr std::array<const char*, 3> kPasses{"none", "outward", "inward"};
-  constexpr std::array<const char*, 8> kStatuses{"ok", "no intersection", "wrong direction", "out of bounds",
-                                                 "grazing", "not finite", "too many turns", "stopped"};
+  constexpr std::array<const char*, 8> kStatuses{"ok", "no intersection", "wrong direction", "out of bounds", "grazing", "not finite", "too many turns", "stopped"};
   constexpr std::size_t kExamples = 12U;
   std::map<std::pair<std::uint8_t, std::uint8_t>, std::uint64_t> byPassStatus;
   std::map<std::tuple<std::uint8_t, int, int>, std::uint64_t> bySteps;
@@ -1368,8 +1315,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
                              kNone,
                              kNoHits,
                              kKinds };
-  constexpr std::array<const char*, kKinds> kKindNames{
-    "loops (> half a turn between crossings)", "turns back", "loses > 20 % of p", "hard scatter (>= 5 theta0)", "none of these", "no hits"};
+  constexpr std::array<const char*, kKinds> kKindNames{"loops (> half a turn between crossings)", "turns back", "loses > 20 % of p", "hard scatter (>= 5 theta0)", "none of these", "no hits"};
   std::array<std::uint64_t, kKinds> byKind{};
   std::size_t examples = 0U;
   for (const auto& failure : failures) {
@@ -1409,8 +1355,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
           if (i > 0U) {
             const auto& before = ordered[i - 1U];
             const double pt = std::hypot(before.momentum[0], before.momentum[1]);
-            const double turn =
-              std::abs(x[2] - before.position[2]) * pt / std::abs(before.momentum[2]) / curvatureRadius(pt, static_cast<double>(propagator.bzKiloGauss));
+            const double turn = std::abs(x[2] - before.position[2]) * pt / std::abs(before.momentum[2]) / curvatureRadius(pt, static_cast<double>(propagator.bzKiloGauss));
             maxTurn = std::isfinite(turn) ? std::max(maxTurn, turn) : maxTurn;
           }
           hits += fmt::format(" {}(p {:.3f}, pT {:.3f})", crossing.layer, std::hypot(p[0], p[1], p[2]), std::hypot(p[0], p[1]));
@@ -1450,9 +1395,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
       LOGP(info,
            "    true chain {:#x}: {} {} at index {} of {}; pdg {} (mother {}, process {}), {} at ({:.2f}, {:.2f}, {:.2f}); MC pT {:.3f}, eta {:.3f}; seed pT "
            "{:.3f}, theta {:.4f}; {}; layers{}; hits{}",
-           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg,
-           static_cast<int>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt,
-           seed.state.theta(), kKindNames[kind], layers, hits);
+           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg, static_cast<int>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt, seed.state.theta(), kKindNames[kind], layers, hits);
     }
   }
   LOGP(info, "  true chains whose fit fails: {}; primary {}, secondary {}", failures.size(), byPrimary[0], byPrimary[1]);
@@ -1492,9 +1435,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
 /// tail -- and the fraction beyond the nSigma quantile. An increment counts
 /// once its pass has fixed the helix (three earlier clusters, two dof); both
 /// passes, so the inner layers are seen too.
-void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Controller& tracker, std::span<const TruePair> truePairs,
-                        const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material,
-                        const Propagator& propagator, const TrueCrossings& crossings, const ScatteringTable<Det>& scattering)
+void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Controller& tracker, std::span<const TruePair> truePairs, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const TrueCrossings& crossings, const ScatteringTable<Det>& scattering)
 {
   constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   constexpr double kMedianChi2Two = 1.3862943611198906; // 2 ln 2
@@ -1563,11 +1504,8 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     const int n = static_cast<int>(rows.size());
     std::array<float, kMaxClusters> outwardSpatial{};
     std::array<float, kMaxClusters> inwardSpatial{};
-    const auto observe = [&](PropagationDirection direction, int index, Scalar increment) {
-      (direction == PropagationDirection::kForward ? outwardSpatial : inwardSpatial)[static_cast<std::size_t>(index)] = increment;
-    };
-    const auto fit =
-      fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, n, kinkBudget(parameters), observe);
+    const auto observe = [&](PropagationDirection direction, int index, Scalar increment) { (direction == PropagationDirection::kForward ? outwardSpatial : inwardSpatial)[static_cast<std::size_t>(index)] = increment; };
+    const auto fit = fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, n, kinkBudget(parameters), observe);
     auto& length = byLength[static_cast<std::size_t>(n)];
     ++length.chains;
     if (fit.status != PropagationStatus::kOk) {
@@ -1578,9 +1516,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     const int outwardNdf = (2 * n) - kNBoundParams - (2 * fit.outwardKinks);
     chi2Sum += static_cast<double>(fit.outwardChi2);
     ndfSum += static_cast<double>(outwardNdf);
-    const auto layerOf = [&](int index) {
-      return static_cast<std::size_t>(tracking.surface(frame.measurement(rows[static_cast<std::size_t>(index)]).surface).layer);
-    };
+    const auto layerOf = [&](int index) { return static_cast<std::size_t>(tracking.surface(frame.measurement(rows[static_cast<std::size_t>(index)]).surface).layer); };
     for (int index = 0; index < n; ++index) {
       const auto at = static_cast<std::size_t>(index);
       if (index >= 3) {
@@ -1654,28 +1590,22 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
   LOGP(info,
        "true roads, iteration 0 (pT_min {} GeV, {} clusters or more): {} chains; the road cut fails {} ({:.2f}%), a calibrated chi2 {:.2f}%; fit failed {}; "
        "a kink taken by {} ({:.2f}%, at most {})",
-       settings.windows.minPtGeV, minClusters, all.chains, all.failed, percent(all.failed, all.chains), 100. * std::erfc(nSigma / std::sqrt(2.)), all.fitFailed,
-       kinked, percent(kinked, all.chains), static_cast<int>(parameters.maxKinks));
+       settings.windows.minPtGeV, minClusters, all.chains, all.failed, percent(all.failed, all.chains), 100. * std::erfc(nSigma / std::sqrt(2.)), all.fitFailed, kinked, percent(kinked, all.chains), static_cast<int>(parameters.maxKinks));
   LOGP(info, "  by clusters, chains and failing:{}", lengths);
   reportTrueRoadFitFailures(frame, failures, particles, tracking, propagator, crossings, scattering, material);
   if (!chi2PerNdf.empty()) {
     std::ranges::sort(chi2PerNdf);
-    const auto quantile = [&](double q) {
-      return static_cast<double>(chi2PerNdf[std::min(chi2PerNdf.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(chi2PerNdf.size())))]);
-    };
-    LOGP(info, "  outward chi2/ndf quantiles: 50% {:.2f}, 90% {:.2f}, 99% {:.2f}, 99.9% {:.2f}, max {:.1f}", quantile(0.5), quantile(0.9), quantile(0.99),
-         quantile(0.999), static_cast<double>(chi2PerNdf.back()));
+    const auto quantile = [&](double q) { return static_cast<double>(chi2PerNdf[std::min(chi2PerNdf.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(chi2PerNdf.size())))]); };
+    LOGP(info, "  outward chi2/ndf quantiles: 50% {:.2f}, 90% {:.2f}, 99% {:.2f}, 99.9% {:.2f}, max {:.1f}", quantile(0.5), quantile(0.9), quantile(0.99), quantile(0.999), static_cast<double>(chi2PerNdf.back()));
   }
   LOGP(info,
        "  failing chains by outward steps beyond the kink gate: 0 {}, 1 {}, 2 {}, 3+ {}; by the worst step's share of the chi2: <25% {}, 25-50% {}, "
        "50-75% {}, >75% {}",
-       failedByBeyondGate[0], failedByBeyondGate[1], failedByBeyondGate[2], failedByBeyondGate[3], failedByWorstShare[0], failedByWorstShare[1],
-       failedByWorstShare[2], failedByWorstShare[3]);
+       failedByBeyondGate[0], failedByBeyondGate[1], failedByBeyondGate[2], failedByBeyondGate[3], failedByWorstShare[0], failedByWorstShare[1], failedByWorstShare[2], failedByWorstShare[3]);
   {
     std::string whys;
     for (std::size_t why = 0; why < kWhys; ++why) {
-      whys += fmt::format("{} {} {} (all-layer {}; the inward pass passes {})", why == 0U ? "" : ";", kWhyNames[why], failedByWhy[why], fullLengthByWhy[why],
-                          inwardPassesByWhy[why]);
+      whys += fmt::format("{} {} {} (all-layer {}; the inward pass passes {})", why == 0U ? "" : ";", kWhyNames[why], failedByWhy[why], fullLengthByWhy[why], inwardPassesByWhy[why]);
     }
     LOGP(info, "  failing chains by why the kink did not save them:{}", whys);
   }
@@ -1688,9 +1618,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     const auto beyondTwo = static_cast<std::uint64_t>(std::ranges::count_if(spatial[layer], [&](float v) { return static_cast<double>(v) > tailTwo; }));
     const auto count = spatial[layer].size();
     std::vector<double> updates(spatial[layer].begin(), spatial[layer].end()); // exact: the float values' median
-    LOGP(info, "  layer {:>2} ({}): {:>7} updates, scale^2 {:.2f}, beyond {:.2f}%; worst of the failing {}", layer,
-         Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) ? "barrel" : "disc", count, median(updates) / kMedianChi2Two,
-         percent(beyondTwo, count), worstOfFailed[layer]);
+    LOGP(info, "  layer {:>2} ({}): {:>7} updates, scale^2 {:.2f}, beyond {:.2f}%; worst of the failing {}", layer, Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) ? "barrel" : "disc", count, median(updates) / kMedianChi2Two, percent(beyondTwo, count), worstOfFailed[layer]);
   }
 }
 
@@ -1710,9 +1638,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
 /// that ranks below it was beaten by the wrong cluster on chi2. Also the
 /// refit's chi2 per degree of freedom of the good tracks against the fakes',
 /// for what a cut on it would reach.
-void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel,
-                       const Controller& tracker, const TrackRefit<Det>::Tracks& tracks, const TrackingGeometry<Det>& tracking,
-                       const o2::base::MatLayerCylSet& material, const Propagator& propagator, const char* label)
+void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const Controller& tracker, const TrackRefit<Det>::Tracks& tracks, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const char* label)
 {
   constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   constexpr std::size_t kClasses = 4U;
@@ -1837,13 +1763,9 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     }
     const auto& parameters = tracker.iteration(view.iteration[fake.track]);
     const int n = static_cast<int>(count);
-    const auto fitRows = [&](const std::uint32_t* chain) {
-      return fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = chain}, n, kinkBudget(parameters));
-    };
+    const auto fitRows = [&](const std::uint32_t* chain) { return fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = chain}, n, kinkBudget(parameters)); };
     const auto fakeFit = fitRows(trackRows.data());
-    const auto passes = [&](const TrackFitResult& fit) {
-      return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, count, fit.outwardKinks);
-    };
+    const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, count, fit.outwardKinks); };
     // The best alternative: a passing one with the lowest chi2, else the lowest.
     std::optional<TrackFitResult> best;
     for (const auto row : own) {
@@ -1859,8 +1781,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
         }
         continue;
       }
-      const bool better = !best || best->status != PropagationStatus::kOk || (passes(fit) && !passes(*best)) ||
-                          (passes(fit) == passes(*best) && fit.outwardChi2 < best->outwardChi2);
+      const bool better = !best || best->status != PropagationStatus::kOk || (passes(fit) && !passes(*best)) || (passes(fit) == passes(*best) && fit.outwardChi2 < best->outwardChi2);
       if (better) {
         best = fit;
       }
@@ -1873,8 +1794,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
       ++t.altFailsCut;
       continue;
     }
-    const bool above = fakeFit.status != PropagationStatus::kOk || best->outwardKinks < fakeFit.outwardKinks ||
-                       (best->outwardKinks == fakeFit.outwardKinks && best->outwardChi2 < fakeFit.outwardChi2);
+    const bool above = fakeFit.status != PropagationStatus::kOk || best->outwardKinks < fakeFit.outwardKinks || (best->outwardKinks == fakeFit.outwardKinks && best->outwardChi2 < fakeFit.outwardChi2);
     if (!above) {
       ++t.altBelow;
       if (fakeFit.status == PropagationStatus::kOk) {
@@ -1893,8 +1813,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
       std::size_t kind = 2U;
       if (found != particles.end() && !found->second.primary) {
         kind = 1U;
-      } else if (found != particles.end() &&
-                 static_cast<double>(found->second.pt) < workflow::iterationSettings(param, static_cast<int>(view.iteration[fake.track])).windows.minPtGeV) {
+      } else if (found != particles.end() && static_cast<double>(found->second.pt) < workflow::iterationSettings(param, static_cast<int>(view.iteration[fake.track])).windows.minPtGeV) {
         kind = 0U;
       }
       ++t.noRecord[kind];
@@ -1920,15 +1839,11 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     auto& fakeChi2 = chi2PerNdf[cls][1];
     const double good90 = quantile(goodChi2, 0.9);
     const double good99 = quantile(goodChi2, 0.99);
-    const auto fakesAbove = [&](double bound) {
-      return percent(static_cast<std::uint64_t>(std::ranges::count_if(fakeChi2, [&](float v) { return static_cast<double>(v) > bound; })), fakeChi2.size());
-    };
+    const auto fakesAbove = [&](double bound) { return percent(static_cast<std::uint64_t>(std::ranges::count_if(fakeChi2, [&](float v) { return static_cast<double>(v) > bound; })), fakeChi2.size()); };
     LOGP(info,
          "  {:<14} {:>7} tracks, {:>6} fake ({:.2f} %); kinked {:.1f} % of the good, {:.1f} % of the fakes; refit chi2/ndf 50/90/99 %: good "
          "{:.2f}/{:.2f}/{:.2f}, fakes {:.2f}/{:.2f}/{:.2f}; fakes above the good's 90 % {:.1f} %, above its 99 % {:.1f} %",
-         kClassNames[cls], good + bad, bad, percent(bad, good + bad), percent(kinkedByClass[cls][0], good), percent(kinkedByClass[cls][1], bad),
-         quantile(goodChi2, 0.5), good90, good99, quantile(fakeChi2, 0.5), quantile(fakeChi2, 0.9), quantile(fakeChi2, 0.99), fakesAbove(good90),
-         fakesAbove(good99));
+         kClassNames[cls], good + bad, bad, percent(bad, good + bad), percent(kinkedByClass[cls][0], good), percent(kinkedByClass[cls][1], bad), quantile(goodChi2, 0.5), good90, good99, quantile(fakeChi2, 0.5), quantile(fakeChi2, 0.9), quantile(fakeChi2, 0.99), fakesAbove(good90), fakesAbove(good99));
     const auto& t = tally[cls];
     if (t.oneWrong == 0U) {
       continue;
@@ -1940,10 +1855,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
          "that layer {} (ended before it {}, skipped it {}), its own there {}: with it the track fails to fit {}, fails the road cut {}, passes and "
          "outranks the fake {} (its chain lost at tracklets {}, triplets {}, neighbours {}, roads {}, the road cut {}; not lost {}; no record {}: a "
          "primary below the pT floor {}, a secondary {}, other {}), passes but ranks below the fake {} (the chi2 gap, 10/50/90 %: {:.2f}/{:.2f}/{:.2f})",
-         t.oneWrong, percent(t.oneWrong, bad), t.wrongAt[0], t.wrongAt[1], t.wrongAt[2], percent(t.wrongSecondary, t.oneWrong), t.holeEnded + t.holeSkipped,
-         t.holeEnded, t.holeSkipped, swaps, t.altFitFailed, t.altFailsCut, t.altAbove, t.aboveLostAt[0], t.aboveLostAt[1], t.aboveLostAt[2], t.aboveLostAt[3],
-         t.aboveLostAt[4], t.aboveLostAt[5], t.aboveLostAt[6], t.noRecord[0], t.noRecord[1], t.noRecord[2], t.altBelow, quantile(gap, 0.1), quantile(gap, 0.5),
-         quantile(gap, 0.9));
+         t.oneWrong, percent(t.oneWrong, bad), t.wrongAt[0], t.wrongAt[1], t.wrongAt[2], percent(t.wrongSecondary, t.oneWrong), t.holeEnded + t.holeSkipped, t.holeEnded, t.holeSkipped, swaps, t.altFitFailed, t.altFailsCut, t.altAbove, t.aboveLostAt[0], t.aboveLostAt[1], t.aboveLostAt[2], t.aboveLostAt[3], t.aboveLostAt[4], t.aboveLostAt[5], t.aboveLostAt[6], t.noRecord[0], t.noRecord[1], t.noRecord[2], t.altBelow, quantile(gap, 0.1), quantile(gap, 0.5), quantile(gap, 0.9));
   }
 }
 
@@ -1974,8 +1886,7 @@ void reportTrackTimeBoxes(const Frame& frame, const typename TrackRefit<Det>::Tr
     const auto frames = static_cast<std::size_t>(std::ranges::distance(used.begin(), std::ranges::unique(used).begin()));
     ++byFrames[std::min<std::size_t>(frames, 3U) - 1U];
   }
-  LOGP(info, "track time boxes: {} tracks, {} empty, {} narrower than their first row's, mean width {:.1f} ns; by frames: 1: {} 2: {} 3+: {}", tracks.size(),
-       empty, narrowed, tracks.size() > 0U ? widthSumNS / static_cast<double>(tracks.size()) : 0., byFrames[0], byFrames[1], byFrames[2]);
+  LOGP(info, "track time boxes: {} tracks, {} empty, {} narrower than their first row's, mean width {:.1f} ns; by frames: 1: {} 2: {} 3+: {}", tracks.size(), empty, narrowed, tracks.size() > 0U ? widthSumNS / static_cast<double>(tracks.size()) : 0., byFrames[0], byFrames[1], byFrames[2]);
 }
 
 /// The pT edges [GeV] of measureTracks' and reportIncomplete's tables.
@@ -2006,10 +1917,7 @@ void addLostPairs(const Funnel::IterationStages& survived, std::array<std::uint6
 /// measureTracks's, by id, with `pt` and `longest`; \a goodTracks: each
 /// particle's good tracks.
 template <typename Particles>
-void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const typename TrackRefit<Det>::Tracks& tracks,
-                      std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles,
-                      const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set,
-                      const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
+void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const typename TrackRefit<Det>::Tracks& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
 {
   const auto view = tracks.view();
   constexpr auto nLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
@@ -2039,23 +1947,17 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     }
   }
   const auto layerOfRow = [&](Frame::Index row) { return static_cast<std::uint32_t>(tracking.surface(frame.measurement(row).surface).layer); };
-  enum Why : std::uint8_t {
-    kWhyBelowFloor,
-    kWhyTaken,
-    kWhyFreeTracklets,
-    kWhyFreeTriplets,
-    kWhyFreeNeighbours,
-    kWhyFreeRoads,
-    kWhyFreeFit,
-    kWhyFreeSelection,
-    kWhyFreeLater,
-    kWhys
-  };
-  constexpr std::array<const char*, kWhys> kWhyNames{"below the iteration's floors", "a lacking cluster taken by another track",
-                                                     "free, chain lost at tracklets", "free, at triplets",
-                                                     "free, at neighbours", "free, at roads",
-                                                     "free, at the road fit", "free, in the selection",
-                                                     "free, not in the funnel"};
+  enum Why : std::uint8_t { kWhyBelowFloor,
+                            kWhyTaken,
+                            kWhyFreeTracklets,
+                            kWhyFreeTriplets,
+                            kWhyFreeNeighbours,
+                            kWhyFreeRoads,
+                            kWhyFreeFit,
+                            kWhyFreeSelection,
+                            kWhyFreeLater,
+                            kWhys };
+  constexpr std::array<const char*, kWhys> kWhyNames{"below the iteration's floors", "a lacking cluster taken by another track", "free, chain lost at tracklets", "free, at triplets", "free, at neighbours", "free, at roads", "free, at the road fit", "free, in the selection", "free, not in the funnel"};
   std::array<std::uint64_t, kWhys> whys{};
   std::array<std::array<std::uint64_t, 3>, kWhys> whysByPt{}; // below 0.3 GeV, 0.3-1, above 1
   constexpr auto kLayerSlots = static_cast<std::size_t>(Detector<Det>::nLayers);
@@ -2230,9 +2132,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
         }
       }
     }
-    const auto broken = std::ranges::find_if(Det::layerLinks, [&](const auto& link) {
-      return std::cmp_equal(link.from, brokenInner) && std::cmp_equal(link.to, brokenInner + 1U);
-    });
+    const auto broken = std::ranges::find_if(Det::layerLinks, [&](const auto& link) { return std::cmp_equal(link.from, brokenInner) && std::cmp_equal(link.to, brokenInner + 1U); });
     ++brokenLink[why][static_cast<std::size_t>(broken - Det::layerLinks.begin())];
     if (withHits) {
       if (reports.empty()) {
@@ -2249,8 +2149,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   }
   std::string whyLine;
   for (std::size_t why = 0; why < kWhys; ++why) {
-    whyLine += fmt::format("{} {} {} ({}/{}/{} below 0.3, 0.3-1, above 1 GeV)", why == 0U ? "" : ",", kWhyNames[why], whys[why], whysByPt[why][0],
-                           whysByPt[why][1], whysByPt[why][2]);
+    whyLine += fmt::format("{} {} {} ({}/{}/{} below 0.3, 0.3-1, above 1 GeV)", why == 0U ? "" : ",", kWhyNames[why], whys[why], whysByPt[why][0], whysByPt[why][1], whysByPt[why][2]);
   }
   std::string iterationLine;
   for (std::size_t iteration = 0; iteration < iterations; ++iteration) {
@@ -2271,8 +2170,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   for (std::size_t reason = 0; reason < kPairLosses; ++reason) {
     cuts += fmt::format(" {} {}", kPairLossNames[reason], trackletLostPairs[reason]);
   }
-  LOGP(info, "    the tracklet losses' adjacent-layer pairs of their own their iteration did not keep, by the first test each fails:{}; none recorded {}", cuts,
-       trackletLostNone);
+  LOGP(info, "    the tracklet losses' adjacent-layer pairs of their own their iteration did not keep, by the first test each fails:{}; none recorded {}", cuts, trackletLostNone);
   for (std::size_t why = 0; why < kWhys; ++why) {
     if (whys[why] == 0U) {
       continue;
@@ -2319,9 +2217,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
           tail += kKinkEdges[bin] >= kTailKink ? counts[bin] : 0U;
           hard += kKinkEdges[bin] >= kHardKink ? counts[bin] : 0U;
         }
-        bins += fmt::format(" |z| {:.0f}-{}: {} ({:.1f} % >= 3, {:.2f} % >= 5)", kZEdges[zBin],
-                            std::isfinite(kZEdges[zBin + 1U]) ? fmt::format("{:.0f}", kZEdges[zBin + 1U]) : std::string{"inf"}, all, percent(tail, all),
-                            percent(hard, all));
+        bins += fmt::format(" |z| {:.0f}-{}: {} ({:.1f} % >= 3, {:.2f} % >= 5)", kZEdges[zBin], std::isfinite(kZEdges[zBin + 1U]) ? fmt::format("{:.0f}", kZEdges[zBin + 1U]) : std::string{"inf"}, all, percent(tail, all), percent(hard, all));
       }
       if (!bins.empty()) {
         byZ += fmt::format(" layer {}:{};", layer, bins);
@@ -2332,8 +2228,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
       std::string path;
       for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
         if (pathCount[layer] != 0U) {
-          path += fmt::format(" {} (mean x/X0 {:.3f} %):{};", layer, 100. * pathX2X0Sum[layer] / static_cast<double>(pathCount[layer]),
-                              kinkBinsLine(kinkPathByScatterer[layer]));
+          path += fmt::format(" {} (mean x/X0 {:.3f} %):{};", layer, 100. * pathX2X0Sum[layer] / static_cast<double>(pathCount[layer]), kinkBinsLine(kinkPathByScatterer[layer]));
         }
       }
       LOGP(info, "    the same kink over theta0 from the LUT's x/X0 along the path between the two crossings, by the layer left:{}", path);
@@ -2342,9 +2237,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
         std::string bins;
         for (std::size_t zBin = 0; zBin + 1U < kZEdges.size(); ++zBin) {
           if (pathCountZ[layer][zBin] != 0U) {
-            bins += fmt::format(" |z| {:.0f}-{} {:.3f} %", kZEdges[zBin],
-                                std::isfinite(kZEdges[zBin + 1U]) ? fmt::format("{:.0f}", kZEdges[zBin + 1U]) : std::string{"inf"},
-                                100. * pathNormalSumZ[layer][zBin] / static_cast<double>(pathCountZ[layer][zBin]));
+            bins += fmt::format(" |z| {:.0f}-{} {:.3f} %", kZEdges[zBin], std::isfinite(kZEdges[zBin + 1U]) ? fmt::format("{:.0f}", kZEdges[zBin + 1U]) : std::string{"inf"}, 100. * pathNormalSumZ[layer][zBin] / static_cast<double>(pathCountZ[layer][zBin]));
           }
         }
         if (!bins.empty()) {
@@ -2403,8 +2296,7 @@ class OriginZTally
   {
     std::string line;
     for (std::size_t bin = 0; bin < kBins; ++bin) {
-      line += fmt::format(" [{:g},{:g}) {}/{} ({:.2f}%), {} lost at the tracklets;", kEdges[bin], kEdges[bin + 1U], mFound[bin], mFindable[bin],
-                          percent(mFound[bin], mFindable[bin]), mTrackletLosses[bin]);
+      line += fmt::format(" [{:g},{:g}) {}/{} ({:.2f}%), {} lost at the tracklets;", kEdges[bin], kEdges[bin + 1U], mFound[bin], mFindable[bin], percent(mFound[bin], mFindable[bin]), mTrackletLosses[bin]);
     }
     LOGP(info, "  {}, found of the findable by the origin's |z - z_beam| in the beam spot's sigmaZ ({:.2f} cm):{}", set, mBeamSpot.sigmaZ, line);
   }
@@ -2413,10 +2305,7 @@ class OriginZTally
   static constexpr std::array<Scalar, 6> kEdges{0.F, 1.F, 2.F, 3.F, 4.F, std::numeric_limits<Scalar>::infinity()};
   static constexpr std::size_t kBins = kEdges.size() - 1U;
 
-  [[nodiscard]] std::size_t binOfZ(Scalar originZ) const
-  {
-    return binOf(static_cast<Scalar>(std::abs(static_cast<double>(originZ) - mBeamSpot.z) / mBeamSpot.sigmaZ), kEdges);
-  }
+  [[nodiscard]] std::size_t binOfZ(Scalar originZ) const { return binOf(static_cast<Scalar>(std::abs(static_cast<double>(originZ) - mBeamSpot.z) / mBeamSpot.sigmaZ), kEdges); }
 
   VertexConstraint mBeamSpot;
   std::array<std::uint64_t, kBins> mFindable{};
@@ -2433,9 +2322,7 @@ class OriginZTally
 /// if a good track is its; each further good track of it is a **clone**.
 /// \a tracked, the comparisons, gets the tracks of a complete run first. The
 /// run is \a interface's; its timeframe ends with the caller's guard.
-void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices,
-                   std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, workflow::TrackingInterface<Det>& interface,
-                   const std::function<void(const TrackRefit<Det>::Tracks&)>& tracked = {}, const TrueCrossings& crossings = {})
+void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackRefit<Det>::Tracks&)>& tracked = {}, const TrueCrossings& crossings = {})
 {
   const auto* label = interface.trackerLabel().c_str();
   const auto& tracking = interface.tracking();
@@ -2470,8 +2357,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     }
     // The serial passes between the parallel stages, inside the slice and road
     // times above, from the profile. The share is of those two.
-    LOGP(info, "    slices by stage: {:.3f} s tracklets, {:.3f} s triplets, {:.3f} s neighbours", summary.seconds(Phase::kTracklets),
-         summary.seconds(Phase::kTriplets), summary.seconds(Phase::kNeighbours));
+    LOGP(info, "    slices by stage: {:.3f} s tracklets, {:.3f} s triplets, {:.3f} s neighbours", summary.seconds(Phase::kTracklets), summary.seconds(Phase::kTriplets), summary.seconds(Phase::kNeighbours));
     if (summary.roads == 0U) {
       continue; // an empty timeframe times nothing; the shares would be noise
     }
@@ -2489,8 +2375,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     LOGP(info,
          "    serial host passes: {:.3f} s of {:.3f} s slices+roads ({:.1f} %); {:.3f} s stage resets, {:.3f} s stage scans, "
          "{:.3f} s permutation, {:.3f} s end index, {:.3f} s road scans",
-         serial, staged, staged > 0. ? 100. * serial / staged : 0., resets, scans, summary.seconds(Phase::kPermutation), summary.seconds(Phase::kEndIndex),
-         summary.seconds(Phase::kRoadStarts));
+         serial, staged, staged > 0. ? 100. * serial / staged : 0., resets, scans, summary.seconds(Phase::kPermutation), summary.seconds(Phase::kEndIndex), summary.seconds(Phase::kRoadStarts));
   }
   reportTrackTimeBoxes(frame, tracks);
   if (truthRows.empty()) {
@@ -2519,11 +2404,13 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       continue;
     }
     const auto& t = found->second;
-    Particle particle{.pt = t.pt,
-                      .cotTheta = static_cast<Scalar>(std::sinh(static_cast<double>(t.eta))),
-                      .originZ = t.vz,
-                      .findable = isFindable(t.pt, layers, findableRule),
-                      .set = t.origin == ParticleOrigin::kPhysicalPrimary ? 0U : 1U};
+    Particle particle{
+      .pt = t.pt,
+      .cotTheta = static_cast<Scalar>(std::sinh(static_cast<double>(t.eta))),
+      .originZ = t.vz,
+      .findable = isFindable(t.pt, layers, findableRule),
+      .set = t.origin == ParticleOrigin::kPhysicalPrimary ? 0U : 1U,
+    };
     particle.longest = layers.chain;
     for (auto bits = layers.layers; bits != 0U; bits &= bits - 1U) {
       (Detector<Det>::isBarrelLayer(static_cast<LayerID>(std::countr_zero(bits))) ? particle.barrel : particle.disc) = true;
@@ -2720,8 +2607,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
         break;
       case FunnelStage::kRoads:
         loss = kRoads;
-        set.lostAtRoadsRaised +=
-          survived->roadLoss == RoadLoss::kRaised || survived->roadLoss == RoadLoss::kRaisedBelow || survived->roadLoss == RoadLoss::kRaisedUnlinked ? 1U : 0U;
+        set.lostAtRoadsRaised += survived->roadLoss == RoadLoss::kRaised || survived->roadLoss == RoadLoss::kRaisedBelow || survived->roadLoss == RoadLoss::kRaisedUnlinked ? 1U : 0U;
         break;
       case FunnelStage::kFit:
         loss = kFit;
@@ -2750,18 +2636,15 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   constexpr std::array<const char*, 3> kKinds{"barrel layers", "disc layers", "both"};
   for (std::size_t index = 0; index < sets.size(); ++index) {
     const auto& set = sets[index];
-    LOGP(info, "  MC, {}: {} above {} GeV with a cluster; findable (a chain of {} layers): {}", kSetNames[index], set.withCluster, findableRule.minPtGeV,
-         minLayers, set.findable);
-    LOGP(info, "  efficiency, {}: {:.2f}% of the findable, {:.2f}% of all above {} GeV with a cluster; clones {:.2f}%", kSetNames[index],
-         percent(set.found, set.findable), percent(set.found, set.withCluster), findableRule.minPtGeV, percent(set.clones, set.found));
+    LOGP(info, "  MC, {}: {} above {} GeV with a cluster; findable (a chain of {} layers): {}", kSetNames[index], set.withCluster, findableRule.minPtGeV, minLayers, set.findable);
+    LOGP(info, "  efficiency, {}: {:.2f}% of the findable, {:.2f}% of all above {} GeV with a cluster; clones {:.2f}%", kSetNames[index], percent(set.found, set.findable), percent(set.found, set.withCluster), findableRule.minPtGeV, percent(set.clones, set.found));
     for (std::size_t kind = 0; kind < kKinds.size(); ++kind) {
       LOGP(info, "    {:<13} findable {:>7}, found {:.2f}%", kKinds[kind], set.findableByKind[kind], percent(set.foundByKind[kind], set.findableByKind[kind]));
     }
     std::string byPt;
     for (std::size_t bin = 0; bin < kTrackPtBins; ++bin) {
       if (set.findableByPt[bin] != 0U) {
-        byPt += fmt::format(" [{:.2f},{:.2f}) {} {:.2f}%", kTrackPtEdges[bin], kTrackPtEdges[bin + 1U], set.findableByPt[bin],
-                            percent(set.foundByPt[bin], set.findableByPt[bin]));
+        byPt += fmt::format(" [{:.2f},{:.2f}) {} {:.2f}%", kTrackPtEdges[bin], kTrackPtEdges[bin + 1U], set.findableByPt[bin], percent(set.foundByPt[bin], set.findableByPt[bin]));
       }
     }
     LOGP(info, "    by pT [GeV]:{}", byPt);
@@ -2798,20 +2681,16 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       kinkLayers += fmt::format(" {}: {}", layer, kinksByLayer[layer]);
     }
   }
-  LOGP(info, "  kinks: {} tracks ({:.2f}%), {:.2f}% of them fake; by the layer of the kink's cluster:{}", kinkedTracks, percent(kinkedTracks, tracks.size()),
-       percent(kinkedFakes, kinkedTracks), kinkLayers);
+  LOGP(info, "  kinks: {} tracks ({:.2f}%), {:.2f}% of them fake; by the layer of the kink's cluster:{}", kinkedTracks, percent(kinkedTracks, tracks.size()), percent(kinkedFakes, kinkedTracks), kinkLayers);
   std::string extensions;
   for (std::size_t count = 1; count < kCountSlots; ++count) {
     if (extensionsByCount[count] != 0U) {
       extensions += fmt::format(" {}: {}", count, extensionsByCount[count]);
     }
   }
-  LOGP(info, "  follow: {} tracks, {} clusters, {:.2f} per followed track; tracks by clusters added:{}", extendedTracks, addedClusters,
-       extendedTracks == 0U ? 0. : static_cast<double>(addedClusters) / static_cast<double>(extendedTracks), extensions);
-  LOGP(info, "  follow MC: {}/{} added clusters ({:.2f}%) belong to the original track's majority particle", ownAddedClusters, addedClusters,
-       percent(ownAddedClusters, addedClusters));
-  LOGP(info, "  fakes by their majority particle's share: <50% {}, 50-75% {}, 75-90% {}, 90-100% {}, noise only {}", fakePurity[0], fakePurity[1],
-       fakePurity[2], fakePurity[3], fakePurity[4]);
+  LOGP(info, "  follow: {} tracks, {} clusters, {:.2f} per followed track; tracks by clusters added:{}", extendedTracks, addedClusters, extendedTracks == 0U ? 0. : static_cast<double>(addedClusters) / static_cast<double>(extendedTracks), extensions);
+  LOGP(info, "  follow MC: {}/{} added clusters ({:.2f}%) belong to the original track's majority particle", ownAddedClusters, addedClusters, percent(ownAddedClusters, addedClusters));
+  LOGP(info, "  fakes by their majority particle's share: <50% {}, 50-75% {}, 75-90% {}, 90-100% {}, noise only {}", fakePurity[0], fakePurity[1], fakePurity[2], fakePurity[3], fakePurity[4]);
   LOGP(info, "  good tracks of a particle not findable (below {} GeV, or no chain of {} layers): {}", findableRule.minPtGeV, minLayers, goodNotFindable);
   for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
     const auto settings = workflow::iterationSettings(param, static_cast<int>(iteration));
@@ -2840,8 +2719,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     if (!floors.empty()) {
       shape += ", pT floor by clusters" + floors;
     }
-    LOGP(info, "  iteration {} (pT_min {} GeV{}): {} tracks, {:.2f}% fake; first to find {} particles", iteration, settings.windows.minPtGeV, shape,
-         tracksByIteration[iteration], percent(fakesByIteration[iteration], tracksByIteration[iteration]), foundByIteration[iteration]);
+    LOGP(info, "  iteration {} (pT_min {} GeV{}): {} tracks, {:.2f}% fake; first to find {} particles", iteration, settings.windows.minPtGeV, shape, tracksByIteration[iteration], percent(fakesByIteration[iteration], tracksByIteration[iteration]), foundByIteration[iteration]);
   }
   // The clones: each further good track B of a particle against its first, A,
   // by the iterations that found them and by where B lies -- inside A's
@@ -2872,17 +2750,15 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   // A split -- the clone inside or beyond the first -- by the first stage of
   // the first iteration whose longest surviving chain of the particle is
   // shorter than the two tracks together: there the particle's chain broke.
-  enum Split : std::uint8_t {
-    kSplitTracklets,
-    kSplitTriplets,
-    kSplitNeighbours,
-    kSplitRoads,
-    kSplitFit,
-    kSplitElse,
-    kSplitBelowFirst,
-    kSplitNotFindable,
-    kSplits
-  };
+  enum Split : std::uint8_t { kSplitTracklets,
+                              kSplitTriplets,
+                              kSplitNeighbours,
+                              kSplitRoads,
+                              kSplitFit,
+                              kSplitElse,
+                              kSplitBelowFirst,
+                              kSplitNotFindable,
+                              kSplits };
   std::array<std::uint64_t, kSplits> splits{};
   std::array<std::uint64_t, kPairLosses> splitLostPairs{};
   std::uint64_t splitLostNone = 0U;
@@ -2967,8 +2843,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       const auto& relations = cloneRelations[iterationA][iterationB];
       const auto total = relations[kInner] + relations[kOuter] + relations[kSameLayers] + relations[kInterleaved];
       if (total != 0U) {
-        LOGP(info, "  clones, first found by iteration {}, clone by {}: {} -- inside the first {}, beyond it {}, on its layers {}, interleaved {}", iterationA,
-             iterationB, total, relations[kInner], relations[kOuter], relations[kSameLayers], relations[kInterleaved]);
+        LOGP(info, "  clones, first found by iteration {}, clone by {}: {} -- inside the first {}, beyond it {}, on its layers {}, interleaved {}", iterationA, iterationB, total, relations[kInner], relations[kOuter], relations[kSameLayers], relations[kInterleaved]);
       }
     }
   }
@@ -2983,10 +2858,8 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
        "  split clones (inside or beyond the first), by the first stage of the first iteration whose longest chain of the particle is "
        "shorter than both tracks together: tracklets {}, triplets {}, neighbours {}, roads {}, road fit {}, none {}; "
        "below the first iteration's pT_min {}; not findable {}",
-       splits[kSplitTracklets], splits[kSplitTriplets], splits[kSplitNeighbours], splits[kSplitRoads], splits[kSplitFit], splits[kSplitElse],
-       splits[kSplitBelowFirst], splits[kSplitNotFindable]);
-  LOGP(info, "    the tracklet splits' adjacent-layer pairs of their own the first iteration did not keep, by the first test:{}",
-       describeLostPairs(splitLostPairs, splitLostNone));
+       splits[kSplitTracklets], splits[kSplitTriplets], splits[kSplitNeighbours], splits[kSplitRoads], splits[kSplitFit], splits[kSplitElse], splits[kSplitBelowFirst], splits[kSplitNotFindable]);
+  LOGP(info, "    the tracklet splits' adjacent-layer pairs of their own the first iteration did not keep, by the first test:{}", describeLostPairs(splitLostPairs, splitLostNone));
   for (std::size_t index = 0; index < sets.size(); ++index) {
     const auto& set = sets[index];
     const auto& losses = set.losses;
@@ -2995,11 +2868,8 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
          "  missed {} above the first iteration's pT_min {} ({:.2f}% of their findable): the first stage without a chain of {} clusters "
          "entirely theirs -- tracklets {}, triplets {}, neighbours {}, roads {} ({} raised by another's predecessor), fit {}; lost in the "
          "selection to a fake of their own {}, to another's fake {}, otherwise {}; missed below it {}",
-         kSetNames[index], missed, percent(missed, set.findableAboveFirst), minLayers, losses[kTracklets], losses[kTriplets], losses[kNeighbours],
-         losses[kRoads], set.lostAtRoadsRaised, losses[kFit], losses[kSelectionOwnFake], losses[kSelectionOtherFake], losses[kSelectionElse],
-         set.missedBelowFirst);
-    LOGP(info, "    the tracklet losses' adjacent-layer pairs of their own the first iteration did not keep, by the first test:{}",
-         describeLostPairs(set.trackletLossPairs, set.trackletLossNone));
+         kSetNames[index], missed, percent(missed, set.findableAboveFirst), minLayers, losses[kTracklets], losses[kTriplets], losses[kNeighbours], losses[kRoads], set.lostAtRoadsRaised, losses[kFit], losses[kSelectionOwnFake], losses[kSelectionOtherFake], losses[kSelectionElse], set.missedBelowFirst);
+    LOGP(info, "    the tracklet losses' adjacent-layer pairs of their own the first iteration did not keep, by the first test:{}", describeLostPairs(set.trackletLossPairs, set.trackletLossNone));
     set.byOriginZ.report(kSetNames[index]);
   }
 }
@@ -3013,9 +2883,7 @@ void writeTruthBreakdown(std::ostream& output, std::size_t timeframe, const char
         if (total == 0U) {
           continue;
         }
-        output << timeframe << ',' << vertexSource << ',' << static_cast<unsigned int>(Det::layerLinks[link].from) << ','
-               << static_cast<unsigned int>(Det::layerLinks[link].to) << ',' << kPtEdges[pt] << ',' << kPtEdges[pt + 1U] << ',' << kCotThetaEdges[cot] << ','
-               << kCotThetaEdges[cot + 1U] << ',' << summary.truthBreakdownKept[link][pt][cot] << ',' << total << '\n';
+        output << timeframe << ',' << vertexSource << ',' << static_cast<unsigned int>(Det::layerLinks[link].from) << ',' << static_cast<unsigned int>(Det::layerLinks[link].to) << ',' << kPtEdges[pt] << ',' << kPtEdges[pt + 1U] << ',' << kCotThetaEdges[cot] << ',' << kCotThetaEdges[cot + 1U] << ',' << summary.truthBreakdownKept[link][pt][cot] << ',' << total << '\n';
       }
     }
   }
@@ -3058,12 +2926,10 @@ class MeasurementSinkTask : public Task
     // The MC hits: the pulls with --o2-tracks, the true kinks behind the
     // lost pairs and the tracks found incomplete, and the QA's outward legs.
     if (mUseMC) {
-      mHits =
-        openHits<Det>(ic.options().get<std::string>("mc-hits"), std::is_same_v<Det, detectors::TRKFT3> ? ic.options().get<std::string>("mc-ft3-hits") : "");
+      mHits = openHits<Det>(ic.options().get<std::string>("mc-hits"), std::is_same_v<Det, detectors::TRKFT3> ? ic.options().get<std::string>("mc-ft3-hits") : "");
     }
     if (mUseMC) {
-      const auto contextFile = o2::utils::Str::concat_string(o2::utils::Str::rectifyDirectory(ic.options().get<std::string>("input-dir")),
-                                                             ic.options().get<std::string>("collision-context"));
+      const auto contextFile = o2::utils::Str::concat_string(o2::utils::Str::rectifyDirectory(ic.options().get<std::string>("input-dir")), ic.options().get<std::string>("collision-context"));
       mContext.reset(o2::steer::DigitizationContext::loadFromFile(contextFile));
       if (!mContext) {
         LOGP(fatal, "cannot read collision context {}", contextFile);
@@ -3110,10 +2976,7 @@ class MeasurementSinkTask : public Task
     mConditions->init(ic);
   }
 
-  void finaliseCCDB(ConcreteDataMatcher& matcher, void* obj) final
-  {
-    mConditions->finaliseCCDB(matcher, obj);
-  }
+  void finaliseCCDB(ConcreteDataMatcher& matcher, void* obj) final { mConditions->finaliseCCDB(matcher, obj); }
 
   /// The study's observers on the tracker, again whenever the interface
   /// builds one (TrackingInterface.h's `configureFor`).
@@ -3194,13 +3057,9 @@ class MeasurementSinkTask : public Task
         }
         const auto layer = sensors.sensor(measurement.surface).layer;
         bucketsValid &= geometry.bucketAt(layer, measurement.timePS, measurement.phi, secondCoordinate<Det>(layer, measurement.r, measurement.z)) == bucket;
-        const auto point = gridPoint<Det>(sensors, measurement.surface, static_cast<double>(measurement.loc0), static_cast<double>(measurement.loc1),
-                                          beamLine.x, beamLine.y);
-        const auto variances = pointVariances<Det>(sensors, measurement.surface, static_cast<double>(measurement.loc0), point, measurement.varLoc0,
-                                                   measurement.covLoc01, measurement.varLoc1);
-        positionsExact &= sameBits(point.x, measurement.x) && sameBits(point.y, measurement.y) && sameBits(point.z, measurement.z) &&
-                          sameBits(point.r, measurement.r) && sameBits(point.phi, measurement.phi) && sameBits(variances.z, measurement.varZ) &&
-                          sameBits(variances.r, measurement.varR) && sameBits(variances.rPhi, measurement.varRPhi);
+        const auto point = gridPoint<Det>(sensors, measurement.surface, static_cast<double>(measurement.loc0), static_cast<double>(measurement.loc1), beamLine.x, beamLine.y);
+        const auto variances = pointVariances<Det>(sensors, measurement.surface, static_cast<double>(measurement.loc0), point, measurement.varLoc0, measurement.covLoc01, measurement.varLoc1);
+        positionsExact &= sameBits(point.x, measurement.x) && sameBits(point.y, measurement.y) && sameBits(point.z, measurement.z) && sameBits(point.r, measurement.r) && sameBits(point.phi, measurement.phi) && sameBits(variances.z, measurement.varZ) && sameBits(variances.r, measurement.varR) && sameBits(variances.rPhi, measurement.varRPhi);
       }
     }
     if (!bucketsValid || !positionsExact) {
@@ -3286,10 +3145,7 @@ class MeasurementSinkTask : public Task
     // against the truth, from its first slice, and with MC the stage funnel.
     mObservers.summaries.clear();
     if (mTruthReports) {
-      mObservers.openStage = [&](const Controller& tracker, std::size_t iteration, std::optional<StageTruth>& stage) {
-        stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.scattering(),
-                      &mInterface.material(), crossingsOf);
-      };
+      mObservers.openStage = [&](const Controller& tracker, std::size_t iteration, std::optional<StageTruth>& stage) { stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.scattering(), &mInterface.material(), crossingsOf); };
     }
     if (!comparisonRows.empty() && mTruthReports) {
       reportTrueRoadChi2(frame, param, mInterface.tracker(), truePairs, comparisonParticles, mInterface.tracking(), mInterface.material(), propagator, crossingsOf, mInterface.scattering());
@@ -3322,8 +3178,7 @@ class MeasurementSinkTask : public Task
             return;
           }
           const auto& funnel = mObservers.funnel;
-          reportFakeAnatomy(frame, param, comparisonRows, comparisonParticles, funnel.has_value() ? &*funnel : nullptr, mInterface.tracker(), tracks, mInterface.tracking(),
-                            mInterface.material(), propagator, mInterface.trackerLabel().c_str());
+          reportFakeAnatomy(frame, param, comparisonRows, comparisonParticles, funnel.has_value() ? &*funnel : nullptr, mInterface.tracker(), tracks, mInterface.tracking(), mInterface.material(), propagator, mInterface.trackerLabel().c_str());
         };
       }
       if (mO2Tracks && !mUseMC) {
@@ -3360,8 +3215,7 @@ class MeasurementSinkTask : public Task
       };
     };
     makeFunnel(mObservers.funnel);
-    measureTracks(frame, param, beamSpot, seeds, comparisonRows, comparisonParticles,
-                  funnelOf(mObservers.funnel), mInterface, withDevice(withQA(comparisons())), crossingsOf);
+    measureTracks(frame, param, beamSpot, seeds, comparisonRows, comparisonParticles, funnelOf(mObservers.funnel), mInterface, withDevice(withQA(comparisons())), crossingsOf);
     if (mTruthOutput) {
       // The first iteration's.
       if (!mObservers.summaries.empty()) {
@@ -3383,8 +3237,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), comparisonSettings<Det>(),
-                mKinematics ? mKinematics->getNEvents(0) : 0U);
+      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), comparisonSettings<Det>(), mKinematics ? mKinematics->getNEvents(0) : 0U);
     }
     mQAOutput->Close();
     mQAOutput.reset();
@@ -3403,10 +3256,7 @@ class MeasurementSinkTask : public Task
     const auto contributors = pc.inputs().get<gsl::span<std::uint32_t>>("deviceContributors");
     BoundedMemoryResource resource;
     const auto tracks = recordsTracks<Det>(std::span<const Record>{records.data(), records.size()}, &resource);
-    LOGP(info, "tracker-digests, {}, orbit {}: {} tracks, {} vertices; digest, tracks: {:016x}; digest, tracks in clusters: {:016x}; digest, vertices: {:016x}",
-         Det::name, pc.services().get<o2::framework::TimingInfo>().firstTForbit, tracks.size(), vertices.size(), tracksDigest(tracks),
-         tracksClusterDigest<Det>(tracks, frame),
-         vertexDigest(std::span<const VertexSeed>{vertices.data(), vertices.size()}, std::span<const std::uint32_t>{contributors.data(), contributors.size()}));
+    LOGP(info, "tracker-digests, {}, orbit {}: {} tracks, {} vertices; digest, tracks: {:016x}; digest, tracks in clusters: {:016x}; digest, vertices: {:016x}", Det::name, pc.services().get<o2::framework::TimingInfo>().firstTForbit, tracks.size(), vertices.size(), tracksDigest(tracks), tracksClusterDigest<Det>(tracks, frame), vertexDigest(std::span<const VertexSeed>{vertices.data(), vertices.size()}, std::span<const std::uint32_t>{contributors.data(), contributors.size()}));
   }
 
   /// --compare-tracks: the tracking device's products of this timeframe
@@ -3434,9 +3284,7 @@ class MeasurementSinkTask : public Task
         }
       }
     }
-    const auto sameBytes = []<class T>(std::span<const T> mine, gsl::span<const T> other) {
-      return mine.size() == other.size() && (mine.empty() || std::memcmp(mine.data(), other.data(), mine.size_bytes()) == 0);
-    };
+    const auto sameBytes = []<class T>(std::span<const T> mine, gsl::span<const T> other) { return mine.size() == other.size() && (mine.empty() || std::memcmp(mine.data(), other.data(), mine.size_bytes()) == 0); };
     if (difference.empty() && !sameBytes(vertices, theirVertices)) {
       difference = fmt::format("the vertices (the device {})", theirVertices.size());
     }
@@ -3481,8 +3329,7 @@ class MeasurementSinkTask : public Task
   /// The tracker's tracks of this timeframe into the QA's trees;
   /// \a theirs O2's (`o2TrackRows`), none
   /// without --o2-tracks.
-  void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel,
-                const typename TrackRefit<Det>::Tracks& tracks, const TrackRows* theirs)
+  void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows* theirs)
   {
     const auto view = tracks.view();
     const TrackRows ours = trackRows(tracks);
@@ -3493,12 +3340,14 @@ class MeasurementSinkTask : public Task
     for (std::size_t track = 0; track < tracks.size(); ++track) {
       const auto& state = view.state[track];
       const auto theta = static_cast<double>(state.theta());
-      kinematics[track] = {.pt = static_cast<float>(std::sin(theta) / std::abs(static_cast<double>(state.qOverP()))),
-                           .eta = static_cast<float>(-std::log(std::tan(theta / 2.))),
-                           .phi = state.phi(),
-                           .iteration = view.iteration[track],
-                           .chi2 = view.chi2[track],
-                           .ndf = view.ndf[track]};
+      kinematics[track] = {
+        .pt = static_cast<float>(std::sin(theta) / std::abs(static_cast<double>(state.qOverP()))),
+        .eta = static_cast<float>(-std::log(std::tan(theta / 2.))),
+        .phi = state.phi(),
+        .iteration = view.iteration[track],
+        .chi2 = view.chi2[track],
+        .ndf = view.ndf[track],
+      };
       // A good track against its particle's crossing, with the hits.
       const auto particle = goodParticle(rows, ours[track]);
       const auto innermost = std::ranges::find_if(ours[track], [&](std::uint32_t row) { return frame.measurement(row).surface == state.surface; });
@@ -3510,19 +3359,21 @@ class MeasurementSinkTask : public Task
       if (!truth.has_value()) {
         continue;
       }
-      QAResolution entry{.pt = found->second.pt,
-                         .eta = found->second.eta,
-                         .phi = wrapPhi(static_cast<double>(found->second.phi)),
-                         .charge = static_cast<std::int8_t>(std::lround(mParticleLabels[particle].charge)),
-                         .pdg = found->second.pdg,
-                         .origin = static_cast<std::uint8_t>(found->second.origin),
-                         .iteration = view.iteration[track],
-                         .kinks = view.kinks[track],
-                         .clusters = view.count[track],
-                         .layer = static_cast<std::uint8_t>(rows[*innermost].layer),
-                         .fitPt = static_cast<float>(truth->fittedPt),
-                         .ptResidual = static_cast<float>((truth->fittedPt / truth->pt) - 1.),
-                         .ptSigma = static_cast<float>(truth->ptSigma)};
+      QAResolution entry{
+        .pt = found->second.pt,
+        .eta = found->second.eta,
+        .phi = wrapPhi(static_cast<double>(found->second.phi)),
+        .charge = static_cast<std::int8_t>(std::lround(mParticleLabels[particle].charge)),
+        .pdg = found->second.pdg,
+        .origin = static_cast<std::uint8_t>(found->second.origin),
+        .iteration = view.iteration[track],
+        .kinks = view.kinks[track],
+        .clusters = view.count[track],
+        .layer = static_cast<std::uint8_t>(rows[*innermost].layer),
+        .fitPt = static_cast<float>(truth->fittedPt),
+        .ptResidual = static_cast<float>((truth->fittedPt / truth->pt) - 1.),
+        .ptSigma = static_cast<float>(truth->ptSigma),
+      };
       for (std::size_t i = 0; i < 5U; ++i) {
         entry.residual[i] = static_cast<float>(truth->residual[i]);
         entry.sigma[i] = static_cast<float>(truth->sigma[i]);
@@ -3566,11 +3417,12 @@ class MeasurementSinkTask : public Task
         for (const auto id : ids) {
           crossings.clear();
           for (const auto* segment : std::ranges::equal_range(segments, mParticleLabels[id].track, {}, trackOf)) {
-            crossings.push_back({.time = segment->time,
-                                 .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]),
-                                              0.5 * (segment->start[2] + segment->end[2])},
-                                 .layer = mInterface.geometry().sensor(segment->chip).layer,
-                                 .momentum = segment->momentum});
+            crossings.push_back({
+              .time = segment->time,
+              .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]), 0.5 * (segment->start[2] + segment->end[2])},
+              .layer = mInterface.geometry().sensor(segment->chip).layer,
+              .momentum = segment->momentum,
+            });
           }
           const auto& truth = particles.at(id);
           const auto leg = outwardLeg(crossings, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)});
@@ -3626,8 +3478,7 @@ class MeasurementSinkTask : public Task
         extra.pairLoss = static_cast<std::uint8_t>(*verdict->pairLoss);
       }
     }
-    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs,
-                                  workflow::iterationCount(recoParam<Det>()), comparisonSettings<Det>()));
+    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), comparisonSettings<Det>()));
     streamResolution(*mQAOutput, resolution);
     streamOracle(*mQAOutput, oracle);
     if (!legMomenta.empty()) {
@@ -3664,18 +3515,20 @@ class MeasurementSinkTask : public Task
           continue;
         }
         const auto& extra = extras.at(id);
-        momenta.push_back({.pdg = truth.pdg,
-                           .origin = static_cast<std::uint8_t>(truth.origin),
-                           .pt = truth.pt,
-                           .eta = truth.eta,
-                           .p0 = static_cast<float>(static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta))),
-                           .found = found.contains(id),
-                           .lostAt = extra.lostAt,
-                           .pairLoss = extra.pairLoss,
-                           .layers = chain->second.layers,
-                           .fakeWrong = fakes.contains(id) ? fakes.at(id).first : std::uint8_t{0},
-                           .fakeWrongLayer = fakes.contains(id) ? fakes.at(id).second : std::uint8_t{0xFF},
-                           .pAtLayer = std::move(pAtLayer)});
+        momenta.push_back({
+          .pdg = truth.pdg,
+          .origin = static_cast<std::uint8_t>(truth.origin),
+          .pt = truth.pt,
+          .eta = truth.eta,
+          .p0 = static_cast<float>(static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta))),
+          .found = found.contains(id),
+          .lostAt = extra.lostAt,
+          .pairLoss = extra.pairLoss,
+          .layers = chain->second.layers,
+          .fakeWrong = fakes.contains(id) ? fakes.at(id).first : std::uint8_t{0},
+          .fakeWrongLayer = fakes.contains(id) ? fakes.at(id).second : std::uint8_t{0xFF},
+          .pAtLayer = std::move(pAtLayer),
+        });
       }
       streamMomenta(*mQAOutput, momenta);
     }
@@ -3700,8 +3553,7 @@ class MeasurementSinkTask : public Task
   /// name O2's cluster indices, which are our measurements' clusterIndex.
   /// Every row's signal particles, all of them, and those particles' truth:
   /// what O2's label rule counts (TrackComparison.h).
-  void comparisonTruth(const Frame& frame, const o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>& labels, std::vector<TruthRow>& rows,
-                       ParticleTable& particles)
+  void comparisonTruth(const Frame& frame, const o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>& labels, std::vector<TruthRow>& rows, ParticleTable& particles)
   {
     rows.assign(frame.size(), {});
     mParticleLabels.clear();
@@ -3730,29 +3582,31 @@ class MeasurementSinkTask : public Task
           } else {
             const auto& event = mKinematics->getTracks(label.getSourceID(), label.getEventID());
             mother = o2::mcutils::MCTrackNavigator::getMother(*mc, event);
-            particles[id] = ParticleTruth{.pt = static_cast<float>(mc->GetPt()),
-                                          .primary = mc->isPrimary(),
-                                          .eta = static_cast<float>(mc->GetEta()),
-                                          .phi = static_cast<float>(mc->GetPhi()),
-                                          .origin = particleOrigin(*mc, event),
-                                          .pdg = mc->GetPdgCode(),
-                                          .motherPdg = mother == nullptr ? 0 : mother->GetPdgCode(),
-                                          .process = static_cast<std::uint8_t>(mc->getProcess()),
-                                          .vx = static_cast<float>(mc->Vx()),
-                                          .vy = static_cast<float>(mc->Vy()),
-                                          .vz = static_cast<float>(mc->Vz())};
+            particles[id] = ParticleTruth{
+              .pt = static_cast<float>(mc->GetPt()),
+              .primary = mc->isPrimary(),
+              .eta = static_cast<float>(mc->GetEta()),
+              .phi = static_cast<float>(mc->GetPhi()),
+              .origin = particleOrigin(*mc, event),
+              .pdg = mc->GetPdgCode(),
+              .motherPdg = mother == nullptr ? 0 : mother->GetPdgCode(),
+              .process = static_cast<std::uint8_t>(mc->getProcess()),
+              .vx = static_cast<float>(mc->Vx()),
+              .vy = static_cast<float>(mc->Vy()),
+              .vz = static_cast<float>(mc->Vz()),
+            };
           }
           const auto* pdg = mc == nullptr ? nullptr : o2::O2DatabasePDG::Instance()->GetParticle(mc->GetPdgCode());
           auto& entry = mParticleLabels[id];
-          entry = {.event = label.getEventID(),
-                   .track = label.getTrackID(),
-                   .source = label.getSourceID(),
-                   .charge = pdg == nullptr ? 0. : pdg->Charge() / 3.,
-                   .pdg = mc == nullptr ? 0 : mc->GetPdgCode()};
+          entry = {
+            .event = label.getEventID(),
+            .track = label.getTrackID(),
+            .source = label.getSourceID(),
+            .charge = pdg == nullptr ? 0. : pdg->Charge() / 3.,
+            .pdg = mc == nullptr ? 0 : mc->GetPdgCode(),
+          };
           if (mc != nullptr) {
-            const auto helixOf = [](const o2::MCTrack& track, double charge) {
-              return TruthHelix{.position = {track.Vx(), track.Vy(), track.Vz()}, .momentum = {track.Px(), track.Py(), track.Pz()}, .charge = charge};
-            };
+            const auto helixOf = [](const o2::MCTrack& track, double charge) { return TruthHelix{.position = {track.Vx(), track.Vy(), track.Vz()}, .momentum = {track.Px(), track.Py(), track.Pz()}, .charge = charge}; };
             entry.helix = helixOf(*mc, entry.charge);
             if (mother != nullptr) {
               const auto* motherPdg = o2::O2DatabasePDG::Instance()->GetParticle(mother->GetPdgCode());
@@ -3913,11 +3767,8 @@ class MeasurementSinkTask : public Task
       return line;
     };
     LOGP(info, "  against O2's tracks of these clusters, by shared clusters (no truth; {} or more shared is a match):", kSharedToMatch);
-    LOGP(info, "    O2: {} tracks, {} found by GTRK ({:.2f} %), {} reproduced exactly ({:.2f} %); found by clusters (%):{}", theirs.size(), sum(o2Found),
-         percent(sum(o2Found), theirs.size()), sum(o2Reproduced), percent(sum(o2Reproduced), theirs.size()), byClusters(o2Found, o2Total));
-    LOGP(info, "    GTRK: {} tracks, {} with an O2 track ({:.2f} %), {} GTRK's own ({:.2f} %); with O2 by clusters (%):{}", tracks.size(), sum(ourMatched),
-         percent(sum(ourMatched), tracks.size()), tracks.size() - sum(ourMatched), percent(tracks.size() - sum(ourMatched), tracks.size()),
-         byClusters(ourMatched, ourTotal));
+    LOGP(info, "    O2: {} tracks, {} found by GTRK ({:.2f} %), {} reproduced exactly ({:.2f} %); found by clusters (%):{}", theirs.size(), sum(o2Found), percent(sum(o2Found), theirs.size()), sum(o2Reproduced), percent(sum(o2Reproduced), theirs.size()), byClusters(o2Found, o2Total));
+    LOGP(info, "    GTRK: {} tracks, {} with an O2 track ({:.2f} %), {} GTRK's own ({:.2f} %); with O2 by clusters (%):{}", tracks.size(), sum(ourMatched), percent(sum(ourMatched), tracks.size()), tracks.size() - sum(ourMatched), percent(tracks.size() - sum(ourMatched), tracks.size()), byClusters(ourMatched, ourTotal));
     if (fullFoundShorter != 0U) {
       std::string lacking;
       for (std::size_t layer = 0; layer < static_cast<std::size_t>(Detector<Det>::nLayers); ++layer) {
@@ -3940,8 +3791,7 @@ class MeasurementSinkTask : public Task
         for (std::size_t bin = 0; bin + 1U < edges.size(); ++bin) {
           const auto total = counts[bin][0] + counts[bin][1] + counts[bin][2];
           if (total != 0U) {
-            line += std::format(" [{:.1f},{:.1f}) {}: {:.1f}/{:.1f}/{:.1f}", edges[bin], edges[bin + 1U], total, percent(counts[bin][0], total),
-                                percent(counts[bin][1], total), percent(counts[bin][2], total));
+            line += std::format(" [{:.1f},{:.1f}) {}: {:.1f}/{:.1f}/{:.1f}", edges[bin], edges[bin + 1U], total, percent(counts[bin][0], total), percent(counts[bin][1], total), percent(counts[bin][2], total));
           }
         }
         return line;
@@ -4013,8 +3863,7 @@ class MeasurementSinkTask : public Task
   }
 
   /// Our tracks against O2's, \a theirs (`o2TrackRows`), with MC.
-  void compareWithO2(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const typename TrackRefit<Det>::Tracks& tracks,
-                     const TrackRows& theirs)
+  void compareWithO2(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs)
   {
     const TrackRows ours = trackRows(tracks);
     for (const auto& line : compareTrackSets(rows, particles, ours, theirs, comparisonSettings<Det>(), "GTRK", "O2")) {
@@ -4082,13 +3931,14 @@ class MeasurementSinkTask : public Task
         if (segment == nullptr) {
           return std::vector<TrueCrossing>{};
         }
-        result.push_back(
-          {.layer = static_cast<std::uint32_t>(mInterface.geometry().sensor(m.surface).layer),
-           .row = row,
-           .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]), 0.5 * (segment->start[2] + segment->end[2])},
-           .momentum = segment->momentum,
-           .mass = mass,
-           .pdg = found->second.pdg});
+        result.push_back({
+          .layer = static_cast<std::uint32_t>(mInterface.geometry().sensor(m.surface).layer),
+          .row = row,
+          .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]), 0.5 * (segment->start[2] + segment->end[2])},
+          .momentum = segment->momentum,
+          .mass = mass,
+          .pdg = found->second.pdg,
+        });
       }
       std::ranges::stable_sort(result, {}, &TrueCrossing::layer);
       return result;
@@ -4141,10 +3991,7 @@ class MeasurementSinkTask : public Task
     truth.pt = std::hypot(p[0], p[1]);
     const double momentum = std::hypot(truth.pt, p[2]);
     truth.momentum = momentum;
-    truth.residual = {static_cast<double>(state.par[kLoc0]) - (start[0] + (t * (end[0] - start[0]))),
-                      static_cast<double>(state.par[kLoc1]) - (start[1] + (t * (end[1] - start[1]))),
-                      std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi),
-                      static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+    truth.residual = {static_cast<double>(state.par[kLoc0]) - (start[0] + (t * (end[0] - start[0]))), static_cast<double>(state.par[kLoc1]) - (start[1] + (t * (end[1] - start[1]))), std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
     for (int i = 0; i < 5; ++i) {
       truth.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
     }
@@ -4154,9 +4001,7 @@ class MeasurementSinkTask : public Task
     truth.fittedPt = std::sin(theta) / std::abs(qOverP);
     const double dTheta = std::cos(theta) / std::abs(qOverP);
     const double dQOverP = -truth.fittedPt / qOverP;
-    const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) +
-                            (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) +
-                            (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
+    const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) + (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) + (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
     truth.ptSigma = std::sqrt(std::max(variance, 0.));
     return truth;
   }
@@ -4165,8 +4010,7 @@ class MeasurementSinkTask : public Task
   /// (SpeciesOracle.h) into \a out, each against the particle's
   /// crossing of \a row's sensor, \a entry its resolution entry; none for a
   /// species without an oracle mass.
-  void speciesOracle(const Frame& frame, const typename TrackRefit<Det>::Tracks::ConstView& view, std::size_t track, std::uint64_t particle, Frame::Index row,
-                     const Propagator& propagator, const QAResolution& entry, std::vector<QAOracle>& out)
+  void speciesOracle(const Frame& frame, const typename TrackRefit<Det>::Tracks::ConstView& view, std::size_t track, std::uint64_t particle, Frame::Index row, const Propagator& propagator, const QAResolution& entry, std::vector<QAOracle>& out)
   {
     const auto mass = oracleMass(entry.pdg);
     if (!mass.has_value()) {
@@ -4178,25 +4022,26 @@ class MeasurementSinkTask : public Task
     // outermost measurement's sensor.
     float pOuter = std::numeric_limits<float>::quiet_NaN();
     const auto outer = frame.measurement(view.clusters[track].index[count - 1]);
-    if (const auto* segment = crossingOf(particle, outer.surface, {static_cast<double>(outer.x), static_cast<double>(outer.y), static_cast<double>(outer.z)});
-        segment != nullptr) {
+    if (const auto* segment = crossingOf(particle, outer.surface, {static_cast<double>(outer.x), static_cast<double>(outer.y), static_cast<double>(outer.z)}); segment != nullptr) {
       pOuter = static_cast<float>(std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]));
     }
     for (std::size_t v = 0; v < kOracleVariants; ++v) {
       const auto fit = oracleFit(static_cast<OracleVariant>(v), *mass, propagator, mInterface.tracking(), mInterface.material(), chain, count, view.outwardState[track]);
-      QAOracle o{.pdg = entry.pdg,
-                 .charge = entry.charge,
-                 .origin = entry.origin,
-                 .eta = entry.eta,
-                 .layer = entry.layer,
-                 .kinks = entry.kinks,
-                 .clusters = entry.clusters,
-                 .productionOffset = entry.productionOffset,
-                 .pOuter = pOuter,
-                 .variant = static_cast<std::uint8_t>(v),
-                 .status = static_cast<std::uint8_t>(fit.status),
-                 .chi2 = fit.chi2,
-                 .ndf = fit.ndf};
+      QAOracle o{
+        .pdg = entry.pdg,
+        .charge = entry.charge,
+        .origin = entry.origin,
+        .eta = entry.eta,
+        .layer = entry.layer,
+        .kinks = entry.kinks,
+        .clusters = entry.clusters,
+        .productionOffset = entry.productionOffset,
+        .pOuter = pOuter,
+        .variant = static_cast<std::uint8_t>(v),
+        .status = static_cast<std::uint8_t>(fit.status),
+        .chi2 = fit.chi2,
+        .ndf = fit.ndf,
+      };
       const auto truth = fit.status == PropagationStatus::kOk ? stateTruth(frame, fit.state, particle, row) : std::nullopt;
       if (truth.has_value()) {
         o.momentum = static_cast<float>(truth->momentum);
@@ -4222,16 +4067,14 @@ class MeasurementSinkTask : public Task
   /// measurement's own layer, whose stave the state is on: theta_k^2 s_k^2
   /// for d0, over sin^2(theta) for z0. Left NaN where the propagation fails.
   /// And \a truth's production point's distance from the vertex.
-  void vertexApproach(const Frame& frame, const BoundTrackState& state, std::uint64_t particle, Frame::Index row, const Propagator& propagator,
-                      const ParticleTruth& truth, QAResolution& entry) const
+  void vertexApproach(const Frame& frame, const BoundTrackState& state, std::uint64_t particle, Frame::Index row, const Propagator& propagator, const ParticleTruth& truth, QAResolution& entry) const
   {
     const auto& label = mParticleLabels.at(particle);
     if (!mKinematics || label.source < 0 || label.event < 0) {
       return;
     }
     const auto& header = mKinematics->getMCEventHeader(label.source, label.event);
-    entry.productionOffset = static_cast<float>(
-      std::hypot(static_cast<double>(truth.vx) - header.GetX(), static_cast<double>(truth.vy) - header.GetY(), static_cast<double>(truth.vz) - header.GetZ()));
+    entry.productionOffset = static_cast<float>(std::hypot(static_cast<double>(truth.vx) - header.GetX(), static_cast<double>(truth.vy) - header.GetY(), static_cast<double>(truth.vz) - header.GetZ()));
     const auto& surface = mInterface.tracking().planeOf(state);
     const auto plane = beamLinePlane(static_cast<Scalar>(header.GetX()), static_cast<Scalar>(header.GetY()), perigeePhi(propagator, state, surface));
     SolenoidJacobian jacobian;
@@ -4266,8 +4109,7 @@ class MeasurementSinkTask : public Task
     Scalar term = 0.F;
     for (std::size_t other = 0; other < ScatteringTable<Det>::kLayerCount; ++other) {
       const auto id = static_cast<LayerID>(other);
-      if (id != layer &&
-          detail::crossedBeforeSource(mInterface.scattering().layers[other], Detector<Det>::isBarrelLayer(id), false, vertex, source, dz, slope, absDz, discFactor, term)) {
+      if (id != layer && detail::crossedBeforeSource(mInterface.scattering().layers[other], Detector<Det>::isBarrelLayer(id), false, vertex, source, dz, slope, absDz, discFactor, term)) {
         inside += term;
       }
     }
@@ -4280,8 +4122,7 @@ class MeasurementSinkTask : public Task
     }
     inside *= std::sqrt(1.F + (slope * slope)) * ownMomentum.invBetaMomentum2;
     entry.dca = {predicted.loc0(), static_cast<float>(static_cast<double>(predicted.loc1()) - header.GetZ())};
-    entry.dcaSigma = {static_cast<float>(std::sqrt(std::max(variance(jacobian.loc0), 0.))),
-                      static_cast<float>(std::sqrt(std::max(variance(jacobian.loc1), 0.)))};
+    entry.dcaSigma = {static_cast<float>(std::sqrt(std::max(variance(jacobian.loc0), 0.))), static_cast<float>(std::sqrt(std::max(variance(jacobian.loc1), 0.)))};
     entry.dcaScattering = {std::sqrt(inside), static_cast<float>(static_cast<double>(std::sqrt(inside)) / std::abs(sinTheta))};
   }
 
@@ -4292,17 +4133,8 @@ class MeasurementSinkTask : public Task
   /// tracking frame, which only the ITS's tracks are.
   void measurePulls(const Frame& frame, std::span<const TruthRow> rows, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs)
   {
-    const std::vector<PullParameter> common{{.name = "across", .unit = "um", .scale = 1e4},
-                                            {.name = "along", .unit = "um", .scale = 1e4},
-                                            {.name = "phi", .unit = "mrad", .scale = 1e3},
-                                            {.name = "dip", .unit = "mrad", .scale = 1e3},
-                                            {.name = "pT", .unit = "%", .scale = 1e2}};
-    PullTable ours{"GTRK at the innermost measurement, bound parameters",
-                   {{.name = "loc0", .unit = "um", .scale = 1e4},
-                    {.name = "loc1", .unit = "um", .scale = 1e4},
-                    {.name = "phi", .unit = "mrad", .scale = 1e3},
-                    {.name = "theta", .unit = "mrad", .scale = 1e3},
-                    {.name = "q/p", .unit = "1/GeV", .scale = 1.}}};
+    const std::vector<PullParameter> common{{.name = "across", .unit = "um", .scale = 1e4}, {.name = "along", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "dip", .unit = "mrad", .scale = 1e3}, {.name = "pT", .unit = "%", .scale = 1e2}};
+    PullTable ours{"GTRK at the innermost measurement, bound parameters", {{.name = "loc0", .unit = "um", .scale = 1e4}, {.name = "loc1", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "theta", .unit = "mrad", .scale = 1e3}, {.name = "q/p", .unit = "1/GeV", .scale = 1.}}};
     PullTable oursCommon{"GTRK, common residuals", common};
     // The q/p pull and the pT bias split by species, whose mass the fit's
     // energy loss does not know, and by kink.
@@ -4362,12 +4194,7 @@ class MeasurementSinkTask : public Task
         return std::array<double, 3>{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
       };
       const auto states = mO2Tracks->innerStates(static_cast<long long>(mTimeframe));
-      PullTable o2{"O2 at the innermost cluster, tracking-frame parameters",
-                   {{.name = "y", .unit = "um", .scale = 1e4},
-                    {.name = "z", .unit = "um", .scale = 1e4},
-                    {.name = "snp", .unit = "1e-3", .scale = 1e3},
-                    {.name = "tgl", .unit = "1e-3", .scale = 1e3},
-                    {.name = "q/pT", .unit = "1/GeV", .scale = 1.}}};
+      PullTable o2{"O2 at the innermost cluster, tracking-frame parameters", {{.name = "y", .unit = "um", .scale = 1e4}, {.name = "z", .unit = "um", .scale = 1e4}, {.name = "snp", .unit = "1e-3", .scale = 1e3}, {.name = "tgl", .unit = "1e-3", .scale = 1e3}, {.name = "q/pT", .unit = "1/GeV", .scale = 1.}}};
       PullTable o2Common{"O2, common residuals", common};
       auto o2BySpecies = split("O2 q/pT by species", kSpecies);
       for (std::size_t track = 0; track < std::min(theirs.size(), states.size()); ++track) {
@@ -4402,12 +4229,8 @@ class MeasurementSinkTask : public Task
           sigma[i] = std::sqrt(std::max(static_cast<double>(state.getDiagError2(i)), 0.));
         }
         o2.add(pt, residual, sigma);
-        o2Common.add(pt,
-                     std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]),
-                                           std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.},
-                     std::array<double, 5>{});
-        o2BySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, std::array<double, 2>{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.},
-                                                                  std::array<double, 2>{sigma[4], 0.});
+        o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});
+        o2BySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, std::array<double, 2>{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 2>{sigma[4], 0.});
       }
       append(o2);
       append(o2Common);
@@ -4495,21 +4318,8 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
     .inputs = inputs,
     .outputs = Outputs{},
     .algorithm = AlgorithmSpec{adaptFromTask<MeasurementSinkTask>(useMC, withVertices, products, conditions)},
-    .options = Options{
-      {"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}},
-      {"input-dir", VariantType::String, "none", {"input directory"}},
-      {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}},
-      {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}},
-      {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}},
-      {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}},
-      {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}},
-      {"species-oracle",
-       VariantType::Bool,
-       false,
-       {"with --qa-output, refit every good track of e, mu, pi, K, p with its true mass: the oracle tree"}},
-      {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}},
-      {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}},
-      {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}}};
+    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"species-oracle", VariantType::Bool, false, {"with --qa-output, refit every good track of e, mu, pi, K, p with its true mass: the oracle tree"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
+  };
   if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
     spec.options.push_back({"mc-ft3-hits", VariantType::String, "sgn_HitsFT3.root", {"O2's MC hits of FT3's discs, with --mc-hits TRK's"}});
   }

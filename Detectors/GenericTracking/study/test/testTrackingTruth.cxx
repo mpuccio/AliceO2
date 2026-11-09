@@ -61,24 +61,24 @@ const std::vector<std::uint32_t> kClusters{7U, 3U, 11U};
 
 std::vector<TruthRow> someRows()
 {
-  return {{{.particles = {5U, 9U}, .count = 2, .firstLabelCounts = true}, 0},
-          {{.particles = {9U}, .count = 1, .firstLabelCounts = false}, 1},
-          {{.count = 0, .firstLabelCounts = false}, 6}}; // noise
+  return {{{.particles = {5U, 9U}, .count = 2, .firstLabelCounts = true}, 0}, {{.particles = {9U}, .count = 1, .firstLabelCounts = false}, 1}, {{.count = 0, .firstLabelCounts = false}, 6}}; // noise
 }
 
 const ParticleTable kParticles{{5U, {.pt = 0.25F, .primary = true, .eta = -0.5F, .phi = 1.5F, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}},
                                {9U,
-                                {.pt = 3.F,
-                                 .primary = false,
-                                 .eta = 0.75F,
-                                 .phi = -2.F,
-                                 .origin = ParticleOrigin::kDecay,
-                                 .pdg = -2212,
-                                 .motherPdg = -3122,
-                                 .process = 4,
-                                 .vx = 1.5F,
-                                 .vy = -2.25F,
-                                 .vz = 7.F}}};
+                                {
+                                  .pt = 3.F,
+                                  .primary = false,
+                                  .eta = 0.75F,
+                                  .phi = -2.F,
+                                  .origin = ParticleOrigin::kDecay,
+                                  .pdg = -2212,
+                                  .motherPdg = -3122,
+                                  .process = 4,
+                                  .vx = 1.5F,
+                                  .vy = -2.25F,
+                                  .vz = 7.F,
+                                }}};
 
 } // namespace
 

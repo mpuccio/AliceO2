@@ -77,7 +77,8 @@ class TimeFrame
   /// from the last offset. Nothing here dereferences them; slices are cut
   /// from the host frame.
   TimeFrame(MeasurementView measurements, const GridGeometry<Det>& geometry, std::span<const Index> offsets, Index rows)
-    : mGrid(measurements, geometry, offsets), mSize(rows)
+    : mGrid(measurements, geometry, offsets),
+      mSize(rows)
   {
   }
 

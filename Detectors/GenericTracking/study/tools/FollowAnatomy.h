@@ -127,8 +127,7 @@ class FollowAnatomy
 
   /// One iteration of the tracking, seen by its observer.
   template <typename Observation>
-  void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry,
-               const Material& material, const Propagator& propagator)
+  void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
     // One run's steps: a repetition writes its own from the start.
     if (iteration.iteration == 0U) {
@@ -153,8 +152,7 @@ class FollowAnatomy
     // The follow as the iteration ran it: the beam line, the greedy choice
     // and the end decisions on the density and the beam line.
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>,
-                                                                     std::bool_constant<BeamEnd>) {
+      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
         if constexpr (BeamLine || !BeamEnd) {
           replay<BeamLine, Greedy, EndDensity, BeamEnd>(iteration, parameters, frame, geometry, material, propagator);
         }
@@ -223,10 +221,7 @@ class FollowAnatomy
       const Scalar seen = outcome == StepOutcome::kNoUpdate ? std::numeric_limits<Scalar>::infinity() : chi2;
       recorder->steps.back().candidates.push_back({.layer = layer, .row = row, .chi2 = seen});
     }
-    void lookaheadConfirmation(std::uint32_t row, Scalar /*chi2*/, std::uint32_t next, Scalar /*nextChi2*/) const
-    {
-      recorder->steps.back().confirmations.emplace_back(row, next != ClusterList<kMaxClusters>::kNoCluster);
-    }
+    void lookaheadConfirmation(std::uint32_t row, Scalar /*chi2*/, std::uint32_t next, Scalar /*nextChi2*/) const { recorder->steps.back().confirmations.emplace_back(row, next != ClusterList<kMaxClusters>::kNoCluster); }
     void taken(std::uint32_t row, Scalar chi2, bool kinked) const
     {
       recorder->steps.back().taken = row;
@@ -252,18 +247,14 @@ class FollowAnatomy
   /// The iteration's follow again, with \a BeamLine, \a Greedy,
   /// \a EndDensity and \a BeamEnd as it ran.
   template <bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, typename Observation>
-  void replay(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry,
-              const Material& material, const Propagator& propagator)
+  void replay(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
     const auto view = std::as_const(*iteration.tracks).view();
     const auto trackCount = static_cast<std::uint32_t>(std::min(iteration.followStart.size(), iteration.proposals.size()));
     // The mask as the follow read it: the tracker's copy, taken with the
     // starting states.
     std::vector<std::uint8_t> used(iteration.followUsed.begin(), iteration.followUsed.end());
-    const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{
-      &parameters, &frame, &geometry, &material, propagator, view,
-      used.data(), mWidths.data(), mCells.view(), nullptr, nullptr, parameters.sharedInnermost == 0U,
-      iteration.trackOffset};
+    const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{&parameters, &frame, &geometry, &material, propagator, view, used.data(), mWidths.data(), mCells.view(), nullptr, nullptr, parameters.sharedInnermost == 0U, iteration.trackOffset};
     for (std::uint32_t i = 0; i < trackCount; ++i) {
       const auto track = iteration.trackOffset + i;
       if (view.status[track] != PropagationStatus::kOk) {
@@ -287,15 +278,17 @@ class FollowAnatomy
       std::ranges::fill(proposal.inward, ClusterList<kMaxClusters>::kNoCluster);
       follow::KinkSteps steps;
       stage.follow(iteration.followStartInner[i], iteration.followStart[i], road, before, proposal, steps, Observer{{}, &recorder});
-      const Context context{.iteration = iteration.iteration,
-                            .track = track,
-                            .particle = particle,
-                            .parameters = &parameters,
-                            .frame = &frame,
-                            .geometry = &geometry,
-                            .material = &material,
-                            .propagator = &propagator,
-                            .used = &used};
+      const Context context{
+        .iteration = iteration.iteration,
+        .track = track,
+        .particle = particle,
+        .parameters = &parameters,
+        .frame = &frame,
+        .geometry = &geometry,
+        .material = &material,
+        .propagator = &propagator,
+        .used = &used,
+      };
       const bool agrees = write(context, road, before, kept, proposal, recorder);
       ++mReplayed;
       mAgree += agrees ? 1U : 0U;
@@ -305,8 +298,7 @@ class FollowAnatomy
   /// The prediction of \a row from \a state and \a factors in \a direction:
   /// the update's chi2, the two pulls on the row's own plane, the
   /// prediction's two widths and the row's two errors; NaN where it fails.
-  [[nodiscard]] std::array<Scalar, 7> predict(const Context& context, const BoundTrackState& state, const CovarianceFactors& factors, std::uint32_t row,
-                                              PropagationDirection direction) const
+  [[nodiscard]] std::array<Scalar, 7> predict(const Context& context, const BoundTrackState& state, const CovarianceFactors& factors, std::uint32_t row, PropagationDirection direction) const
   {
     constexpr Scalar kNaN = std::numeric_limits<Scalar>::quiet_NaN();
     std::array<Scalar, 7> result{};
@@ -315,14 +307,12 @@ class FollowAnatomy
     BoundTrackState updated;
     CovarianceFactors updatedFactors;
     Scalar chi2 = 0.F;
-    if (follow::updateCandidate<false>(*context.propagator, *context.geometry, *context.material, measurement, direction, state, factors, updated,
-                                       updatedFactors, chi2, 1.F)) {
+    if (follow::updateCandidate<false>(*context.propagator, *context.geometry, *context.material, measurement, direction, state, factors, updated, updatedFactors, chi2, 1.F)) {
       result[0] = chi2;
     }
     BoundTrackState predicted;
     CovarianceFactors predictedFactors;
-    if (follow::transportCandidate<false>(*context.propagator, *context.geometry, *context.material, context.geometry->planeOf(measurement), direction, state,
-                                          factors, predicted, predictedFactors, 1.F)) {
+    if (follow::transportCandidate<false>(*context.propagator, *context.geometry, *context.material, context.geometry->planeOf(measurement), direction, state, factors, predicted, predictedFactors, 1.F)) {
       covarianceFromFactors(predictedFactors, predicted.cov);
       result[1] = (measurement.loc0 - predicted.loc0()) / std::sqrt(predicted.variance(kLoc0) + measurement.varLoc0);
       result[2] = (measurement.loc1 - predicted.loc1()) / std::sqrt(predicted.variance(kLoc1) + measurement.varLoc1);
@@ -342,8 +332,7 @@ class FollowAnatomy
 
   /// The `S` and `F` lines of a track's replay and its stops; whether the
   /// rows the tracking kept are a prefix of the replay's in both directions.
-  bool write(const Context& context, const ClusterList<kMaxClusters>& road, std::uint32_t before, const Proposal& kept, const Proposal& proposal,
-             const Recorder& recorder)
+  bool write(const Context& context, const ClusterList<kMaxClusters>& road, std::uint32_t before, const Proposal& kept, const Proposal& proposal, const Recorder& recorder)
   {
     const auto& truthRows = mTruth->rows;
     const auto owns = [&](std::uint32_t row) { return truthRows[row].carries(context.particle); };
@@ -408,10 +397,7 @@ class FollowAnatomy
           const int confirmed = ranked == step.confirmations.end() ? -1 : (ranked->second ? 1 : 0);
           const auto ownRanked = std::ranges::find(step.confirmations, ownRow, &std::pair<std::uint32_t, bool>::first);
           const int ownConfirmed = ownRow == ClusterList<kMaxClusters>::kNoCluster || ownRanked == step.confirmations.end() ? -1 : (ownRanked->second ? 1 : 0);
-          mOut << std::format("S {} {} {} {} {} {} {:.4f} {} {} {:.4f} {} {} {} {} {}\n", context.iteration, context.track, direction, k, takenLayer,
-                              step.taken == ClusterList<kMaxClusters>::kNoCluster ? 0 : 1, static_cast<double>(step.chi2), takenOwn ? 1 : 0, passing,
-                              static_cast<double>(ownChi2), kClassNames[static_cast<std::size_t>(stepClass)], step.kinked ? 1 : 0, step.confirmations.size(),
-                              confirmed, ownConfirmed);
+          mOut << std::format("S {} {} {} {} {} {} {:.4f} {} {} {:.4f} {} {} {} {} {}\n", context.iteration, context.track, direction, k, takenLayer, step.taken == ClusterList<kMaxClusters>::kNoCluster ? 0 : 1, static_cast<double>(step.chi2), takenOwn ? 1 : 0, passing, static_cast<double>(ownChi2), kClassNames[static_cast<std::size_t>(stepClass)], step.kinked ? 1 : 0, step.confirmations.size(), confirmed, ownConfirmed);
           writePredictions(context, step, k);
         }
         ++k;
@@ -422,16 +408,11 @@ class FollowAnatomy
       }
       const auto end = recorder.end[direction];
       if (k != 0U) {
-        const bool beyond = std::ranges::any_of(mRowsOf[context.particle], [&](std::uint32_t row) {
-          return (*context.used)[row] == kFree && (outward ? distance2(row) > reached : distance2(row) < reached);
-        });
+        const bool beyond = std::ranges::any_of(mRowsOf[context.particle], [&](std::uint32_t row) { return (*context.used)[row] == kFree && (outward ? distance2(row) > reached : distance2(row) < reached); });
         ++mStops[direction][static_cast<std::size_t>(end)][beyond ? 1U : 0U];
       }
       if (!mPath.empty()) {
-        mOut << std::format("F {} {} {} {:.4f} {} {} {} {} {} {} {} {} {} {}\n", context.iteration, context.track, context.particle,
-                            found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0., before, direction, proposedCount, keptCount,
-                            keptWrong, prefix ? 1 : 0, firstWrong, kClassNames[static_cast<std::size_t>(firstClass)], kEndNames[static_cast<std::size_t>(end)],
-                            proposedWrong);
+        mOut << std::format("F {} {} {} {:.4f} {} {} {} {} {} {} {} {} {} {}\n", context.iteration, context.track, context.particle, found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0., before, direction, proposedCount, keptCount, keptWrong, prefix ? 1 : 0, firstWrong, kClassNames[static_cast<std::size_t>(firstClass)], kEndNames[static_cast<std::size_t>(end)], proposedWrong);
       }
     }
     return agrees;
@@ -458,16 +439,12 @@ class FollowAnatomy
       if (bestRow == ClusterList<kMaxClusters>::kNoCluster) {
         continue;
       }
-      mOut << std::format("Q {} {} {} {} {} {} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g}\n", context.iteration, context.track, step.direction, k,
-                          static_cast<int>(target), (*context.used)[bestRow] == kFree ? 1 : 0, static_cast<double>(best[0]), static_cast<double>(best[1]),
-                          static_cast<double>(best[2]), static_cast<double>(best[3]), static_cast<double>(best[4]), static_cast<double>(best[5]),
-                          static_cast<double>(best[6]));
+      mOut << std::format("Q {} {} {} {} {} {} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g}\n", context.iteration, context.track, step.direction, k, static_cast<int>(target), (*context.used)[bestRow] == kFree ? 1 : 0, static_cast<double>(best[0]), static_cast<double>(best[1]), static_cast<double>(best[2]), static_cast<double>(best[3]), static_cast<double>(best[4]), static_cast<double>(best[5]), static_cast<double>(best[6]));
     }
   }
 
   /// The class of a step that took a row not of the particle (`StepClass`).
-  [[nodiscard]] StepClass classify(const Step& step, int takenLayer, Scalar ownChi2, bool outward, Scalar reached, const std::vector<std::uint8_t>& used,
-                                   const IterationParameters<Det>& parameters, std::uint64_t particle) const
+  [[nodiscard]] StepClass classify(const Step& step, int takenLayer, Scalar ownChi2, bool outward, Scalar reached, const std::vector<std::uint8_t>& used, const IterationParameters<Det>& parameters, std::uint64_t particle) const
   {
     if (!(ownChi2 < 0.F)) {
       return ownChi2 <= parameters.clusterChi2Max ? StepClass::kSwap : StepClass::kRefused;

@@ -112,12 +112,12 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool digestStages = false;
   bool funnel = false;
   int vertexStudy = -1;
-  bool verticesOnly = false; ///< --vertices-only: the vertexing pass alone, its vertices against the truth
+  bool verticesOnly = false;     ///< --vertices-only: the vertexing pass alone, its vertices against the truth
   std::vector<int> scoreSources; ///< --score-sources: the score again over these MC sources' particles only; empty for none
-  double beamWidthCM = 0.;  ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
-  std::string vertexList;   ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
-  std::string vertexReplay; ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
-  std::string vertexPrior;  ///< --vertex-prior: an earlier pass's replay vertices the prior-* variants start from
+  double beamWidthCM = 0.;       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
+  std::string vertexList;        ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
+  std::string vertexReplay;      ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
+  std::string vertexPrior;       ///< --vertex-prior: an earlier pass's replay vertices the prior-* variants start from
   double findableMinPtGeV = 0.1;
   std::uint64_t findableAllLayers = 0U; ///< the score's "on every layer" mask; 0, every layer
   std::string seedCoverage;             ///< --seed-coverage: layer masks, comma separated
@@ -149,25 +149,25 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::size_t gpuArenaMB = 0U;
   bool hostReference = false;
   bool rebin = false;
-  bool followStops = false;       ///< --follow-stops
-  bool completeAnatomy = false;   ///< --complete-anatomy
-  std::string stepAnatomy;        ///< --step-anatomy: the CSV of the replayed steps
-  std::string truthWalk;          ///< --truth-walk: the CSV of the truth walks' steps
-  std::string fateOut;            ///< --fate-out: the CSV of every class particle's fate
-  std::string breakdown;          ///< --breakdown: where the last run's tracks sit, a JSON line
-  std::string breakdownParticles; ///< --breakdown-particles: the same per particle of the class, a CSV
+  bool followStops = false;        ///< --follow-stops
+  bool completeAnatomy = false;    ///< --complete-anatomy
+  std::string stepAnatomy;         ///< --step-anatomy: the CSV of the replayed steps
+  std::string truthWalk;           ///< --truth-walk: the CSV of the truth walks' steps
+  std::string fateOut;             ///< --fate-out: the CSV of every class particle's fate
+  std::string breakdown;           ///< --breakdown: where the last run's tracks sit, a JSON line
+  std::string breakdownParticles;  ///< --breakdown-particles: the same per particle of the class, a CSV
   std::string breakdownPopulation; ///< --breakdown-population: the class's particles, primary, decay or v0
-  std::string inwardHistory;      ///< --inward-history: the CSV of the inward refit's states
-  std::string endDecisions;       ///< --end-decisions: the CSV of every follow walk's end
-  std::string endEdits;           ///< --end-edits: with it, the CSV of each track's truth-free end edits
-  int anatomyPdg = 0;             ///< --anatomy-pdg
-  bool anatomyFindable = false;   ///< --anatomy-findable
-  std::string anatomyBeamLine;    ///< --anatomy-beam-line
-  std::string anatomyFollowLoss;  ///< --anatomy-follow-loss
-  int truthWalkIteration = -1;    ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
-  std::string hits;               ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
-  std::string ft3Hits;            ///< --ft3-hits: FT3's MC hits beside TRK's
-  std::string kine;               ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
+  std::string inwardHistory;       ///< --inward-history: the CSV of the inward refit's states
+  std::string endDecisions;        ///< --end-decisions: the CSV of every follow walk's end
+  std::string endEdits;            ///< --end-edits: with it, the CSV of each track's truth-free end edits
+  int anatomyPdg = 0;              ///< --anatomy-pdg
+  bool anatomyFindable = false;    ///< --anatomy-findable
+  std::string anatomyBeamLine;     ///< --anatomy-beam-line
+  std::string anatomyFollowLoss;   ///< --anatomy-follow-loss
+  int truthWalkIteration = -1;     ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
+  std::string hits;                ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
+  std::string ft3Hits;             ///< --ft3-hits: FT3's MC hits beside TRK's
+  std::string kine;                ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
 };
 
 /// The lines of one section of an INI file, `[name]` excluded.
@@ -233,10 +233,7 @@ void printStageDigests(const typename Controller<Det>::SliceObservation& slice)
   roads.column(slice.roads->roads());
   roads.column(slice.roads->starts());
   roads.column(slice.roads->roadOffsets());
-  std::cout << std::format(
-    "  stage digests, iteration {} slice [{}, {}): tracklets {:016x} triplets {:016x} neighbours {:016x} roads {:016x} records {:016x}\n", slice.iteration,
-    slice.slice->coreBlocks.begin, slice.slice->coreBlocks.end, stage(*result.tracklets), stage(*result.triplets), stage(*result.neighbours), roads.result(),
-    stage(*slice.records));
+  std::cout << std::format("  stage digests, iteration {} slice [{}, {}): tracklets {:016x} triplets {:016x} neighbours {:016x} roads {:016x} records {:016x}\n", slice.iteration, slice.slice->coreBlocks.begin, slice.slice->coreBlocks.end, stage(*result.tracklets), stage(*result.triplets), stage(*result.neighbours), roads.result(), stage(*slice.records));
 }
 
 /// Every accepted triplet's and neighbour's fit inputs of one slice, with the
@@ -263,15 +260,16 @@ void collectFitInputs(const typename Controller<Det>::SliceObservation& slice, c
     const auto a = point(tracklets.source[first]);
     const auto b = point(tracklets.target[first]);
     const auto c = point(tracklets.target[second]);
-    inputs.triplets.push_back({.first = a,
-                               .middle = b,
-                               .third = c,
-                               .variance = tripletScattering(parameters.scattering, parameters.pairCut, middleLayer, a, b, c, detail::referenceSinTheta(a, c),
-                                                             kinkScale(triplet)),
-                               .chi2Max = tripletChi2Max,
-                               .curvature = triplets.curvature[triplet],
-                               .varCurvature = triplets.varCurvature[triplet],
-                               .iteration = iteration});
+    inputs.triplets.push_back({
+      .first = a,
+      .middle = b,
+      .third = c,
+      .variance = tripletScattering(parameters.scattering, parameters.pairCut, middleLayer, a, b, c, detail::referenceSinTheta(a, c), kinkScale(triplet)),
+      .chi2Max = tripletChi2Max,
+      .curvature = triplets.curvature[triplet],
+      .varCurvature = triplets.varCurvature[triplet],
+      .iteration = iteration,
+    });
   }
   for (std::size_t element = 0; element + 1U < neighbourOffsets.size(); ++element) {
     const auto shared = triplets.first[element];
@@ -283,18 +281,18 @@ void collectFitInputs(const typename Controller<Det>::SliceObservation& slice, c
     for (auto neighbour = neighbourOffsets[element]; neighbour < neighbourOffsets[element + 1U]; ++neighbour) {
       const auto from = neighbours.from[neighbour];
       const auto a = point(tracklets.source[triplets.first[from]]);
-      const auto scattering =
-        adjacentScattering(parameters.scattering, parameters.pairCut, parameters.linkSources[link], parameters.linkTargets[link], a, b, c, d,
-                           detail::referenceSinTheta(a, c), detail::referenceSinTheta(b, d), kinkScale(from), kinkScale(element));
-      inputs.neighbours.push_back({.a = a,
-                                   .b = b,
-                                   .c = c,
-                                   .d = d,
-                                   .varianceSecond = scattering.second,
-                                   .varianceThird = scattering.third,
-                                   .covariance = scattering.covariance,
-                                   .chi2Max = parameters.neighbourChi2Max,
-                                   .iteration = iteration});
+      const auto scattering = adjacentScattering(parameters.scattering, parameters.pairCut, parameters.linkSources[link], parameters.linkTargets[link], a, b, c, d, detail::referenceSinTheta(a, c), detail::referenceSinTheta(b, d), kinkScale(from), kinkScale(element));
+      inputs.neighbours.push_back({
+        .a = a,
+        .b = b,
+        .c = c,
+        .d = d,
+        .varianceSecond = scattering.second,
+        .varianceThird = scattering.third,
+        .covariance = scattering.covariance,
+        .chi2Max = parameters.neighbourChi2Max,
+        .iteration = iteration,
+      });
     }
   }
 }
@@ -304,33 +302,25 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
 {
   using enum WorkCounter;
   const auto at = [&](WorkCounter counter) { return work[static_cast<std::size_t>(counter)]; };
-  const auto perFit = [&](WorkCounter nanoseconds, WorkCounter fits) {
-    return at(fits) == 0U ? 0. : static_cast<double>(at(nanoseconds)) / static_cast<double>(at(fits));
-  };
+  const auto perFit = [&](WorkCounter nanoseconds, WorkCounter fits) { return at(fits) == 0U ? 0. : static_cast<double>(at(nanoseconds)) / static_cast<double>(at(fits)); };
   std::cout << std::format(
     "  work, iteration {}, triplets: {} first tracklets ({} without a middle), {} in the dip-angle window; rejected {} by time, {} by "
     "curvature; {} fits, {} failed, {} over chi2, {} over chi2 at their own momentum; {} accepted ({} with the kink allowance); {:.1f} ns/fit\n",
-    iteration, at(kTripletFirsts), at(kTripletNoMiddle), at(kTripletWindow), at(kTripletTime), at(kTripletCurvature), at(kTripletFits), at(kTripletFitFailed),
-    at(kTripletChi2), at(kTripletOwnMomentum), at(kTripletFits) - at(kTripletFitFailed) - at(kTripletChi2) - at(kTripletOwnMomentum), at(kTripletKinked),
-    perFit(kTripletFitNS, kTripletFits));
+    iteration, at(kTripletFirsts), at(kTripletNoMiddle), at(kTripletWindow), at(kTripletTime), at(kTripletCurvature), at(kTripletFits), at(kTripletFitFailed), at(kTripletChi2), at(kTripletOwnMomentum), at(kTripletFits) - at(kTripletFitFailed) - at(kTripletChi2) - at(kTripletOwnMomentum), at(kTripletKinked), perFit(kTripletFitNS, kTripletFits));
   std::cout << std::format(
     "  work, iteration {}, neighbours: {} triplets, {} candidates ({} both kinked); rejected {} by curvature, {} by time; {} fits, {} failed, {} over "
     "chi2; {} accepted; {:.1f} ns/fit\n",
-    iteration, at(kNeighbourTriplets), at(kNeighbourCandidates), at(kNeighbourBothKinked), at(kNeighbourCurvature), at(kNeighbourTime), at(kNeighbourFits),
-    at(kNeighbourFitFailed), at(kNeighbourChi2), at(kNeighbourFits) - at(kNeighbourFitFailed) - at(kNeighbourChi2), perFit(kNeighbourFitNS, kNeighbourFits));
+    iteration, at(kNeighbourTriplets), at(kNeighbourCandidates), at(kNeighbourBothKinked), at(kNeighbourCurvature), at(kNeighbourTime), at(kNeighbourFits), at(kNeighbourFitFailed), at(kNeighbourChi2), at(kNeighbourFits) - at(kNeighbourFitFailed) - at(kNeighbourChi2), perFit(kNeighbourFitNS, kNeighbourFits));
   std::cout << std::format(
     "  work, iteration {}, roads: {} without a common time, {} fitted, {} of {} filter steps taken; rejected {} by chi2, {} by propagation, {} "
     "below the pT floor, {} by the beam line; {} accepted ({} of them without their innermost clusters, of {} such fits)\n",
-    iteration, at(kRoadTime), at(kRoadFits), at(kRoadSteps), at(kRoadStepsPossible), at(kRoadChi2), at(kRoadPropagation), at(kRoadFloor), at(kRoadBeam),
-    at(kRoadAccepted), at(kRoadTrimAccepted), at(kRoadTrimFits));
+    iteration, at(kRoadTime), at(kRoadFits), at(kRoadSteps), at(kRoadStepsPossible), at(kRoadChi2), at(kRoadPropagation), at(kRoadFloor), at(kRoadBeam), at(kRoadAccepted), at(kRoadTrimAccepted), at(kRoadTrimFits));
   std::cout << std::format(
     "  work, iteration {}, tracklets: {} sources, {} queries, {} not made as every pair would cross another layer; {} candidates held by earlier "
     "tracks, {} crossing another layer, {} refused at the bound on a kink between the layers, {} pair tests, {} past the transverse test, {} past "
     "the longitudinal one, {} accepted; inside their query's window: {} candidates, {} refused at the bound, {} pair tests, {} longitudinal tests; {} accepted "
     "outside it\n",
-    iteration, at(kTrackletSources), at(kTrackletQueries), at(kTrackletHoleQueries), at(kTrackletUsed), at(kTrackletHoles), at(kPairBetweenBound),
-    at(kPairTests), at(kPairTransverse), at(kPairLongitudinal), at(kTrackletAccepted), at(kTrackletInWindow), at(kPairBetweenBoundIn), at(kPairTestsIn),
-    at(kPairLongitudinalTestsIn), at(kTrackletAcceptedOutside));
+    iteration, at(kTrackletSources), at(kTrackletQueries), at(kTrackletHoleQueries), at(kTrackletUsed), at(kTrackletHoles), at(kPairBetweenBound), at(kPairTests), at(kPairTransverse), at(kPairLongitudinal), at(kTrackletAccepted), at(kTrackletInWindow), at(kPairBetweenBoundIn), at(kPairTestsIn), at(kPairLongitudinalTestsIn), at(kTrackletAcceptedOutside));
   std::cout << std::format(
     "  work, iteration {}, grid (tracklets): {} queries over {} blocks; {} ranges over {} cells, {} of them searched; {} "
     "rows, {} in the time bound, {} past the time cut\n",
@@ -338,35 +328,26 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
   std::cout << std::format(
     "  work, iteration {}, grid (follow): {} queries over {} blocks; {} ranges over {} cells, {} of them searched; {} "
     "rows, {} in the time bound, {} past the time cut; {} updates; {} rows proposed, {} outbid, {} with a failed refit\n",
-    iteration, at(kFollowGridQueries), at(kFollowGridBlocks), at(kFollowGridRanges), at(kFollowGridCells), at(kFollowGridSearchedCells), at(kFollowGridRows),
-    at(kFollowGridInBound), at(kFollowGridVisits), at(kFollowUpdates), at(kFollowProposed), at(kFollowOutbid), at(kFollowRefitRejected));
+    iteration, at(kFollowGridQueries), at(kFollowGridBlocks), at(kFollowGridRanges), at(kFollowGridCells), at(kFollowGridSearchedCells), at(kFollowGridRows), at(kFollowGridInBound), at(kFollowGridVisits), at(kFollowUpdates), at(kFollowProposed), at(kFollowOutbid), at(kFollowRefitRejected));
   std::cout << std::format(
     "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} kink passes, {} taken, {} "
     "updates, {} witness updates, {} rows dropped with a witness; {} last rows unconfirmed, {} kept on their density, {} refused at "
     "the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
-    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowKinkSteps), at(kFollowKinksTaken), at(kFollowKinkUpdates),
-    at(kFollowWitnessUpdates), at(kFollowWitnessTrimmed), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused),
-    at(kFollowEndFits), at(kFollowEndReplaced));
+    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowKinkSteps), at(kFollowKinksTaken), at(kFollowKinkUpdates), at(kFollowWitnessUpdates), at(kFollowWitnessTrimmed), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
   if (at(kTrackletShape) != 0U || at(kTripletShape) != 0U) {
-    std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape),
-                             at(kTripletShape));
+    std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
   }
   if (at(kFollowTrimFits) != 0U) {
-    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed, {} updates\n",
-                             iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUpdates));
+    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed, {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUpdates));
   }
   if (at(kFollowEarlierProposed) != 0U) {
-    std::cout << std::format("  work, iteration {}, earlier iterations' follow: {} rows proposed, {} outbid, {} with a failed refit\n", iteration,
-                             at(kFollowEarlierProposed), at(kFollowEarlierOutbid), at(kFollowEarlierRefitRejected));
+    std::cout << std::format("  work, iteration {}, earlier iterations' follow: {} rows proposed, {} outbid, {} with a failed refit\n", iteration, at(kFollowEarlierProposed), at(kFollowEarlierOutbid), at(kFollowEarlierRefitRejected));
   }
-  std::cout << std::format("  work, iteration {}, propagations: {} plane crossings, {} at |n . d| <= 0.1\n", iteration, at(kPropagations),
-                           at(kPropagationsGrazing));
+  std::cout << std::format("  work, iteration {}, propagations: {} plane crossings, {} at |n . d| <= 0.1\n", iteration, at(kPropagations), at(kPropagationsGrazing));
   std::cout << std::format(
     "  work, iteration {}, tracklet sort: {} sources with 2+ tracklets ({} tracklets, {:.1f} each); {} with more than 8, {} more than 32 ({} "
     "tracklets), {} more than 128, {} more than 512\n",
-    iteration, at(kSortSegments), at(kSortTracklets),
-    at(kSortSegments) == 0U ? 0. : static_cast<double>(at(kSortTracklets)) / static_cast<double>(at(kSortSegments)), at(kSortSegmentsOver8),
-    at(kSortSegmentsOver32), at(kSortTrackletsOver32), at(kSortSegmentsOver128), at(kSortSegmentsOver512));
+    iteration, at(kSortSegments), at(kSortTracklets), at(kSortSegments) == 0U ? 0. : static_cast<double>(at(kSortTracklets)) / static_cast<double>(at(kSortSegments)), at(kSortSegmentsOver8), at(kSortSegmentsOver32), at(kSortTrackletsOver32), at(kSortSegmentsOver128), at(kSortSegmentsOver512));
 }
 
 /// One iteration's tracklet counts per link, the links with a query.
@@ -378,9 +359,7 @@ void printLinkWork(const LinkWorkCounts& work, std::size_t iteration)
     if (counts[static_cast<std::size_t>(LinkCounter::kQueries)] == 0U) {
       continue;
     }
-    std::cout << std::format("  work, iteration {}, link {} ({} -> {}): {} queries, {} pair candidates, {} tracklets\n", iteration, link,
-                             Det::layerLinks[link].from, Det::layerLinks[link].to, counts[static_cast<std::size_t>(LinkCounter::kQueries)],
-                             counts[static_cast<std::size_t>(LinkCounter::kCandidates)], counts[static_cast<std::size_t>(LinkCounter::kTracklets)]);
+    std::cout << std::format("  work, iteration {}, link {} ({} -> {}): {} queries, {} pair candidates, {} tracklets\n", iteration, link, Det::layerLinks[link].from, Det::layerLinks[link].to, counts[static_cast<std::size_t>(LinkCounter::kQueries)], counts[static_cast<std::size_t>(LinkCounter::kCandidates)], counts[static_cast<std::size_t>(LinkCounter::kTracklets)]);
   }
 }
 
@@ -414,9 +393,7 @@ inline std::string jsonScore(const study::FindableScore& r)
   return std::format(R"({{"findable":{},"found":{},"fakeOnly":{},"cloned":{},"cloneTracks":{},"withFake":{},"findableByPt":{},"foundByPt":{},)"
                      R"("findableByEta":{},"foundByEta":{},"findableByPhi":{},"foundByPhi":{},"complete":{},"completeByPt":{},"layersFound":{},)"
                      R"("layersOf":{},"layerFraction":{:.6g},"layerFractionByPt":{},"bySpecies":{{{}}}}})",
-                     r.findable, r.found, r.fakeOnly, r.cloned, r.cloneTracks, r.withFake, jsonArray(r.findableByPt), jsonArray(r.foundByPt),
-                     jsonArray(r.findableByEta), jsonArray(r.foundByEta), jsonArray(r.findableByPhi), jsonArray(r.foundByPhi), r.complete,
-                     jsonArray(r.completeByPt), r.layersFound, r.layersOf, r.layerFraction, jsonArray(r.layerFractionByPt), species);
+                     r.findable, r.found, r.fakeOnly, r.cloned, r.cloneTracks, r.withFake, jsonArray(r.findableByPt), jsonArray(r.foundByPt), jsonArray(r.findableByEta), jsonArray(r.foundByEta), jsonArray(r.findableByPhi), jsonArray(r.foundByPhi), r.complete, jsonArray(r.completeByPt), r.layersFound, r.layersOf, r.layerFraction, jsonArray(r.layerFractionByPt), species);
 }
 
 /// One score per particle origin, in ParticleOrigin's order.
@@ -456,9 +433,7 @@ inline std::string jsonScore(const study::TrackScore& score, const study::Compar
 {
   return std::format(R"({{"seconds":{:.6f},"tracks":{},"fakes":{},"tracksByLength":{},"fakesByLength":{},"allLayers":{},"minLayers":{},"o2":{},)"
                      R"("originAllLayers":{},"originMinLayers":{},"originFindable":{},"primaryRegion":{},"decays":{}}})",
-                     seconds, score.tracks, score.fakes, jsonArray(score.tracksByLength), jsonArray(score.fakesByLength), jsonScore(score.allLayers),
-                     jsonScore(score.minLayers), jsonScore(score.o2), jsonScores(score.originAllLayers), jsonScores(score.originMinLayers),
-                     jsonScores(score.originFindable), jsonScores(score.primaryRegion), jsonDecays(score, settings));
+                     seconds, score.tracks, score.fakes, jsonArray(score.tracksByLength), jsonArray(score.fakesByLength), jsonScore(score.allLayers), jsonScore(score.minLayers), jsonScore(score.o2), jsonScores(score.originAllLayers), jsonScores(score.originMinLayers), jsonScores(score.originFindable), jsonScores(score.primaryRegion), jsonDecays(score, settings));
 }
 
 /// The seed sets' coverage of the findable: by class, the fraction with a measurement on every layer of a set,
@@ -524,8 +499,7 @@ inline void printSeedCoverage(const study::TrackingTruth& truth, const study::Co
   for (std::size_t c = 0; c < kClasses; ++c) {
     std::string line = std::format("  {:<11} {:8d}:", kNames[c], counts[c].findable);
     for (std::size_t set = 0; set <= masks.size(); ++set) {
-      line += std::format(" {} {:.2f} ({:.2f})", set < masks.size() ? std::format("set {}", masks[set]) : std::string{"any"},
-                          percent(counts[c].all[set], counts[c].findable), percent(counts[c].allButOne[set], counts[c].findable));
+      line += std::format(" {} {:.2f} ({:.2f})", set < masks.size() ? std::format("set {}", masks[set]) : std::string{"any"}, percent(counts[c].all[set], counts[c].findable), percent(counts[c].allButOne[set], counts[c].findable));
     }
     std::cout << line << '\n';
   }
@@ -601,8 +575,7 @@ std::uint64_t checkpointFrame(const TimeFrame<Det>& frame)
 }
 
 /// Its conditions' fingerprint: \a beamLine, \a vertices, \a blocksPerSlice and \a haloPS.
-inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice,
-                                          std::int64_t haloPS)
+inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice, std::int64_t haloPS)
 {
   Digest digest;
   for (const double value : {beamLine.x, beamLine.y, beamLine.z, beamLine.sigmaX, beamLine.sigmaY, beamLine.sigmaZ}) {
@@ -622,8 +595,7 @@ inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, st
 }
 
 template <typename Checkpoint>
-void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span<const IterationSettings> settings, std::uint64_t frame,
-                     std::uint64_t conditions)
+void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span<const IterationSettings> settings, std::uint64_t frame, std::uint64_t conditions)
 {
   using Summary = typename decltype(state.summaries)::value_type;
   using Record = typename decltype(state.tracks)::value_type;
@@ -632,14 +604,16 @@ void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span
   if (!out) {
     throw std::runtime_error("cannot write " + path);
   }
-  const CheckpointHeader header{.frame = frame,
-                                .conditions = conditions,
-                                .iterations = state.summaries.size(),
-                                .rows = state.used.size(),
-                                .tracks = state.tracks.size(),
-                                .settingsBytes = sizeof(IterationSettings),
-                                .summaryBytes = sizeof(Summary),
-                                .trackBytes = sizeof(Record)};
+  const CheckpointHeader header{
+    .frame = frame,
+    .conditions = conditions,
+    .iterations = state.summaries.size(),
+    .rows = state.used.size(),
+    .tracks = state.tracks.size(),
+    .settingsBytes = sizeof(IterationSettings),
+    .summaryBytes = sizeof(Summary),
+    .trackBytes = sizeof(Record),
+  };
   const auto write = [&](const auto* data, std::size_t count) {
     out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(count * sizeof(*data))); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
   };
@@ -673,8 +647,7 @@ Checkpoint readCheckpoint(const std::string& path, std::span<const IterationSett
   CheckpointHeader header;
   const auto magic = header.magic;
   read(&header, 1U);
-  if (header.magic != magic || header.settingsBytes != sizeof(IterationSettings) || header.summaryBytes != sizeof(Summary) ||
-      header.trackBytes != sizeof(Record)) {
+  if (header.magic != magic || header.settingsBytes != sizeof(IterationSettings) || header.summaryBytes != sizeof(Summary) || header.trackBytes != sizeof(Record)) {
     throw std::runtime_error(path + " is not a checkpoint of this build");
   }
   const auto bytes = sizeof(header) + (header.iterations * (header.settingsBytes + header.summaryBytes)) + header.rows + (header.tracks * header.trackBytes);
@@ -751,9 +724,7 @@ void recordFollowed(const Observation& iteration, std::vector<std::array<std::ui
 /// of the wrong row's particle and of that one's mother, and the wrong row's
 /// particle's production radius [cm] (for the road fakes).
 template <DetectorLayout Det, typename StagesOf, typename RecordChi2>
-void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth,
-                const study::ComparisonSettings& settings, const TimeFrame<Det>& frame, const std::vector<std::array<std::uint8_t, 2>>& followed,
-                StagesOf stagesOf, RecordChi2 recordChi2)
+void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth, const study::ComparisonSettings& settings, const TimeFrame<Det>& frame, const std::vector<std::array<std::uint8_t, 2>>& followed, StagesOf stagesOf, RecordChi2 recordChi2)
 {
   std::ofstream out(path);
   if (!out) {
@@ -821,10 +792,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
         origin = static_cast<int>(found->second.origin);
         pt = found->second.pt;
         const auto chain = layers.find(majority.particle);
-        findable = found->second.origin == study::ParticleOrigin::kPhysicalPrimary && chain != layers.end() &&
-                       study::isFindable(found->second.pt, chain->second, settings)
-                     ? 1
-                     : 0;
+        findable = found->second.origin == study::ParticleOrigin::kPhysicalPrimary && chain != layers.end() && study::isFindable(found->second.pt, chain->second, settings) ? 1 : 0;
       }
       for (const auto row : rowsOf[majority.particle]) {
         ++total;
@@ -835,10 +803,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
         (goodOf[by] == majority.particle ? heldGood : heldOther) += 1U;
       }
     }
-    out << std::format("T {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {:.4f} {} {} {} {} {}", static_cast<int>(view.iteration[track]), count, followIn,
-                       followOut, earlierIn + earlierOut, goodOf[track] != study::kNoTrackParticle ? 1 : 0, majority.carried, wrong[0], wrong[1], wrong[2],
-                       wrong[3], noise, majority.particle == study::kNoTrackParticle ? 0U : majority.particle, origin, findable, static_cast<double>(pt),
-                       total, heldGood, heldOther, firstWrongLayer, track);
+    out << std::format("T {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {:.4f} {} {} {} {} {}", static_cast<int>(view.iteration[track]), count, followIn, followOut, earlierIn + earlierOut, goodOf[track] != study::kNoTrackParticle ? 1 : 0, majority.carried, wrong[0], wrong[1], wrong[2], wrong[3], noise, majority.particle == study::kNoTrackParticle ? 0U : majority.particle, origin, findable, static_cast<double>(pt), total, heldGood, heldOther, firstWrongLayer, track);
     out << std::format(" {:.6g}", static_cast<double>(view.chi2[track]));
     const auto stages = majority.particle == study::kNoTrackParticle ? std::nullopt : stagesOf(majority.particle, view.iteration[track]);
     for (std::size_t stage = 0; stage < 5U; ++stage) {
@@ -857,8 +822,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
     for (const auto row : own) {
       layerBits |= std::uint64_t{1} << truth.rows[row].layer;
     }
-    out << std::format(" {:.4f} {:.4f} {}\n", -std::log(std::tan(static_cast<double>(view.state[track].theta()) / 2.)),
-                       majorityFound != truth.particles.end() ? static_cast<double>(majorityFound->second.eta) : -99., layerBits);
+    out << std::format(" {:.4f} {:.4f} {}\n", -std::log(std::tan(static_cast<double>(view.state[track].theta()) / 2.)), majorityFound != truth.particles.end() ? static_cast<double>(majorityFound->second.eta) : -99., layerBits);
     if (goodOf[track] != study::kNoTrackParticle) {
       continue;
     }
@@ -889,8 +853,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
             continue;
           }
           const auto ownAt = frame.measurement(row);
-          const double transverse =
-            std::hypot(static_cast<double>(ownAt.x) - static_cast<double>(wrongAt.x), static_cast<double>(ownAt.y) - static_cast<double>(wrongAt.y));
+          const double transverse = std::hypot(static_cast<double>(ownAt.x) - static_cast<double>(wrongAt.x), static_cast<double>(ownAt.y) - static_cast<double>(wrongAt.y));
           const double dz = std::abs(static_cast<double>(ownAt.z) - static_cast<double>(wrongAt.z));
           if (std::hypot(transverse, dz) < nearestDistance) {
             nearestDistance = std::hypot(transverse, dz);
@@ -905,11 +868,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
           }
         }
       }
-      out << std::format("W {} {} {} {} {} {} {} {} {} {:.4f} {} {} {} {} {} {:.5g} {:.5g} {:.5g} {:.5g} {:.5g} {:.5g} {} {} {} {:.4g}\n", track, position,
-                         roadBegin, roadEnd, static_cast<int>(at.layer), part, at.count == 0U ? 1 : 0, particle, wrongOrigin, static_cast<double>(wrongPt),
-                         at.count != 0U && withGood.contains(particle) ? 1 : 0, onLayer[0], onLayer[1], onLayer[2], onLayer[3],
-                         std::sqrt(static_cast<double>(wrongAt.varRPhi)), std::sqrt(static_cast<double>(wrongAt.varZ)), nearest[0], nearest[1], nearest[2],
-                         nearest[3], pdgs[0], pdgs[1], pdgs[2], static_cast<double>(wrongRadius));
+      out << std::format("W {} {} {} {} {} {} {} {} {} {:.4f} {} {} {} {} {} {:.5g} {:.5g} {:.5g} {:.5g} {:.5g} {:.5g} {} {} {} {:.4g}\n", track, position, roadBegin, roadEnd, static_cast<int>(at.layer), part, at.count == 0U ? 1 : 0, particle, wrongOrigin, static_cast<double>(wrongPt), at.count != 0U && withGood.contains(particle) ? 1 : 0, onLayer[0], onLayer[1], onLayer[2], onLayer[3], std::sqrt(static_cast<double>(wrongAt.varRPhi)), std::sqrt(static_cast<double>(wrongAt.varZ)), nearest[0], nearest[1], nearest[2], nearest[3], pdgs[0], pdgs[1], pdgs[2], static_cast<double>(wrongRadius));
     }
   }
 }
@@ -921,8 +880,7 @@ void writeFakes(const std::string& path, const typename TrackRefit<Det>::Tracks&
 /// with two good tracks or more, an `R` line per row carrying it (row,
 /// layer, r, z, labels).
 template <DetectorLayout Det>
-void writeClones(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth,
-                 const study::ComparisonSettings& settings)
+void writeClones(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth, const study::ComparisonSettings& settings)
 {
   std::ofstream out(path);
   if (!out) {
@@ -949,8 +907,7 @@ void writeClones(const std::string& path, const typename TrackRefit<Det>::Tracks
     }
     const auto& good = goodTracks[id];
     const bool disc = (layers.layers & ~settings.barrelLayers) != 0U;
-    out << std::format("P {} {:.5g} {:.5g} {:.5g} {} {:.5g} {} {} {} {}\n", id, particle.pt, particle.eta, particle.phi, particle.pdg, particle.vz,
-                       layers.layers, layers.chain, disc ? 1 : 0, good.size());
+    out << std::format("P {} {:.5g} {:.5g} {:.5g} {} {:.5g} {} {} {} {}\n", id, particle.pt, particle.eta, particle.phi, particle.pdg, particle.vz, layers.layers, layers.chain, disc ? 1 : 0, good.size());
     for (const auto track : good) {
       out << "T " << static_cast<int>(iterations[track]);
       for (const auto row : rows[track]) {
@@ -993,17 +950,14 @@ void writeRowsOut(const std::string& path, const typename TrackRefit<Det>::Track
     const auto& at = truth.rows[row];
     const auto measurement = frame.measurement(row);
     const auto cluster = static_cast<std::uint64_t>(frame.measurements().clusterIndex[row]);
-    out << std::format("{} {:.4f} {:.4f} {:.4f} {}", static_cast<int>(at.layer), static_cast<double>(measurement.x), static_cast<double>(measurement.y),
-                       static_cast<double>(measurement.z), static_cast<int>(at.count));
+    out << std::format("{} {:.4f} {:.4f} {:.4f} {}", static_cast<int>(at.layer), static_cast<double>(measurement.x), static_cast<double>(measurement.y), static_cast<double>(measurement.z), static_cast<int>(at.count));
     const auto found = at.count == 0U ? truth.particles.end() : truth.particles.find(at.particles[0]);
     if (found == truth.particles.end()) {
       out << std::format(" 3 0 0 0 0 0 0 0 {} {}\n", held[row] ? 1 : 0, cluster);
       continue;
     }
     const auto& particle = found->second;
-    out << std::format(" {} {:.4f} {:.4f} {} {:.4g} {:.4g} {:.4g} {} {} {}\n", static_cast<int>(particle.origin), static_cast<double>(particle.pt),
-                       static_cast<double>(particle.eta), particle.pdg, static_cast<double>(particle.vx), static_cast<double>(particle.vy),
-                       static_cast<double>(particle.vz), withGood.contains(at.particles[0]) ? 1 : 0, held[row] ? 1 : 0, cluster);
+    out << std::format(" {} {:.4f} {:.4f} {} {:.4g} {:.4g} {:.4g} {} {} {}\n", static_cast<int>(particle.origin), static_cast<double>(particle.pt), static_cast<double>(particle.eta), particle.pdg, static_cast<double>(particle.vx), static_cast<double>(particle.vy), static_cast<double>(particle.vz), withGood.contains(at.particles[0]) ? 1 : 0, held[row] ? 1 : 0, cluster);
   }
 }
 
@@ -1019,9 +973,7 @@ void writeRowsOut(const std::string& path, const typename TrackRefit<Det>::Track
 /// gate) into \a path; every row a track holds at the end is counted, free
 /// or not.
 template <DetectorLayout Det, typename Material, typename ParametersOf>
-void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth,
-                     const study::ComparisonSettings& settings, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material,
-                     const Propagator& propagator, ParametersOf parametersOf)
+void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth, const study::ComparisonSettings& settings, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, ParametersOf parametersOf)
 {
   std::ofstream out(path);
   if (!out) {
@@ -1075,8 +1027,7 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
         continue;
       }
       std::ranges::sort(next, [&](std::uint32_t a, std::uint32_t b) { return distance(a) < distance(b); });
-      out << std::format("J {} {:.5g} {:.5g} {} {} {} {} {}\n", id, particle.pt, particle.eta, static_cast<int>(view.iteration[inner]),
-                         static_cast<int>(view.iteration[outer]), rows[inner].size(), rows[outer].size(), distance(next.front()) > outermost(inner) ? 1 : 0);
+      out << std::format("J {} {:.5g} {:.5g} {} {} {} {} {}\n", id, particle.pt, particle.eta, static_cast<int>(view.iteration[inner]), static_cast<int>(view.iteration[outer]), rows[inner].size(), rows[outer].size(), distance(next.front()) > outermost(inner) ? 1 : 0);
       const auto& parameters = parametersOf(view.iteration[inner]);
       BoundTrackState state = view.outwardState[inner];
       CovarianceFactors factors = factorCovariance(state.cov);
@@ -1091,15 +1042,16 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
         Scalar phiCentre = 0.F;
         Scalar secondCentre = 0.F;
         follow::windowCentre(parameters, target, prediction, phiCentre, secondCentre);
-        CandidateWindow window{.earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(widest[target]) + 1,
-                               .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
-                               .afterPS = box.lower(),
-                               .phiCentre = phiCentre,
-                               .phiHalfWidth = std::numbers::pi_v<Scalar>,
-                               .secondCentre = secondCentre,
-                               .secondHalfWidth = 1.e4F};
-        follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window,
-                                       1.F);
+        CandidateWindow window{
+          .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(widest[target]) + 1,
+          .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
+          .afterPS = box.lower(),
+          .phiCentre = phiCentre,
+          .phiHalfWidth = std::numbers::pi_v<Scalar>,
+          .secondCentre = secondCentre,
+          .secondHalfWidth = 1.e4F,
+        };
+        follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window, 1.F);
         bool inWindow = false;
         std::uint32_t wrongPassing = 0U;
         Scalar wrongBest = std::numeric_limits<Scalar>::infinity();
@@ -1115,9 +1067,7 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
           BoundTrackState updated;
           CovarianceFactors updatedFactors;
           Scalar chi2 = 0.F;
-          if (follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors,
-                                             updated, updatedFactors, chi2, 1.F) &&
-              chi2 <= parameters.clusterChi2Max) {
+          if (follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F) && chi2 <= parameters.clusterChi2Max) {
             ++wrongPassing;
             wrongBest = std::min(wrongBest, chi2);
           }
@@ -1125,13 +1075,11 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
         BoundTrackState updated;
         CovarianceFactors updatedFactors;
         Scalar chi2 = 0.F;
-        if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated,
-                                            updatedFactors, chi2, 1.F)) {
+        if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F)) {
           out << std::format("S {} noupdate {} {}\n", static_cast<int>(target), inWindow ? 1 : 0, wrongPassing);
           break;
         }
-        out << std::format("S {} {:.4g} {} {} {:.4g} {:.4g}\n", static_cast<int>(target), chi2, inWindow ? 1 : 0, wrongPassing, wrongBest,
-                           parameters.clusterChi2Max);
+        out << std::format("S {} {:.4g} {} {} {:.4g} {:.4g}\n", static_cast<int>(target), chi2, inWindow ? 1 : 0, wrongPassing, wrongBest, parameters.clusterChi2Max);
         state = updated;
         factors = updatedFactors;
         box += timeBoxAt(measurements, row);
@@ -1245,8 +1193,7 @@ inline std::string describeVertexAgreement(const VertexerResult& device, const V
   return std::format(
     "vertexer, device against host: {} vertices against {}{}; of {} paired, {} bit for bit, {} with the same box and contributors, |dz| "
     "at most {:.2f} um; candidates {} against {}",
-    device.vertices.size(), host.vertices.size(), device.vertices.size() == host.vertices.size() ? "" : " (NOT the same count)", paired, identical, sameClaim,
-    maxDzUM, device.candidates, host.candidates);
+    device.vertices.size(), host.vertices.size(), device.vertices.size() == host.vertices.size() ? "" : " (NOT the same count)", paired, identical, sameClaim, maxDzUM, device.candidates, host.candidates);
 }
 
 /// --seeding-steps \a text's pT steps [GeV]: one or more, comma separated,
@@ -1285,10 +1232,7 @@ inline std::string describeVertexAgreement(const VertexerResult& device, const V
 /// the configured iterations after it. 0 when every pass completed, 2 when
 /// one failed (a pass over the pool's limit), which ends the study.
 template <DetectorLayout Det>
-int seedingStrategy(const Options& options, Controller<Det>& tracker, const TimeFrame<Det>& frame, const study::TrackingTruth& truth,
-                    const study::ComparisonSettings& comparison, std::span<const IterationSettings> settings, const workflow::BeamLine& beamLine,
-                    std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice, BoundedMemoryResource& pool, const TrackingGeometry<Det>& tracking,
-                    const o2::base::MatLayerCylSet& material, const Propagator& propagator)
+int seedingStrategy(const Options& options, Controller<Det>& tracker, const TimeFrame<Det>& frame, const study::TrackingTruth& truth, const study::ComparisonSettings& comparison, std::span<const IterationSettings> settings, const workflow::BeamLine& beamLine, std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice, BoundedMemoryResource& pool, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator)
 {
   using Clock = std::chrono::steady_clock;
   const auto& param = recoParam<Det>();
@@ -1313,8 +1257,7 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
   }
   std::optional<typename Controller<Det>::Checkpoint> resumeFrom;
   if (!options.resumeState.empty()) {
-    resumeFrom = readCheckpoint<typename Controller<Det>::Checkpoint>(options.resumeState, settings, checkpointFrame(frame),
-                                                                      checkpointConditions(beamLine, vertices, blocksPerSlice, param.sliceHaloPS));
+    resumeFrom = readCheckpoint<typename Controller<Det>::Checkpoint>(options.resumeState, settings, checkpointFrame(frame), checkpointConditions(beamLine, vertices, blocksPerSlice, param.sliceHaloPS));
   }
   const std::size_t first = resumeFrom ? resumeFrom->summaries.size() : 0U;
   std::ofstream json(options.seedingStrategy);
@@ -1327,9 +1270,7 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
     throw std::runtime_error("--seeding-strategy: the timeframe's used mask does not fit the pool");
   }
   study::SeedingStrategy<Det> study(truth, comparison, std::move(steps), !options.seedingNoRemoval, options.seedingFit, *population);
-  std::cout << std::format("seeding strategy: {} passes, {}, scoring the findable {}\n", settings.size() - first,
-                           options.seedingNoRemoval ? "each on the whole frame" : "each on the rows the earlier passes' seeded particles left",
-                           study::kPopulationNames[static_cast<std::size_t>(*population)]);
+  std::cout << std::format("seeding strategy: {} passes, {}, scoring the findable {}\n", settings.size() - first, options.seedingNoRemoval ? "each on the whole frame" : "each on the rows the earlier passes' seeded particles left", study::kPopulationNames[static_cast<std::size_t>(*population)]);
   if (resumeFrom) {
     tracker.restoreUsed(resumeFrom->used);
     study.startAfter(first, resumeFrom->tracks, resumeFrom->used, std::cout);
@@ -1371,16 +1312,16 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
     };
     // The road fit stage's tests on one road (`roadFitRefusal`).
     const auto& parameters = tracker.iteration(pass);
-    const typename study::SeedingStrategy<Det>::Refit refit = [&](std::span<const std::uint32_t> road) {
-      return roadFitRefusal(parameters, propagator, tracking, material, frame, road);
-    };
+    const typename study::SeedingStrategy<Det>::Refit refit = [&](std::span<const std::uint32_t> road) { return roadFitRefusal(parameters, propagator, tracking, material, frame, road); };
     const auto rows = study.endPass(settings[pass],
-                                    {.seconds = seconds,
-                                     .poolPeakBytes = pool.getPeakMemory(),
-                                     .counted = kWorkCounters,
-                                     .tripletFits = counted(WorkCounter::kTripletFits),
-                                     .neighbourFits = counted(WorkCounter::kNeighbourFits),
-                                     .fitSeconds = fitSeconds},
+                                    {
+                                      .seconds = seconds,
+                                      .poolPeakBytes = pool.getPeakMemory(),
+                                      .counted = kWorkCounters,
+                                      .tripletFits = counted(WorkCounter::kTripletFits),
+                                      .neighbourFits = counted(WorkCounter::kNeighbourFits),
+                                      .fitSeconds = fitSeconds,
+                                    },
                                     std::cout, &json, options.seedingFit ? refit : typename study::SeedingStrategy<Det>::Refit{});
     if (!json) {
       throw std::runtime_error("cannot write " + options.seedingStrategy);
@@ -1424,8 +1365,7 @@ struct IterationStudies {
   [[nodiscard]] bool active() const { return fakes || follow.has_value(); }
 
   template <typename Observation>
-  void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry,
-               const o2::base::MatLayerCylSet& material, const Propagator& propagator)
+  void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const o2::base::MatLayerCylSet& material, const Propagator& propagator)
   {
     if (follow) {
       follow->observe(iteration, parameters, frame, geometry, material, propagator);
@@ -1439,10 +1379,7 @@ struct IterationStudies {
 /// The last run's truth studies the options ask for: the fakes,
 /// the clones, the rows and the clone joins.
 template <DetectorLayout Det, typename Material, typename ParametersOf, typename StagesOf, typename RecordChi2>
-void writeTruthStudies(const Options& options, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth,
-                       const study::ComparisonSettings& comparison, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& tracking,
-                       const Material& material, const Propagator& propagator, const std::vector<std::array<std::uint8_t, 2>>& followed,
-                       ParametersOf parametersOf, StagesOf stagesOf, RecordChi2 recordChi2)
+void writeTruthStudies(const Options& options, const typename TrackRefit<Det>::Tracks& tracks, const study::TrackingTruth& truth, const study::ComparisonSettings& comparison, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& tracking, const Material& material, const Propagator& propagator, const std::vector<std::array<std::uint8_t, 2>>& followed, ParametersOf parametersOf, StagesOf stagesOf, RecordChi2 recordChi2)
 {
   if (!options.fakesOut.empty()) {
     writeFakes<Det>(options.fakesOut, tracks, truth, comparison, frame, followed, stagesOf, recordChi2);
@@ -1470,9 +1407,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   const auto start = std::chrono::steady_clock::now();
   auto input = study::readTrackingInput(options.input);
   const auto readSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-  std::cout << std::format("{} measurements, {} buckets, {} vertices read from {} in {:.3f} s\n", input.columns.clusterIndex.size(), input.offsets.size() - 1U,
-                           input.vertices.size(), options.input, readSeconds)
-            << std::format("the beam line the rows are about: {}\n", workflow::describe(input.beamLine));
+  std::cout << std::format("{} measurements, {} buckets, {} vertices read from {} in {:.3f} s\n", input.columns.clusterIndex.size(), input.offsets.size() - 1U, input.vertices.size(), options.input, readSeconds) << std::format("the beam line the rows are about: {}\n", workflow::describe(input.beamLine));
   if (options.beamWidthCM > 0.) {
     input.beamLine.sigmaX = input.beamLine.sigmaY = options.beamWidthCM;
     std::cout << std::format("the beam's transverse width taken as {} cm (--beam-width)\n", options.beamWidthCM);
@@ -1540,14 +1475,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   if (rebinned) {
     rebinSeconds = rebin<Det>(input, truth ? &*truth : nullptr, layers, geometry);
   }
-  std::cout << std::format("grid{}: {} blocks of {:.0f} ps; phi x second cells by layer:", rebinned ? std::format(", rebinned in {:.3f} s", rebinSeconds) : "",
-                           geometry.blockCount(), blockWidthPS(geometry));
+  std::cout << std::format("grid{}: {} blocks of {:.0f} ps; phi x second cells by layer:", rebinned ? std::format(", rebinned in {:.3f} s", rebinSeconds) : "", geometry.blockCount(), blockWidthPS(geometry));
   for (std::size_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
     const auto& axes = geometry.axes(static_cast<LayerID>(layer));
     std::cout << std::format(" {}x{}", axes.nPhi, axes.nSecond);
   }
-  std::cout << std::format("; {} buckets, offsets {:.1f} MB\n", geometry.bucketCount(),
-                           static_cast<double>(input.offsets.size() * sizeof(std::uint32_t)) / 1.e6);
+  std::cout << std::format("; {} buckets, offsets {:.1f} MB\n", geometry.bucketCount(), static_cast<double>(input.offsets.size() * sizeof(std::uint32_t)) / 1.e6);
   const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}};
   if (const auto* why = interface.checkInput(input.columns, input.offsets, geometry.bucketCount(), input.vertices)) {
     throw std::runtime_error(why);
@@ -1559,9 +1492,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     phiCells += std::format("{}{}", layer == 0U ? "" : ",", axes.nPhi);
     secondCells += std::format("{}{}", layer == 0U ? "" : ",", axes.nSecond);
   }
-  const auto gridJson = std::format(
-    R"("grid":{{"blocks":{},"blockWidthPS":{:.3f},"phi":[{}],"second":[{}],"buckets":{},"offsetBytes":{},"rebinSeconds":{:.6f}}},)", geometry.blockCount(),
-    blockWidthPS(geometry), phiCells, secondCells, geometry.bucketCount(), input.offsets.size() * sizeof(std::uint32_t), rebinSeconds);
+  const auto gridJson = std::format(R"("grid":{{"blocks":{},"blockWidthPS":{:.3f},"phi":[{}],"second":[{}],"buckets":{},"offsetBytes":{},"rebinSeconds":{:.6f}}},)", geometry.blockCount(), blockWidthPS(geometry), phiCells, secondCells, geometry.bucketCount(), input.offsets.size() * sizeof(std::uint32_t), rebinSeconds);
   auto comparison = study::comparisonSettings<Det>(4, options.findableMinPtGeV);
   comparison.allLayersMask = options.findableAllLayers;
   if (!options.seedCoverage.empty()) {
@@ -1648,8 +1579,10 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       roadLayers.push_back(iteration.layerMask);
     }
     completeAnatomy.emplace(*truth, options.findableAllLayers, options.findableMinPtGeV, std::move(roadLayers),
-                            typename study::CompleteAnatomy<Det>::ClassCuts{.pdg = options.anatomyPdg,
-                                                                            .findable = options.anatomyFindable ? &comparison : nullptr});
+                            typename study::CompleteAnatomy<Det>::ClassCuts{
+                              .pdg = options.anatomyPdg,
+                              .findable = options.anatomyFindable ? &comparison : nullptr,
+                            });
     std::vector<double> floors;
     floors.reserve(settings.size());
     for (const auto& iteration : settings) {
@@ -1728,8 +1661,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         const auto& summary = *iteration.summary;
         seedingReal->observeReal(iteration.tracks->view(), iteration.trackOffset, iteration.tracks->size(), iteration.used, summary.roads);
         double seconds = 0.;
-        for (const auto phase :
-             {profile::Phase::kSlices, profile::Phase::kRoads, profile::Phase::kSelection, profile::Phase::kRefit, profile::Phase::kFollow}) {
+        for (const auto phase : {profile::Phase::kSlices, profile::Phase::kRoads, profile::Phase::kSelection, profile::Phase::kRefit, profile::Phase::kFollow}) {
           seconds += summary.seconds(phase);
         }
         static_cast<void>(seedingReal->endPass(settings[iteration.iteration], {.seconds = seconds}, std::cout, &seedingRealJson));
@@ -1761,8 +1693,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   const int threads = detail::TaskArena{std::max(param.threads, 0)}.maxConcurrency();
   const auto label = workflow::sourceLabel(settings);
-  std::cout << std::format("{}, {} iterations, {} arena threads, chunks of {}{}\n", label, workflow::iterationCount(param), threads, chunkSize,
-                           kWorkCounters ? "; work counters on: the times are not the default build's" : "");
+  std::cout << std::format("{}, {} iterations, {} arena threads, chunks of {}{}\n", label, workflow::iterationCount(param), threads, chunkSize, kWorkCounters ? "; work counters on: the times are not the default build's" : "");
 
   std::ofstream json;
   if (!options.json.empty()) {
@@ -1776,8 +1707,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   // outside the time.
   // The score of \a rows over \a particles (every particle of the truth by
   // default), printed under \a label.
-  const auto scoreAndPrint = [&](const study::TrackRows& rows, const study::ParticleTable* particles = nullptr,
-                                 std::string_view label = "GTRK") -> std::optional<std::pair<study::TrackScore, double>> {
+  const auto scoreAndPrint = [&](const study::TrackRows& rows, const study::ParticleTable* particles = nullptr, std::string_view label = "GTRK") -> std::optional<std::pair<study::TrackScore, double>> {
     if (!truth) {
       return std::nullopt;
     }
@@ -1803,9 +1733,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     std::cout << std::format("--score-sources: {} of {} particles\n", sourceParticles->size(), truth->particles.size());
   }
-  const auto scoreSources = [&](const study::TrackRows& rows) -> std::optional<std::pair<study::TrackScore, double>> {
-    return sourceParticles ? scoreAndPrint(rows, &*sourceParticles, "GTRK, the --score-sources particles") : std::nullopt;
-  };
+  const auto scoreSources = [&](const study::TrackRows& rows) -> std::optional<std::pair<study::TrackScore, double>> { return sourceParticles ? scoreAndPrint(rows, &*sourceParticles, "GTRK, the --score-sources particles") : std::nullopt; };
 
   std::vector<double> walls;
   std::vector<std::uint64_t> digests;
@@ -1815,8 +1743,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!truth) {
       throw std::runtime_error("--seeding-strategy needs the MC truth");
     }
-    return seedingStrategy<Det>(options, tracker, frame, *truth, comparison, settings, input.beamLine, input.vertices, blocksPerSlice, *pool, tracking,
-                                *material, propagator);
+    return seedingStrategy<Det>(options, tracker, frame, *truth, comparison, settings, input.beamLine, input.vertices, blocksPerSlice, *pool, tracking, *material, propagator);
   }
   const bool deviceVertexing = vertexing && device;
   bool referenceSame = true;
@@ -1828,12 +1755,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   if (!options.saveState.empty() && (options.stateIterations == 0U || options.stateIterations > settings.size() || !options.resumeState.empty())) {
     throw std::runtime_error("--save-state needs --state-iterations between 1 and the configuration's iterations, and no --resume-state");
   }
-  const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) {
-    return checkpointConditions(input.beamLine, vertices, blocksPerSlice, param.sliceHaloPS);
-  };
+  const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) { return checkpointConditions(input.beamLine, vertices, blocksPerSlice, param.sliceHaloPS); };
   std::optional<typename Controller::Checkpoint> resumeFrom;
-  if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal ||
-                                       options.digestStages || !options.fitInputs.empty() || options.vertexStudy >= 0 || options.verticesOnly)) {
+  if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal || options.digestStages || !options.fitInputs.empty() || options.vertexStudy >= 0 || options.verticesOnly)) {
     throw std::runtime_error("--resume-state runs the host tracker without observers");
   }
   // Clusters taken before the run, by their cluster
@@ -1881,14 +1805,15 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     vertexStudy.reset();
     if (options.vertexStudy >= 0 && last) {
       const auto iteration = static_cast<std::size_t>(options.vertexStudy);
-      vertexStudy.emplace(frame, truth->rows, truth->particles, iteration, settings[iteration].windows.minPtGeV, comparison,
-                          workflow::vertexerSettings(param),
-                          typename study::VertexStudy<Det, Controller>::Settings{.windowUM = param.vertexerWindowUM,
-                                                                                 .claimUM = param.vertexerClaimUM,
-                                                                                 .minContributors = static_cast<std::uint32_t>(param.vertexerMinContributors),
-                                                                                 .significance = param.vertexerSignificance,
-                                                                                 .maxChi2RZ = param.vertexerMaxChi2RZ,
-                                                                                 .maxDcaUM = param.vertexerMaxDcaCM * 1.e4},
+      vertexStudy.emplace(frame, truth->rows, truth->particles, iteration, settings[iteration].windows.minPtGeV, comparison, workflow::vertexerSettings(param),
+                          typename study::VertexStudy<Det, Controller>::Settings{
+                            .windowUM = param.vertexerWindowUM,
+                            .claimUM = param.vertexerClaimUM,
+                            .minContributors = static_cast<std::uint32_t>(param.vertexerMinContributors),
+                            .significance = param.vertexerSignificance,
+                            .maxChi2RZ = param.vertexerMaxChi2RZ,
+                            .maxDcaUM = param.vertexerMaxDcaCM * 1.e4,
+                          },
                           threads);
       vertexStudy->setBeamLine(input.beamLine.x, input.beamLine.y);
       if (!options.vertexPrior.empty()) {
@@ -1922,8 +1847,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     const double vertexSeconds = !device ? vertexed.seconds : 0.;
     if (vertexing && !device) {
       const auto& found = *vertexed.found;
-      std::cout << std::format("vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s, pool peak {:.1f} MB\n", found.vertices.size(),
-                               found.candidates, found.triplets, vertexSeconds, static_cast<double>(vertexerPoolPeak) / 1.e6);
+      std::cout << std::format("vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s, pool peak {:.1f} MB\n", found.vertices.size(), found.candidates, found.triplets, vertexSeconds, static_cast<double>(vertexerPoolPeak) / 1.e6);
       std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(found.vertices, found.contributors));
     }
     if (options.verticesOnly) {
@@ -1936,20 +1860,18 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       std::optional<VertexScore> score;
       if (repetition == 0U) {
         score = scoreVertices<Det>(truth->rows, truth->particles, vertexed.pass->claims, found);
-        std::cout << describe(*score) << '\n' << describeMissed(*score) << '\n';
+        std::cout << describe(*score) << '\n'
+                  << describeMissed(*score) << '\n';
         for (const auto& miss : score->missed) {
           if (miss.findable > 0U) {
-            std::cout << std::format("  missed: z {:+.3f} cm, {} findable, {} triplets: {} none, {} free, {} another's\n", miss.z, miss.findable, miss.triplets,
-                                     miss.cut, miss.free, miss.other);
+            std::cout << std::format("  missed: z {:+.3f} cm, {} findable, {} triplets: {} none, {} free, {} another's\n", miss.z, miss.findable, miss.triplets, miss.cut, miss.free, miss.other);
           }
         }
       }
       if (json.is_open()) {
-        json << std::format(R"({{"input":"{}","run":{},"threads":{},"planSeconds":0,"runSeconds":{:.9f},"maxRssBytes":{},"digest":"{:016x}","vertices":{})",
-                            options.input, repetition, threads, vertexSeconds, maxRssBytes(), vertexListDigest, found.vertices.size());
+        json << std::format(R"({{"input":"{}","run":{},"threads":{},"planSeconds":0,"runSeconds":{:.9f},"maxRssBytes":{},"digest":"{:016x}","vertices":{})", options.input, repetition, threads, vertexSeconds, maxRssBytes(), vertexListDigest, found.vertices.size());
         if (score) {
-          json << std::format(R"(,"score":{{"vertices":{{"vertices":{},"collisions":{},"found":{},"findable":{},"covered":{},"fakes":{},"splits":{},"merged":{}}}}})",
-                              score->vertices, score->collisions, score->found, score->findable, score->covered, score->fakes, score->splits, score->merged);
+          json << std::format(R"(,"score":{{"vertices":{{"vertices":{},"collisions":{},"found":{},"findable":{},"covered":{},"fakes":{},"splits":{},"merged":{}}}}})", score->vertices, score->collisions, score->found, score->findable, score->covered, score->fakes, score->splits, score->merged);
         }
         json << "}\n";
         json.flush();
@@ -1977,8 +1899,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       const double deviceSeconds = vertexed.seconds + run.seconds - planSeconds;
       const double deviceVertexSeconds = deviceRun.vertexSeconds + run.planSeconds + deviceRun.planUploadSeconds;
       if (deviceVertexing) {
-        std::cout << std::format("vertexer on {}: {} vertices from {} candidates of {} triplets in {:.4f} s, the plan with them uploaded\n", options.backend,
-                                 vertexed.found->vertices.size(), vertexed.found->candidates, vertexed.found->triplets, deviceVertexSeconds);
+        std::cout << std::format("vertexer on {}: {} vertices from {} candidates of {} triplets in {:.4f} s, the plan with them uploaded\n", options.backend, vertexed.found->vertices.size(), vertexed.found->candidates, vertexed.found->triplets, deviceVertexSeconds);
         std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(vertexed.found->vertices, vertexed.found->contributors));
         if (last) {
           // The host's list on the same frame, against the device's.
@@ -1999,21 +1920,16 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       if (!options.tracksOut.empty() && last) {
         writeTracks<Det>(options.tracksOut, deviceTracks, frame);
       }
-      std::cout << std::format("\n=== run {}{}: tracks, {}, {}: {} in {:.4f} s (plan {:.4f} s, upload {:.4f} s, iterations", repetition,
-                               repetition == 0U ? " (cold)" : "", label, options.backend, deviceTracks.size(), planSeconds + deviceSeconds, planSeconds,
-                               deviceRun.uploadSeconds);
+      std::cout << std::format("\n=== run {}{}: tracks, {}, {}: {} in {:.4f} s (plan {:.4f} s, upload {:.4f} s, iterations", repetition, repetition == 0U ? " (cold)" : "", label, options.backend, deviceTracks.size(), planSeconds + deviceSeconds, planSeconds, deviceRun.uploadSeconds);
       for (const double seconds : deviceRun.iterationSeconds) {
         std::cout << std::format(" {:.4f}", seconds);
       }
-      std::cout << std::format(" s, download {:.4f} s); arena peak {:.1f} MB\n", deviceRun.downloadSeconds,
-                               static_cast<double>(interface.deviceArenaPeakBytes()) / 1.e6);
+      std::cout << std::format(" s, download {:.4f} s); arena peak {:.1f} MB\n", deviceRun.downloadSeconds, static_cast<double>(interface.deviceArenaPeakBytes()) / 1.e6);
       std::cout << std::format("digest, tracks: {:016x}\n", deviceDigest);
       std::cout << std::format("digest, tracks in clusters: {:016x}\n", deviceClusterDigest);
       for (std::size_t iteration = 0; iteration < deviceRun.iterations.size(); ++iteration) {
         const auto& report = deviceRun.iterations[iteration];
-        std::cout << std::format(
-          "  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} readbacks; arena peak {:.1f} MB\n", iteration,
-          report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
+        std::cout << std::format("  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} readbacks; arena peak {:.1f} MB\n", iteration, report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
       const auto deviceRows = trackRows(deviceTracks);
       const auto score = scoreAndPrint(deviceRows);
@@ -2022,17 +1938,13 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         json << std::format(R"({{"input":"{}",{}"run":{},"backend":"{}","device":"{}","planSeconds":{:.9f},"runSeconds":{:.9f},"uploadSeconds":{:.9f},)"
                             R"("downloadSeconds":{:.9f},"arenaPeakBytes":{},"maxRssBytes":{},"digest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)"
                             R"("iterations":[)",
-                            options.input, gridJson, repetition, options.backend, interface.deviceProperties().name, planSeconds, deviceSeconds,
-                            deviceRun.uploadSeconds, deviceRun.downloadSeconds, interface.deviceArenaPeakBytes(), maxRssBytes(), deviceDigest,
-                            deviceClusterDigest, deviceTracks.size());
+                            options.input, gridJson, repetition, options.backend, interface.deviceProperties().name, planSeconds, deviceSeconds, deviceRun.uploadSeconds, deviceRun.downloadSeconds, interface.deviceArenaPeakBytes(), maxRssBytes(), deviceDigest, deviceClusterDigest, deviceTracks.size());
         for (std::size_t iteration = 0; iteration < deviceRun.iterations.size(); ++iteration) {
           const auto& report = deviceRun.iterations[iteration];
           json << (iteration == 0U ? "" : ",")
                << std::format(R"({{"seconds":{:.9f},"records":{},"rounds":{},"tracks":{},)"
                               R"("arenaPeakBytes":{},"roads":{},"slices":[)",
-                              deviceRun.iterationSeconds[iteration], report.records, report.rounds, report.tracks, report.arenaPeakBytes,
-                              std::accumulate(deviceRun.slices[iteration].begin(), deviceRun.slices[iteration].end(), std::uint64_t{0U},
-                                              [](auto total, const auto& slice) { return total + slice.roads; }));
+                              deviceRun.iterationSeconds[iteration], report.records, report.rounds, report.tracks, report.arenaPeakBytes, std::accumulate(deviceRun.slices[iteration].begin(), deviceRun.slices[iteration].end(), std::uint64_t{0U}, [](auto total, const auto& slice) { return total + slice.roads; }));
           for (std::size_t index = 0U; index < deviceRun.slices[iteration].size(); ++index) {
             const auto& slice = deviceRun.slices[iteration][index];
             json << (index == 0U ? "" : ",")
@@ -2041,10 +1953,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
                                 R"("candidatePairs":{},"candidateSources":{},"candidateMax":{},"candidateChunks":{},)"
                                 R"("freeBytesAtTracklets":{},"tripletCandidates":{},"tripletCandidateMax":{},"tripletChunks":{},)"
                                 R"("freeBytesAtTriplets":{}}})",
-                                slice.tracklets, slice.permutation, slice.triplets, slice.neighbours, slice.roads, slice.records,
-                                slice.chained, slice.readbacks, slice.trackletRun.candidates, slice.trackletSources,
-                                slice.trackletRun.largest, slice.trackletRun.chunks, slice.trackletRun.freeBytes, slice.tripletRun.candidates,
-                                slice.tripletRun.largest, slice.tripletRun.chunks, slice.tripletRun.freeBytes);
+                                slice.tracklets, slice.permutation, slice.triplets, slice.neighbours, slice.roads, slice.records, slice.chained, slice.readbacks, slice.trackletRun.candidates, slice.trackletSources, slice.trackletRun.largest, slice.trackletRun.chunks, slice.trackletRun.freeBytes, slice.tripletRun.candidates, slice.tripletRun.largest, slice.tripletRun.chunks, slice.tripletRun.freeBytes);
           }
           json << "]}";
         }
@@ -2067,11 +1976,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         }
         Digest hostDigest;
         hostDigest.columns(result.tracks->view(), result.tracks->size());
-        const auto compared = compareColumns<TrackOf<maxChainLayers<Det>>::template RecordT>(result.tracks->view(), result.tracks->size(),
-                                                                                             std::as_const(deviceTracks).view(), deviceTracks.size());
+        const auto compared = compareColumns<TrackOf<maxChainLayers<Det>>::template RecordT>(result.tracks->view(), result.tracks->size(), std::as_const(deviceTracks).view(), deviceTracks.size());
         referenceSame = compared.sameElements && compared.recordsDiffering == 0U;
-        std::cout << std::format("\nhost reference: {} tracks, digest, tracks: {:016x}; device {} tracks: ", result.tracks->size(), hostDigest.result(),
-                                 deviceTracks.size());
+        std::cout << std::format("\nhost reference: {} tracks, digest, tracks: {:016x}; device {} tracks: ", result.tracks->size(), hostDigest.result(), deviceTracks.size());
         if (!compared.sameElements) {
           std::cout << "the track counts differ\n";
         } else if (referenceSame) {
@@ -2117,14 +2024,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     walls.push_back(planSeconds + runSeconds);
     digests.push_back(digest);
 
-    std::cout << std::format("\n=== run {}{}: tracks, {}: {} in {:.3f} s (plan {:.3f} s, run {:.3f} s); pool peak {:.1f} MB\n", repetition,
-                             repetition == 0U ? " (cold)" : "", label, result.tracks->size(), planSeconds + runSeconds, planSeconds, runSeconds,
-                             static_cast<double>(result.profile[profile::Phase::kRun].peakBytes) / 1.e6);
+    std::cout << std::format("\n=== run {}{}: tracks, {}: {} in {:.3f} s (plan {:.3f} s, run {:.3f} s); pool peak {:.1f} MB\n", repetition, repetition == 0U ? " (cold)" : "", label, result.tracks->size(), planSeconds + runSeconds, planSeconds, runSeconds, static_cast<double>(result.profile[profile::Phase::kRun].peakBytes) / 1.e6);
     std::cout << std::format("digest, {}: {:016x}\n", label, digest);
     // The stages' largest outputs of any slice:
     // what the pool's peak is made of.
-    std::cout << std::format("largest slice: {} tracklets, {} triplets, {} neighbours; staging {} records\n", tracker.trackletHighWater(),
-                             tracker.tripletHighWater(), tracker.neighbourHighWater(), tracker.stagingHighWater());
+    std::cout << std::format("largest slice: {} tracklets, {} triplets, {} neighbours; staging {} records\n", tracker.trackletHighWater(), tracker.tripletHighWater(), tracker.neighbourHighWater(), tracker.stagingHighWater());
     // The tracks alone: the digest also counts the selection records' bytes,
     // which a record's layout changes without changing a track.
     std::cout << std::format("digest, tracks: {:016x}\n", tracksDigest(*result.tracks));
@@ -2139,11 +2043,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       writeTracks<Det>(options.tracksOut, *result.tracks, frame);
     }
     if (truth && last) {
-      writeTruthStudies<Det>(
-        options, *result.tracks, *truth, comparison, frame, tracking, *material, propagator, studies.followed,
-        [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); },
-        [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; },
-        [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });
+      writeTruthStudies<Det>(options, *result.tracks, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });
     }
     for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
       for (const auto& line : study::describeIteration(result.iterations[iteration], iteration)) {
@@ -2165,8 +2065,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       if (!population) {
         throw std::runtime_error("--breakdown-population " + options.breakdownPopulation + ": primary, decay or v0");
       }
-      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison, *population,
-                                            std::span<const std::uint8_t>{view.iteration, result.tracks->size()});
+      const study::TrackBreakdown breakdown(truth->rows, truth->particles, hostRows, comparison, *population, std::span<const std::uint8_t>{view.iteration, result.tracks->size()});
       if (!options.breakdown.empty()) {
         breakdown.write(options.breakdown);
       }
@@ -2224,8 +2123,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       if (!options.vertexReplay.empty()) {
         vertexStudy->writeReplay(options.vertexReplay);
-        std::cout << std::format("the replay's lists written to {}-{{vertices,collisions,dropped}}.csv and {}-owned.txt\n", options.vertexReplay,
-                                 options.vertexReplay);
+        std::cout << std::format("the replay's lists written to {}-{{vertices,collisions,dropped}}.csv and {}-owned.txt\n", options.vertexReplay, options.vertexReplay);
       }
       std::cout << std::format("peak RSS {:.2f} GB\n", static_cast<double>(maxRssBytes()) / 1.e9);
     }
@@ -2239,20 +2137,16 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
     }
     if (json.is_open()) {
-      json << std::format(
-        R"({{"input":"{}",{}"run":{},"threads":{},"chunkSize":{},"planSeconds":{:.9f},"runSeconds":{:.9f},"maxRssBytes":{},"poolPeakBytes":{},"vertexerPoolPeakBytes":{},)"
-        R"("digest":"{:016x}","clusterDigest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)",
-        options.input, gridJson, repetition, threads, chunkSize, planSeconds, runSeconds, maxRssBytes(), result.profile[profile::Phase::kRun].peakBytes, vertexerPoolPeak, digest,
-        clusterDigest(result, frame, tracker.used()), tracksClusterDigest<Det>(*result.tracks, frame), result.tracks->size());
+      json << std::format(R"({{"input":"{}",{}"run":{},"threads":{},"chunkSize":{},"planSeconds":{:.9f},"runSeconds":{:.9f},"maxRssBytes":{},"poolPeakBytes":{},"vertexerPoolPeakBytes":{},)"
+                          R"("digest":"{:016x}","clusterDigest":"{:016x}","tracksClusterDigest":"{:016x}","tracks":{},)",
+                          options.input, gridJson, repetition, threads, chunkSize, planSeconds, runSeconds, maxRssBytes(), result.profile[profile::Phase::kRun].peakBytes, vertexerPoolPeak, digest, clusterDigest(result, frame, tracker.used()), tracksClusterDigest<Det>(*result.tracks, frame), result.tracks->size());
       json << R"("iterations":[)";
       for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
         const auto& summary = result.iterations[iteration];
         json << (iteration == 0U ? "" : ",")
              << std::format(R"({{"roads":{},"records":{},"rounds":{},"tracks":{},"followed":{},"followedOutward":{},"followedInward":{},"dropped":{},)"
                             R"("followedEarlier":{},"followedEarlierOutward":{},"followedEarlierInward":{},)",
-                            summary.roads, summary.records, summary.rounds, summary.tracks, summary.tracksFollowed, summary.clustersFollowedOutward,
-                            summary.clustersFollowedInward, summary.tracksDropped, summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward,
-                            summary.clustersFollowedEarlierInward);
+                            summary.roads, summary.records, summary.rounds, summary.tracks, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward, summary.tracksDropped, summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward);
         // The counters build's work counts, in WorkCounter's order.
         if (iteration < work.size()) {
           json << R"("work":)" << jsonArray(work[iteration]) << ',';
@@ -2285,8 +2179,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   if (!options.fitInputs.empty()) {
     study::writeFitInputs(options.fitInputs, fitInputs);
-    std::cout << std::format("fit inputs of {} triplets and {} neighbours written to {}\n", fitInputs.triplets.size(), fitInputs.neighbours.size(),
-                             options.fitInputs);
+    std::cout << std::format("fit inputs of {} triplets and {} neighbours written to {}\n", fitInputs.triplets.size(), fitInputs.neighbours.size(), options.fitInputs);
   }
 
   if (seedingReal && !options.seedingParticles.empty()) {
@@ -2300,9 +2193,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   const bool same = std::ranges::all_of(digests, [&](std::uint64_t digest) { return digest == digests.front(); });
   std::vector<double> warm{walls.begin() + (walls.size() > 1U ? 1 : 0), walls.end()};
   std::ranges::sort(warm);
-  std::cout << std::format("\n{} runs {}: cold {:.4f} s; warm min {:.4f} s, median {:.4f} s, max {:.4f} s; digests {}\n", walls.size(),
-                           device ? std::format("on {}", options.backend) : std::format("at {} threads", threads), walls.front(), warm.front(),
-                           warm[warm.size() / 2U], warm.back(), same ? "all equal" : "DIFFER");
+  std::cout << std::format("\n{} runs {}: cold {:.4f} s; warm min {:.4f} s, median {:.4f} s, max {:.4f} s; digests {}\n", walls.size(), device ? std::format("on {}", options.backend) : std::format("at {} threads", threads), walls.front(), warm.front(), warm[warm.size() / 2U], warm.back(), same ? "all equal" : "DIFFER");
   return same && referenceSame ? 0 : 2;
 }
 

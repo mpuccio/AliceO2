@@ -110,8 +110,7 @@ std::unique_ptr<Tracker<Det, UniformMaterial>> makeTracker(std::vector<Iteration
   }
   const std::array<double, kLayers> material{};
   static const UniformMaterial none{};
-  auto tracker = std::make_unique<Tracker<Det, UniformMaterial>>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(material),
-                                                                 std::make_shared<BoundedMemoryResource>(), 2U, threads);
+  auto tracker = std::make_unique<Tracker<Det, UniformMaterial>>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, threads);
   tracker->setTrackModel(trackingGeometry(), none, Propagator{});
   return tracker;
 }
@@ -122,9 +121,11 @@ std::vector<Found> found(const Tracker<Det, UniformMaterial>::TimeframeResult& r
   tracks.reserve(result.tracks->size());
   const auto view = result.tracks->view();
   for (std::size_t i = 0; i < result.tracks->size(); ++i) {
-    tracks.push_back({.iteration = view.iteration[i],
-                      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
-                      .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i])});
+    tracks.push_back({
+      .iteration = view.iteration[i],
+      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
+      .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i]),
+    });
   }
   return tracks;
 }
@@ -257,32 +258,30 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
   const auto unobserved = track(fixture, kWidth, 1);
 
   const std::array<double, kLayers> material{};
-  Tracker<Det, UniformMaterial> tracker{
-    iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::size_t> slicesPerIteration(2U, 0U);
   std::vector<std::size_t> exclusivePerIteration(2U, 0U);
   std::vector<std::size_t> recordsPerIteration(2U, 0U);
   std::int32_t nextBlock = 0;
-  tracker.setSliceObserver(
-    [&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::SliceObservation& slice) {
-      BOOST_TEST(&observed == &tracker);
-      BOOST_REQUIRE(slice.iteration < 2U);
-      BOOST_TEST(slice.frame == fixture.frame.get());
-      BOOST_TEST((slice.result->status == StageStatus::kComplete));
-      BOOST_TEST(slice.result->tracklets != nullptr);
-      // After the roads: the slice's road counts and records are there.
-      BOOST_REQUIRE(slice.roads != nullptr);
-      BOOST_REQUIRE(slice.records != nullptr);
-      BOOST_TEST(slice.roads->roads().size() == slice.result->triplets->size());
-      BOOST_TEST(slice.records->elementCount() == slice.roads->roadCount());
-      recordsPerIteration[slice.iteration] += slice.records->size();
-      BOOST_TEST(slice.slice->coreBlocks.begin == nextBlock);
-      nextBlock = slice.slice->coreBlocks.end == fixture.geometry.blockCount() ? 0 : slice.slice->coreBlocks.end;
-      ++slicesPerIteration[slice.iteration];
-      exclusivePerIteration[slice.iteration] = static_cast<std::size_t>(std::ranges::count(observed.used(), std::uint8_t{kExclusive}));
-    });
+  tracker.setSliceObserver([&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::SliceObservation& slice) {
+    BOOST_TEST(&observed == &tracker);
+    BOOST_REQUIRE(slice.iteration < 2U);
+    BOOST_TEST(slice.frame == fixture.frame.get());
+    BOOST_TEST((slice.result->status == StageStatus::kComplete));
+    BOOST_TEST(slice.result->tracklets != nullptr);
+    // After the roads: the slice's road counts and records are there.
+    BOOST_REQUIRE(slice.roads != nullptr);
+    BOOST_REQUIRE(slice.records != nullptr);
+    BOOST_TEST(slice.roads->roads().size() == slice.result->triplets->size());
+    BOOST_TEST(slice.records->elementCount() == slice.roads->roadCount());
+    recordsPerIteration[slice.iteration] += slice.records->size();
+    BOOST_TEST(slice.slice->coreBlocks.begin == nextBlock);
+    nextBlock = slice.slice->coreBlocks.end == fixture.geometry.blockCount() ? 0 : slice.slice->coreBlocks.end;
+    ++slicesPerIteration[slice.iteration];
+    exclusivePerIteration[slice.iteration] = static_cast<std::size_t>(std::ranges::count(observed.used(), std::uint8_t{kExclusive}));
+  });
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, kWidth, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   const auto slices = static_cast<std::size_t>((fixture.geometry.blockCount() + kWidth - 1) / kWidth);
@@ -303,8 +302,7 @@ BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
 {
   const Fixture fixture{hits(), kDurationNS};
   const std::array<double, kLayers> material{};
-  Tracker<Det, UniformMaterial> tracker{
-    iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::uint32_t> firstCluster;
@@ -314,24 +312,23 @@ BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
     }
   });
   std::vector<std::size_t> seen;
-  tracker.setIterationObserver(
-    [&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
-      seen.push_back(iteration.iteration);
-      BOOST_REQUIRE(iteration.selection != nullptr && iteration.summary != nullptr);
-      if (iteration.selection == nullptr || iteration.summary == nullptr) {
-        return; // for the static analysis: BOOST_REQUIRE has already failed
-      }
-      BOOST_TEST(iteration.summary->records == iteration.selection->recordCount());
-      BOOST_TEST(iteration.summary->tracks == iteration.selection->selected().size());
-      // The appended records are the slices', in slice order.
-      BOOST_REQUIRE(iteration.selection->recordCount() == firstCluster.size());
-      for (std::uint32_t record = 0; record < iteration.selection->recordCount(); ++record) {
-        BOOST_TEST(iteration.selection->records().clusters[record].index[0] == firstCluster[record]);
-      }
-      firstCluster.clear();
-      const auto exclusive = std::ranges::count(observed.used(), std::uint8_t{kExclusive});
-      BOOST_TEST(static_cast<std::size_t>(exclusive) == (iteration.iteration + 1U) * (kTracks / 2U) * kLayers);
-    });
+  tracker.setIterationObserver([&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
+    seen.push_back(iteration.iteration);
+    BOOST_REQUIRE(iteration.selection != nullptr && iteration.summary != nullptr);
+    if (iteration.selection == nullptr || iteration.summary == nullptr) {
+      return; // for the static analysis: BOOST_REQUIRE has already failed
+    }
+    BOOST_TEST(iteration.summary->records == iteration.selection->recordCount());
+    BOOST_TEST(iteration.summary->tracks == iteration.selection->selected().size());
+    // The appended records are the slices', in slice order.
+    BOOST_REQUIRE(iteration.selection->recordCount() == firstCluster.size());
+    for (std::uint32_t record = 0; record < iteration.selection->recordCount(); ++record) {
+      BOOST_TEST(iteration.selection->records().clusters[record].index[0] == firstCluster[record]);
+    }
+    firstCluster.clear();
+    const auto exclusive = std::ranges::count(observed.used(), std::uint8_t{kExclusive});
+    BOOST_TEST(static_cast<std::size_t>(exclusive) == (iteration.iteration + 1U) * (kTracks / 2U) * kLayers);
+  });
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, 3, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((seen == std::vector<std::size_t>{0U, 1U}));
@@ -471,14 +468,13 @@ BOOST_AUTO_TEST_CASE(TheIterationObservationCarriesMaskTracksAndProposals)
       auto tracker = makeTracker(iterations(), follow);
       std::vector<std::uint32_t> offsets;
       std::vector<std::size_t> proposals;
-      tracker->setIterationObserver(
-        [&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
-          BOOST_TEST(iteration.used.data() == observed.used().data());
-          BOOST_REQUIRE(iteration.tracks != nullptr);
-          BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks);
-          offsets.push_back(iteration.trackOffset);
-          proposals.push_back(iteration.proposals.size());
-        });
+      tracker->setIterationObserver([&](const Tracker<Det, UniformMaterial>& observed, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
+        BOOST_TEST(iteration.used.data() == observed.used().data());
+        BOOST_REQUIRE(iteration.tracks != nullptr);
+        BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks);
+        offsets.push_back(iteration.trackOffset);
+        proposals.push_back(iteration.proposals.size());
+      });
       const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
       BOOST_REQUIRE(result.status == StageStatus::kComplete);
       BOOST_TEST((offsets == std::vector<std::uint32_t>{0U, static_cast<std::uint32_t>(kTracks / 2U)}));
@@ -529,12 +525,11 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
     // tracks are dropped, and the second, at 0.3 GeV, finds all twelve.
     auto tracker = makeTracker(seeded({kWhole + 1, kWhole}));
     std::vector<std::size_t> observed;
-    tracker->setIterationObserver(
-      [&](const Tracker<Det, UniformMaterial>&, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
-        BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks - iteration.summary->tracksDropped);
-        BOOST_TEST(iteration.proposals.size() == iteration.tracks->size() - iteration.trackOffset);
-        observed.push_back(iteration.tracks->size());
-      });
+    tracker->setIterationObserver([&](const Tracker<Det, UniformMaterial>&, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
+      BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks - iteration.summary->tracksDropped);
+      BOOST_TEST(iteration.proposals.size() == iteration.tracks->size() - iteration.trackOffset);
+      observed.push_back(iteration.tracks->size());
+    });
     const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     BOOST_TEST(result.iterations[0].tracksDropped == kTracks / 2U);
@@ -641,8 +636,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassOnOneGraphFindsTheTwoGraphsTracks)
   // Both at the first iteration's floor: the stiffer half of the tracks.
   BOOST_TEST(found(oneGraph).size() == kTracks / 2U);
   BOOST_TEST((found(oneGraph) == found(twoGraphs)));
-  BOOST_TEST(
-    (std::vector<std::uint8_t>(tracker->used().begin(), tracker->used().end()) == std::vector<std::uint8_t>(separate->used().begin(), separate->used().end())));
+  BOOST_TEST((std::vector<std::uint8_t>(tracker->used().begin(), tracker->used().end()) == std::vector<std::uint8_t>(separate->used().begin(), separate->used().end())));
   BOOST_TEST(oneGraph.iterations[1].slices == 0U);
   BOOST_TEST(oneGraph.iterations[1].roads == 0U);
 

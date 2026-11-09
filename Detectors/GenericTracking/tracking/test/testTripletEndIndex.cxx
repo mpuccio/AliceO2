@@ -45,10 +45,7 @@ using Index = TripletEndIndex::Index;
 constexpr Index kAnyChunks = std::numeric_limits<Index>::max();
 
 /// The triplets whose second tracklet is \a tracklet, in arena order.
-std::span<const Index> ending(const TripletEndIndex& index, Index tracklet)
-{
-  return {index.triplets() + index.offsets()[tracklet], index.offsets()[tracklet + 1U] - index.offsets()[tracklet]};
-}
+std::span<const Index> ending(const TripletEndIndex& index, Index tracklet) { return {index.triplets() + index.offsets()[tracklet], index.offsets()[tracklet + 1U] - index.offsets()[tracklet]}; }
 
 /// A triplet arena whose element `e` emits the triplets `(first, second)` of
 /// \a records[e].
@@ -143,8 +140,7 @@ BOOST_AUTO_TEST_CASE(NoTriplets)
 BOOST_AUTO_TEST_CASE(ParallelBuildEqualsSerialBuild)
 {
   std::mt19937 engine{12345U};
-  for (const auto& [elements, perElement, tracklets] : std::initializer_list<std::tuple<Index, Index, Index>>{
-         {0U, 0U, 1U}, {1U, 1U, 1U}, {300U, 3U, 50U}, {700U, 4U, TripletEndIndex::kBucketTracklets}, {5000U, 7U, 9000U}, {40000U, 5U, 12345U}}) {
+  for (const auto& [elements, perElement, tracklets] : std::initializer_list<std::tuple<Index, Index, Index>>{{0U, 0U, 1U}, {1U, 1U, 1U}, {300U, 3U, 50U}, {700U, 4U, TripletEndIndex::kBucketTracklets}, {5000U, 7U, 9000U}, {40000U, 5U, 12345U}}) {
     std::vector<std::vector<std::pair<Index, Index>>> records(elements);
     std::uniform_int_distribution<Index> second{0U, tracklets - 1U};
     for (Index element = 0; element < elements; ++element) {
@@ -172,12 +168,8 @@ BOOST_AUTO_TEST_CASE(ParallelBuildEqualsSerialBuild)
         const auto forEach = [&](Index count, const auto& body) { cpu.forEachElement(count, 1U, body); };
         BOOST_REQUIRE(parallel.build(tracklets, triplets, forEach, maxChunks == 0U ? kAnyChunks : maxChunks) == StageStatus::kComplete);
         BOOST_TEST(parallel.offsets()[tracklets] == serial.offsets()[tracklets]);
-        BOOST_TEST(std::vector<Index>(parallel.offsets(), parallel.offsets() + tracklets + 1U) ==
-                     std::vector<Index>(serial.offsets(), serial.offsets() + tracklets + 1U),
-                   boost::test_tools::per_element());
-        BOOST_TEST(std::vector<Index>(parallel.triplets(), parallel.triplets() + parallel.offsets()[tracklets]) ==
-                     std::vector<Index>(serial.triplets(), serial.triplets() + serial.offsets()[tracklets]),
-                   boost::test_tools::per_element());
+        BOOST_TEST(std::vector<Index>(parallel.offsets(), parallel.offsets() + tracklets + 1U) == std::vector<Index>(serial.offsets(), serial.offsets() + tracklets + 1U), boost::test_tools::per_element());
+        BOOST_TEST(std::vector<Index>(parallel.triplets(), parallel.triplets() + parallel.offsets()[tracklets]) == std::vector<Index>(serial.triplets(), serial.triplets() + serial.offsets()[tracklets]), boost::test_tools::per_element());
       }
     }
   }

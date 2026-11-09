@@ -112,10 +112,7 @@ constexpr double kFloatTolerance = 1e-4;  // [cm]
 
 /// The centre of \a cluster's time box [ns from the timeframe's start]: its
 /// readout frame's middle, which the timeframe must hold.
-[[nodiscard]] double boxCentreNS(const Cluster& cluster)
-{
-  return 1e-3 * (static_cast<double>(cluster.timePS) + (0.5 * static_cast<double>(cluster.widthPS)));
-}
+[[nodiscard]] double boxCentreNS(const Cluster& cluster) { return 1e-3 * (static_cast<double>(cluster.timePS) + (0.5 * static_cast<double>(cluster.widthPS))); }
 
 struct Options {
   std::string detector;
@@ -264,9 +261,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     const auto& surface = tracking->surface(cluster.chipID);
     Scalar point[3];
     surfaceToGlobal(surface, cluster.xLocal, cluster.yLocal, point);
-    narrow.add(std::max({std::abs(static_cast<double>(point[0] - o2Float.X())), std::abs(static_cast<double>(point[1] - o2Float.Y())),
-                         std::abs(static_cast<double>(point[2] - o2Float.Z()))}),
-               i);
+    narrow.add(std::max({std::abs(static_cast<double>(point[0] - o2Float.X())), std::abs(static_cast<double>(point[1] - o2Float.Y())), std::abs(static_cast<double>(point[2] - o2Float.Z()))}), i);
 
     const auto layer = geometry->sensor(cluster.chipID).layer;
     wrongLayer += static_cast<int>(layer) != o2Geometry.getLayer(chip) ? 1U : 0U;
@@ -279,8 +274,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     if (rows == 0U || columns == 0U || local[i].nPixels > rows * columns) {
       if (badSpans < 10U) {
         const auto id = file.clusters[i].getPatternID();
-        std::cout << std::format("  spans {} x {} for {} pixels: cluster {}, pattern ID {}{}\n", rows, columns, local[i].nPixels, i, id,
-                                 id != o2::itsmft::CompCluster::InvalidPatternID && dictionary->isGroup(id) ? ", a group" : "");
+        std::cout << std::format("  spans {} x {} for {} pixels: cluster {}, pattern ID {}{}\n", rows, columns, local[i].nPixels, i, id, id != o2::itsmft::CompCluster::InvalidPatternID && dictionary->isGroup(id) ? ", a group" : "");
       }
       ++badSpans;
     }
@@ -304,19 +298,11 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     const auto at = [&values](double q) { return values.empty() ? 0.F : study::quantile(std::span{values}, q); };
     return std::format("{} / {} / {} / {}", at(0.5), at(0.9), at(0.99), at(1.));
   };
-  std::cout << std::format("{}: {} clusters in {} readout frames of {} BC ({} with clusters), first TF orbit {}\n", Det::name, clusters.size(),
-                           file.rofs.size(), frames.lengthBC, filled, tfFirstOrbit)
-            << std::format("  per layer:");
+  std::cout << std::format("{}: {} clusters in {} readout frames of {} BC ({} with clusters), first TF orbit {}\n", Det::name, clusters.size(), file.rofs.size(), frames.lengthBC, filled, tfFirstOrbit) << std::format("  per layer:");
   for (std::size_t layer = 0; layer < perLayer.size(); ++layer) {
     std::cout << std::format(" {}:{}", layer, perLayer[layer]);
   }
-  std::cout << std::format("\n  sigma across, median / 90 % / 99 % / max: {} um\n", quantiles(sigmaX))
-            << std::format("  sigma along,  median / 90 % / 99 % / max: {} um\n", quantiles(sigmaY))
-            << std::format("  double position: worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", exact.worst, exact.at, kDoubleTolerance)
-            << std::format("  float position:  worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", narrow.worst, narrow.at, kFloatTolerance)
-            << std::format("  wrong layer {}, outside the active matrix {}, outside the timeframe {}\n", wrongLayer, outside, outsideTime)
-            << std::format("  rows, median / 90 % / 99 % / max: {}; columns: {}; spans that cannot hold their pixels {}\n", spanQuantiles(rowSpans),
-                           spanQuantiles(colSpans), badSpans);
+  std::cout << std::format("\n  sigma across, median / 90 % / 99 % / max: {} um\n", quantiles(sigmaX)) << std::format("  sigma along,  median / 90 % / 99 % / max: {} um\n", quantiles(sigmaY)) << std::format("  double position: worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", exact.worst, exact.at, kDoubleTolerance) << std::format("  float position:  worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", narrow.worst, narrow.at, kFloatTolerance) << std::format("  wrong layer {}, outside the active matrix {}, outside the timeframe {}\n", wrongLayer, outside, outsideTime) << std::format("  rows, median / 90 % / 99 % / max: {}; columns: {}; spans that cannot hold their pixels {}\n", spanQuantiles(rowSpans), spanQuantiles(colSpans), badSpans);
 
   // Which topologies the errors come from: the most used, with the
   // dictionary's errors and whether each is a group.
@@ -341,9 +327,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
   std::cout << std::format("  topologies: {} used, {} clusters in groups, {} with an invalid ID; the most used:\n", use.size(), groups, invalid);
   for (std::size_t i = 0; i < std::min<std::size_t>(top.size(), 6U); ++i) {
     const auto id = top[i].second;
-    std::cout << std::format("    id {:5} x{:7}: {:2} pixels, error {:6.2f} x {:6.2f} um{}\n", id, top[i].first, dictionary->getNpixels(id),
-                             1e4 * static_cast<double>(dictionary->getErrX(id)), 1e4 * static_cast<double>(dictionary->getErrZ(id)),
-                             dictionary->isGroup(id) ? ", group" : "");
+    std::cout << std::format("    id {:5} x{:7}: {:2} pixels, error {:6.2f} x {:6.2f} um{}\n", id, top[i].first, dictionary->getNpixels(id), 1e4 * static_cast<double>(dictionary->getErrX(id)), 1e4 * static_cast<double>(dictionary->getErrZ(id)), dictionary->isGroup(id) ? ", group" : "");
   }
 
   bool ok = exact.worst <= kDoubleTolerance && narrow.worst <= kFloatTolerance && wrongLayer == 0U && outside == 0U && outsideTime == 0U && badSpans == 0U;
@@ -381,15 +365,12 @@ struct Spread {
     const auto at = [&sorted](double q) { return study::quantile(std::span{sorted}, q); };
     const double median = at(0.5);
     const double width = 0.5 * (at(0.841) - at(0.159));
-    const auto beyond = [&](double k) {
-      return 100. * static_cast<double>(std::ranges::count_if(sorted, [&](double value) { return std::abs(value - median) > k * width; })) / n;
-    };
+    const auto beyond = [&](double k) { return 100. * static_cast<double>(std::ranges::count_if(sorted, [&](double value) { return std::abs(value - median) > k * width; })) / n; };
     // The normalised median absolute deviation beside it: the width the pulls measure (TrackPulls).
     std::vector<double> deviations(sorted.size());
     std::ranges::transform(sorted, deviations.begin(), [&](double value) { return std::abs(value - median); });
     const double mad = 1.4826 * study::median(deviations);
-    return std::format("{:8} {:6.2f} {:6.2f} {:6.2f} {:6.2f} | >3 {:5.2f} % >5 {:5.2f} %", sorted.size(), 1e4 * mean,
-                       1e4 * std::sqrt(std::max(sum2 / n - (mean * mean), 0.)), 1e4 * width, 1e4 * mad, beyond(3.), beyond(5.));
+    return std::format("{:8} {:6.2f} {:6.2f} {:6.2f} {:6.2f} | >3 {:5.2f} % >5 {:5.2f} %", sorted.size(), 1e4 * mean, 1e4 * std::sqrt(std::max(sum2 / n - (mean * mean), 0.)), 1e4 * width, 1e4 * mad, beyond(3.), beyond(5.));
   }
 };
 
@@ -419,9 +400,7 @@ int runTRK(const Options& options)
   auto& ft3Geometry = *o2::ft3::GeometryTGeo::Instance();
   ft3Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
   // The dictionaries' CCDB snapshots below the directory, as the devices take them.
-  const auto load = [&]<typename Dictionary>(std::unique_ptr<Dictionary>& dictionary, const char* path) {
-    dictionary.reset(Dictionary::loadFrom(options.clusterDictionaries + "/" + path + "/snapshot.root"));
-  };
+  const auto load = [&]<typename Dictionary>(std::unique_ptr<Dictionary>& dictionary, const char* path) { dictionary.reset(Dictionary::loadFrom(options.clusterDictionaries + "/" + path + "/snapshot.root")); };
   std::unique_ptr<alice::TrkDictionary> trkDictionary;
   std::unique_ptr<alice::Ft3Dictionary> ft3Dictionary;
   load(trkDictionary, "TRK/Calib/ClusterDictionary");
@@ -499,8 +478,7 @@ int runTRK(const Options& options)
     badFrames += spacing.lengthBC != frames[static_cast<std::size_t>(layer)].lengthBC ? 1U : 0U;
     const auto clusters = alice::toClusters(local, std::span<const o2::trkft3::ROFRecord>{rofs}, spacing, tfFirstOrbit);
     unlabelled += labels.getIndexedSize() == clusters.size() ? 0U : 1U;
-    std::cout << std::format("{:9} | {:8} | {:3} BC, {}@{}\n", layer, clusters.size(), spacing.lengthBC, frames[static_cast<std::size_t>(layer)].lengthBC,
-                             frames[static_cast<std::size_t>(layer)].firstStartBC);
+    std::cout << std::format("{:9} | {:8} | {:3} BC, {}@{}\n", layer, clusters.size(), spacing.lengthBC, frames[static_cast<std::size_t>(layer)].lengthBC, frames[static_cast<std::size_t>(layer)].firstStartBC);
 
     std::size_t offset = 0;
     for (std::size_t i = 0; i < clusters.size(); ++i, ++total) {
@@ -524,17 +502,14 @@ int runTRK(const Options& options)
       const auto o2Double = l2g(o2::math_utils::Point3D<double>{o2Local.X(), o2Local.Y(), o2Local.Z()});
       const auto& spec = geometry->specOf(cluster.chipID);
       double frame[3];
-      spec.unrolledToFrame(static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal),
-                           geometry->measurementDepth(geometry->sensor(cluster.chipID).layer), frame);
+      spec.unrolledToFrame(static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal), geometry->measurementDepth(geometry->sensor(cluster.chipID).layer), frame);
       double global[3];
       geometry->toGlobal(cluster.chipID, frame, global);
       exact.add(std::max({std::abs(global[0] - o2Double.X()), std::abs(global[1] - o2Double.Y()), std::abs(global[2] - o2Double.Z())}), total);
       // Float: what O2's tracker loads, and what our producer ships.
       const auto o2Float = l2g * o2Local;
       const auto point = gridPoint<Det>(*geometry, cluster.chipID, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal));
-      narrow.add(std::max({std::abs(static_cast<double>(point.x - o2Float.X())), std::abs(static_cast<double>(point.y - o2Float.Y())),
-                           std::abs(static_cast<double>(point.z - o2Float.Z()))}),
-                 total);
+      narrow.add(std::max({std::abs(static_cast<double>(point.x - o2Float.X())), std::abs(static_cast<double>(point.y - o2Float.Y())), std::abs(static_cast<double>(point.z - o2Float.Z()))}), total);
 
       const auto ourLayer = static_cast<int>(geometry->sensor(cluster.chipID).layer);
       const int o2Layer = kDisc ? kBarrelLayers + ft3Geometry.getLayer(chip) : o2Geometry.getLayerTRK(chip);
@@ -563,11 +538,13 @@ int runTRK(const Options& options)
       // nearest the cluster, where several (a looper's).
       double best = std::numeric_limits<double>::max();
       bool found = false;
-      Match match{.layer = layer,
-                  .subDet = o2Cluster.subDetID,
-                  .rowSpan = pattern[0],
-                  .colSpan = pattern[1],
-                  .cluster = {static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal)}};
+      Match match{
+        .layer = layer,
+        .subDet = o2Cluster.subDetID,
+        .rowSpan = pattern[0],
+        .colSpan = pattern[1],
+        .cluster = {static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal)},
+      };
       static const std::vector<const study::HitSegment*> kNone;
       const auto* crossings = segmentsOf(label->getEventID(), label->getTrackID(), cluster.chipID);
       for (const auto* segment : crossings != nullptr ? *crossings : kNone) {
@@ -617,10 +594,7 @@ int runTRK(const Options& options)
   // (where O2's CheckTopologyDictionary.C leaves them out).
   constexpr std::size_t kSubDets = 3;
   const std::array<const char*, kSubDets> subDets{"VD", "ML/OT", "FT3"};
-  const std::array<std::array<double, 2>, kSubDets> pitches{
-    {{static_cast<double>(Segmentation::PitchRowVD), static_cast<double>(Segmentation::PitchColVD)},
-     {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)},
-     {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}}};
+  const std::array<std::array<double, 2>, kSubDets> pitches{{{static_cast<double>(Segmentation::PitchRowVD), static_cast<double>(Segmentation::PitchColVD)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}}};
   const auto residualAt = [](const Match& match, double depth) {
     const auto& [a, b] = match.ends;
     // On the segment: a particle that starts or stops in the silicon
@@ -650,17 +624,14 @@ int runTRK(const Options& options)
   for (std::size_t subDet = 0; subDet < kSubDets; ++subDet) {
     for (std::size_t axis = 0; axis < 2; ++axis) {
       const double pitch = 1e4 * pitches[subDet][axis];
-      std::cout << std::format("  {} {}: pitch {:.1f}, pitch/sqrt(12) {:.2f}, pitch/2 {:.2f}\n", subDets[subDet], axes[axis], pitch, pitch / std::sqrt(12.),
-                               0.5 * pitch)
-                << std::format("    every span {}\n", residuals[subDet][axis][0].describe());
+      std::cout << std::format("  {} {}: pitch {:.1f}, pitch/sqrt(12) {:.2f}, pitch/2 {:.2f}\n", subDets[subDet], axes[axis], pitch, pitch / std::sqrt(12.), 0.5 * pitch) << std::format("    every span {}\n", residuals[subDet][axis][0].describe());
       for (std::size_t span = 1; span < kSpans; ++span) {
         std::cout << std::format("    span {}{} {}\n", span, span + 1 == kSpans ? "+" : " ", residuals[subDet][axis][span].describe());
       }
     }
   }
 
-  const bool ok = exact.worst <= kDoubleTolerance && narrow.worst <= kFloatTolerance && wrongLayer == 0U && outside == 0U && outsideTime == 0U &&
-                  badFrames == 0U && unlabelled == 0U;
+  const bool ok = exact.worst <= kDoubleTolerance && narrow.worst <= kFloatTolerance && wrongLayer == 0U && outside == 0U && outsideTime == 0U && badFrames == 0U && unlabelled == 0U;
   std::cout << (ok ? "closure: pass\n" : "closure: FAIL\n");
   return ok ? 0 : 1;
 }

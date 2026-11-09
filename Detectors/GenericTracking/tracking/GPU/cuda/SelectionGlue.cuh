@@ -190,8 +190,7 @@ struct IsAccepted {
 /// mismatches and rounds. A record's \a sharedInnermost innermost clusters
 /// are shareable.
 template <std::size_t K, typename RecordView>
-[[nodiscard]] StageStatus select(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const RecordView& records, Index recordCount,
-                                 std::uint8_t* mask, Index rows, std::uint32_t sharedInnermost, Selected& result)
+[[nodiscard]] StageStatus select(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const RecordView& records, Index recordCount, std::uint8_t* mask, Index rows, std::uint32_t sharedInnermost, Selected& result)
 {
   result = {};
   algorithms::detail::requireItems(recordCount);
@@ -212,19 +211,15 @@ template <std::size_t K, typename RecordView>
     DeviceSpan<Index> sortedWord;
     DeviceSpan<Index> permutation;
     DeviceSpan<Index> nextPermutation;
-    if (!keys.allocate(arena, K * std::size_t{recordCount}, ArenaEnd::kScratch) || !word.allocate(arena, recordCount, ArenaEnd::kScratch) ||
-        !sortedWord.allocate(arena, recordCount, ArenaEnd::kScratch) || !permutation.allocate(arena, recordCount, ArenaEnd::kScratch) ||
-        !nextPermutation.allocate(arena, recordCount, ArenaEnd::kScratch)) {
+    if (!keys.allocate(arena, K * std::size_t{recordCount}, ArenaEnd::kScratch) || !word.allocate(arena, recordCount, ArenaEnd::kScratch) || !sortedWord.allocate(arena, recordCount, ArenaEnd::kScratch) || !permutation.allocate(arena, recordCount, ArenaEnd::kScratch) || !nextPermutation.allocate(arena, recordCount, ArenaEnd::kScratch)) {
       return StageStatus::kOutOfMemory;
     }
-    algorithms::forEach(runtime, stream, recordCount,
-                        detail::WriteKeys<K>{.clusters = records.clusters, .count = records.count, .records = recordCount, .noCluster = rows, .keys = keys.data()});
+    algorithms::forEach(runtime, stream, recordCount, detail::WriteKeys<K>{.clusters = records.clusters, .count = records.count, .records = recordCount, .noCluster = rows, .keys = keys.data()});
     algorithms::forEach(runtime, stream, recordCount, detail::Iota{.out = permutation.data()});
     Index* current = permutation.data();
     Index* next = nextPermutation.data();
     for (std::size_t w = K; w-- > 0U;) {
-      algorithms::forEach(runtime, stream, recordCount,
-                          algorithms::Gather<Index>{.from = std::as_const(keys).data() + (w * recordCount), .indices = current, .to = word.data()});
+      algorithms::forEach(runtime, stream, recordCount, algorithms::Gather<Index>{.from = std::as_const(keys).data() + (w * recordCount), .indices = current, .to = word.data()});
       const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(word).data(), sortedWord.data(), current, next, recordCount, keyEndBit);
       if (sorted != StageStatus::kComplete) {
         return sorted;
@@ -236,31 +231,33 @@ template <std::size_t K, typename RecordView>
     DeviceSpan<Index> headPosition;
     DeviceSpan<Index> runHead;
     DeviceSpan<Index> counts;
-    if (!head.allocate(arena, recordCount, ArenaEnd::kScratch) || !headPosition.allocate(arena, recordCount, ArenaEnd::kScratch) ||
-        !runHead.allocate(arena, recordCount, ArenaEnd::kScratch) || !counts.allocate(arena, 2U, ArenaEnd::kScratch)) {
+    if (!head.allocate(arena, recordCount, ArenaEnd::kScratch) || !headPosition.allocate(arena, recordCount, ArenaEnd::kScratch) || !runHead.allocate(arena, recordCount, ArenaEnd::kScratch) || !counts.allocate(arena, 2U, ArenaEnd::kScratch)) {
       return StageStatus::kOutOfMemory;
     }
     algorithms::forEach(runtime, stream, recordCount,
-                        detail::MarkHeads<K>{.keys = std::as_const(keys).data(),
-                                             .permutation = current,
-                                             .records = recordCount,
-                                             .head = head.data(),
-                                             .headPosition = headPosition.data()});
-    const StageStatus scanned =
-      algorithms::inclusiveScan(runtime, arena, stream, std::as_const(headPosition).data(), runHead.data(), recordCount, detail::MaxOf{});
+                        detail::MarkHeads<K>{
+                          .keys = std::as_const(keys).data(),
+                          .permutation = current,
+                          .records = recordCount,
+                          .head = head.data(),
+                          .headPosition = headPosition.data(),
+                        });
+    const StageStatus scanned = algorithms::inclusiveScan(runtime, arena, stream, std::as_const(headPosition).data(), runHead.data(), recordCount, detail::MaxOf{});
     if (scanned != StageStatus::kComplete) {
       return scanned;
     }
     runtime.fill(counts.data(), 0U, 2U * sizeof(Index), stream);
     algorithms::forEach(runtime, stream, recordCount,
-                        detail::CountDuplicates<K>{.clusters = records.clusters,
-                                                   .count = records.count,
-                                                   .kinks = records.kinks,
-                                                   .chi2 = records.chi2,
-                                                   .permutation = current,
-                                                   .head = std::as_const(head).data(),
-                                                   .runHead = std::as_const(runHead).data(),
-                                                   .counts = counts.data()});
+                        detail::CountDuplicates<K>{
+                          .clusters = records.clusters,
+                          .count = records.count,
+                          .kinks = records.kinks,
+                          .chi2 = records.chi2,
+                          .permutation = current,
+                          .head = std::as_const(head).data(),
+                          .runHead = std::as_const(runHead).data(),
+                          .counts = counts.data(),
+                        });
     // Read back with the heads' count: selectIndices synchronises.
     std::array<Index, 2> counted{};
     download(counts, counted.data(), 2U, stream);
@@ -270,8 +267,7 @@ template <std::size_t K, typename RecordView>
     // on the base end.
     DeviceSpan<Index> positions;
     Index heads = 0U;
-    const StageStatus selected = algorithms::selectIndices(runtime, arena, stream, recordCount, detail::IsHead{.head = std::as_const(head).data()}, positions,
-                                                           heads, ArenaEnd::kScratch);
+    const StageStatus selected = algorithms::selectIndices(runtime, arena, stream, recordCount, detail::IsHead{.head = std::as_const(head).data()}, positions, heads, ArenaEnd::kScratch);
     ++result.readbacks;
     if (selected != StageStatus::kComplete) {
       return selected;
@@ -299,9 +295,13 @@ template <std::size_t K, typename RecordView>
     }
     algorithms::forEach(runtime, stream, uniqueCount,
                         detail::QualityKeys{
-                          .count = records.count, .kinks = records.kinks, .chi2 = records.chi2, .unique = std::as_const(unique).data(), .keys = keys.data()});
-    const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(unique).data(),
-                                                     result.ranked.data(), uniqueCount, selection::kQualityKeyBits);
+                          .count = records.count,
+                          .kinks = records.kinks,
+                          .chi2 = records.chi2,
+                          .unique = std::as_const(unique).data(),
+                          .keys = keys.data(),
+                        });
+    const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(unique).data(), result.ranked.data(), uniqueCount, selection::kQualityKeyBits);
     if (sorted != StageStatus::kComplete) {
       return sorted;
     }
@@ -315,26 +315,26 @@ template <std::size_t K, typename RecordView>
   DeviceSpan<std::uint8_t> accepted;
   DeviceSpan<Index> slotAll;
   DeviceSpan<Index> slotExclusive;
-  if (!rankClusters.allocate(arena, uniqueCount) || !rankCount.allocate(arena, uniqueCount) || !priority.allocate(arena, uniqueCount) ||
-      !live.allocate(arena, uniqueCount) || !accepted.allocate(arena, uniqueCount) || !slotAll.allocate(arena, rows) || !slotExclusive.allocate(arena, rows)) {
+  if (!rankClusters.allocate(arena, uniqueCount) || !rankCount.allocate(arena, uniqueCount) || !priority.allocate(arena, uniqueCount) || !live.allocate(arena, uniqueCount) || !accepted.allocate(arena, uniqueCount) || !slotAll.allocate(arena, rows) || !slotExclusive.allocate(arena, rows)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, uniqueCount,
-                      selection::RankFill<K>{.clusters = records.clusters,
-                                             .count = records.count,
-                                             .ranked = std::as_const(result.ranked).data(),
-                                             .unique = uniqueCount,
-                                             .rankClusters = rankClusters.data(),
-                                             .rankCount = rankCount.data(),
-                                             .priority = priority.data(),
-                                             .live = live.data(),
-                                             .accepted = accepted.data()});
+                      selection::RankFill<K>{
+                        .clusters = records.clusters,
+                        .count = records.count,
+                        .ranked = std::as_const(result.ranked).data(),
+                        .unique = uniqueCount,
+                        .rankClusters = rankClusters.data(),
+                        .rankCount = rankCount.data(),
+                        .priority = priority.data(),
+                        .live = live.data(),
+                        .accepted = accepted.data(),
+                      });
   runtime.fill(slotAll.data(), 0U, std::size_t{rows} * sizeof(Index), stream);
   runtime.fill(slotExclusive.data(), 0U, std::size_t{rows} * sizeof(Index), stream);
   const selection::BidReset<K> reset{rankClusters.data(), rankCount.data(), live.data(), slotAll.data(), slotExclusive.data()};
   const selection::Bid<K> bid{rankClusters.data(), rankCount.data(), live.data(), priority.data(), slotAll.data(), slotExclusive.data(), sharedInnermost};
-  const selection::Decide<K> decide{rankClusters.data(), rankCount.data(), live.data(), accepted.data(), priority.data(),
-                                    slotAll.data(), slotExclusive.data(), mask, sharedInnermost};
+  const selection::Decide<K> decide{rankClusters.data(), rankCount.data(), live.data(), accepted.data(), priority.data(), slotAll.data(), slotExclusive.data(), mask, sharedInnermost};
   // The first pass prunes the records an earlier iteration's tracks exclude;
   // each later one is a round. A pass that leaves a record live raises the
   // flag, so the raising passes are the host's rounds; each round accepts at
@@ -361,8 +361,7 @@ template <std::size_t K, typename RecordView>
   auto scratch = arena.scope(ArenaEnd::kScratch);
   DeviceSpan<Index> acceptedRanks;
   Index tracks = 0U;
-  const StageStatus compacted = algorithms::selectIndices(runtime, arena, stream, uniqueCount, detail::IsAccepted{.accepted = std::as_const(accepted).data()},
-                                                          acceptedRanks, tracks, ArenaEnd::kScratch);
+  const StageStatus compacted = algorithms::selectIndices(runtime, arena, stream, uniqueCount, detail::IsAccepted{.accepted = std::as_const(accepted).data()}, acceptedRanks, tracks, ArenaEnd::kScratch);
   ++result.readbacks;
   if (compacted != StageStatus::kComplete) {
     return compacted;
@@ -370,8 +369,7 @@ template <std::size_t K, typename RecordView>
   if (!result.selected.allocate(arena, tracks)) {
     return StageStatus::kOutOfMemory;
   }
-  algorithms::forEach(runtime, stream, tracks,
-                      algorithms::Gather<Index>{.from = std::as_const(result.ranked).data(), .indices = std::as_const(acceptedRanks).data(), .to = result.selected.data()});
+  algorithms::forEach(runtime, stream, tracks, algorithms::Gather<Index>{.from = std::as_const(result.ranked).data(), .indices = std::as_const(acceptedRanks).data(), .to = result.selected.data()});
   result.tracks = tracks;
   return StageStatus::kComplete;
 }

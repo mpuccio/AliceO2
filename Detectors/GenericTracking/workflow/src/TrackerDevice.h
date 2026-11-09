@@ -78,9 +78,7 @@ template <DetectorLayout Det>
 [[nodiscard]] std::vector<o2::framework::OutputSpec> trackerOutputs()
 {
   using o2::framework::Lifetime;
-  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe},
-          {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe},
-          {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}};
+  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}};
 }
 
 /// One timeframe of \a Det's tracking, on \a interface's host or device
@@ -127,8 +125,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     tracks.push_back(result.read(track));
     failed += tracks.back().status == PropagationStatus::kOk ? 0U : 1U;
   }
-  LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} with a failed refit), {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit,
-       tracks.size(), failed, vertices.size(), tracked.seconds, found.seconds);
+  LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} with a failed refit), {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit, tracks.size(), failed, vertices.size(), tracked.seconds, found.seconds);
 }
 
 /// At the end of the stream: the timeframes dropped, an error line.
@@ -157,7 +154,9 @@ class TrackerTask : public o2::framework::Task
   using RunConditions = Conditions<Det, true>;
 
   TrackerTask(bool withVertices, std::shared_ptr<RunConditions> conditions)
-    : mWithVertices(withVertices), mInterface(withVertices), mConditions(std::move(conditions))
+    : mWithVertices(withVertices),
+      mInterface(withVertices),
+      mConditions(std::move(conditions))
   {
   }
 
@@ -165,9 +164,11 @@ class TrackerTask : public o2::framework::Task
   {
     mConditions->init(ic);
     printConfiguration<Det>(ic);
-    mInterface.initDevice({.backend = ic.options().get<std::string>("gtrk-gpu-backend"),
-                           .device = ic.options().get<int>("gtrk-gpu-device"),
-                           .arenaMB = static_cast<std::size_t>(ic.options().get<int>("gtrk-gpu-arena-mb"))});
+    mInterface.initDevice({
+      .backend = ic.options().get<std::string>("gtrk-gpu-backend"),
+      .device = ic.options().get<int>("gtrk-gpu-device"),
+      .arenaMB = static_cast<std::size_t>(ic.options().get<int>("gtrk-gpu-arena-mb")),
+    });
   }
 
   /// The GPU released here: the task itself is never destroyed at the exit.
@@ -196,9 +197,8 @@ o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
     .inputs = inputs,
     .outputs = trackerOutputs<Det>(),
     .algorithm = AlgorithmSpec{adaptFromTask<TrackerTask<Det>>(withVertices, conditions)},
-    .options = Options{{"gtrk-gpu-backend", VariantType::String, "", {"the GPU backend to track on, cuda or hip; the host if empty"}},
-                       {"gtrk-gpu-device", VariantType::Int, 0, {"the GPU backend's device index"}},
-                       {"gtrk-gpu-arena-mb", VariantType::Int, 0, {"the device tracker's arena in O2's GPU pool [MB]; required with a GPU backend"}}}};
+    .options = Options{{"gtrk-gpu-backend", VariantType::String, "", {"the GPU backend to track on, cuda or hip; the host if empty"}}, {"gtrk-gpu-device", VariantType::Int, 0, {"the GPU backend's device index"}}, {"gtrk-gpu-arena-mb", VariantType::Int, 0, {"the device tracker's arena in O2's GPU pool [MB]; required with a GPU backend"}}},
+  };
 }
 
 /// \a Det's tracking inside the GPU reconstruction (GPURecoTracking.h): the
@@ -246,8 +246,7 @@ class GPURecoTrackingOf final : public GPURecoTracking
     const auto borrowed = mInterface.context().borrow(tag());
     mInterface.useBlock(borrowed->block());
     trackTimeframe<Det>(pc, mInterface, *mConditions, false);
-    LOGP(info, "{}: the GPU reconstruction's pool lent {:.1f} MB, the arena's peak {:.1f} MB", Det::name, static_cast<double>(borrowed->block().bytes) / 1.e6,
-         static_cast<double>(mInterface.lastArenaPeakBytes()) / 1.e6);
+    LOGP(info, "{}: the GPU reconstruction's pool lent {:.1f} MB, the arena's peak {:.1f} MB", Det::name, static_cast<double>(borrowed->block().bytes) / 1.e6, static_cast<double>(mInterface.lastArenaPeakBytes()) / 1.e6);
   }
 
   void stop() final { mInterface.releaseDevice(); }

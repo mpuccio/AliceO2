@@ -338,9 +338,7 @@ using SeededBy = std::unordered_map<std::uint64_t, std::uint64_t>;
 /// and as kinematics, track by track, the seeded, each particle's extras,
 /// and the other tracker's tracks, if any. Throws std::invalid_argument for a
 /// track's iteration outside \a iterations, or more than kQAMaxIterations.
-[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks,
-                                    std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras,
-                                    const TrackRows* theirs, int iterations, const ComparisonSettings& settings);
+[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TrackRows* theirs, int iterations, const ComparisonSettings& settings);
 
 /// \a qa's records into \a output's `particles` and `tracks` trees.
 void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa);

@@ -154,8 +154,7 @@ void noteRecord(const Record<S>& left, const Record<S>& right, std::uint32_t ele
 /// a difference is (row, 0, column, both values); rows of another number are
 /// not compared. The views are any memlayout column views of `S`.
 template <template <template <class> class> class S, typename View>
-[[nodiscard]] StageComparison<S> compareColumns(const View& reference, std::size_t referenceRows, const View& other, std::size_t otherRows,
-                                                std::size_t keep = 8U)
+[[nodiscard]] StageComparison<S> compareColumns(const View& reference, std::size_t referenceRows, const View& other, std::size_t otherRows, std::size_t keep = 8U)
 {
   StageComparison<S> result;
   result.referenceElements = referenceRows;
@@ -206,8 +205,7 @@ template <template <template <class> class> class S>
     if (count != otherCount) {
       ++result.elementsWithOtherCount;
       if (result.first.size() < keep) {
-        result.first.push_back(
-          {.element = element, .ordinal = 0U, .column = Comparison::kCount, .reference = static_cast<double>(count), .other = static_cast<double>(otherCount)});
+        result.first.push_back({.element = element, .ordinal = 0U, .column = Comparison::kCount, .reference = static_cast<double>(count), .other = static_cast<double>(otherCount)});
       }
       continue;
     }

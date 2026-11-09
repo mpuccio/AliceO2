@@ -55,21 +55,13 @@ TruthRow row(LayerID layer, std::initializer_list<std::uint64_t> particles)
 ///   particle 4: from the material on layers 1 and 2, findable, not found
 ///   particle 5: a primary on every layer below the pT floor, not findable
 struct Toy {
-  std::vector<TruthRow> rows{row(0, {1}), row(1, {1}), row(2, {1}), row(0, {2}), row(1, {2}), row(2, {2}), row(0, {3}),
-                             row(2, {3}), row(1, {4}), row(2, {4}), row(0, {5}), row(1, {5}), row(2, {5})};
-  ParticleTable truth{{1, {.pt = 1.F, .primary = true, .eta = 0.2F, .phi = 1.F, .origin = ParticleOrigin::kPhysicalPrimary}},
-                      {2, {.pt = 0.5F, .eta = -0.3F, .phi = -1.F, .origin = ParticleOrigin::kDecay}},
-                      {3, {.pt = 2.F, .primary = true, .eta = 0.4F, .origin = ParticleOrigin::kPhysicalPrimary}},
-                      {4, {.pt = 0.3F, .eta = 0.9F, .phi = 3.F, .origin = ParticleOrigin::kMaterial}},
-                      {5, {.pt = 0.05F, .primary = true, .eta = 0.F, .origin = ParticleOrigin::kPhysicalPrimary}}};
+  std::vector<TruthRow> rows{row(0, {1}), row(1, {1}), row(2, {1}), row(0, {2}), row(1, {2}), row(2, {2}), row(0, {3}), row(2, {3}), row(1, {4}), row(2, {4}), row(0, {5}), row(1, {5}), row(2, {5})};
+  ParticleTable truth{{1, {.pt = 1.F, .primary = true, .eta = 0.2F, .phi = 1.F, .origin = ParticleOrigin::kPhysicalPrimary}}, {2, {.pt = 0.5F, .eta = -0.3F, .phi = -1.F, .origin = ParticleOrigin::kDecay}}, {3, {.pt = 2.F, .primary = true, .eta = 0.4F, .origin = ParticleOrigin::kPhysicalPrimary}}, {4, {.pt = 0.3F, .eta = 0.9F, .phi = 3.F, .origin = ParticleOrigin::kMaterial}}, {5, {.pt = 0.05F, .primary = true, .eta = 0.F, .origin = ParticleOrigin::kPhysicalPrimary}}};
   ComparisonSettings settings{.nLayers = 3, .minLayers = 2, .minPtGeV = 0.1, .chainLinks = {{.from = 0, .to = 1}, {.from = 1, .to = 2}}};
   // Particle 1 in iteration 1, particle 2, a fake of particles 4 and 2, and
   // particle 1 in iteration 0.
   TrackRows tracks{{0, 1, 2}, {3, 4, 5}, {8, 5}, {0, 1, 2}};
-  std::vector<TrackKinematics> kinematics{{.pt = 1.F, .eta = 0.2F, .phi = 1.F, .iteration = 1},
-                                          {.pt = 0.5F, .eta = -0.3F, .phi = -1.F, .iteration = 1},
-                                          {.pt = 0.4F, .eta = 0.5F, .phi = 2.F, .iteration = 0},
-                                          {.pt = 1.F, .eta = 0.2F, .phi = 1.F, .iteration = 0, .chi2 = 3.5F, .ndf = 4}};
+  std::vector<TrackKinematics> kinematics{{.pt = 1.F, .eta = 0.2F, .phi = 1.F, .iteration = 1}, {.pt = 0.5F, .eta = -0.3F, .phi = -1.F, .iteration = 1}, {.pt = 0.4F, .eta = 0.5F, .phi = 2.F, .iteration = 0}, {.pt = 1.F, .eta = 0.2F, .phi = 1.F, .iteration = 0, .chi2 = 3.5F, .ndf = 4}};
   // Particle 1 seeded by both, 2 by both, 4 by iteration 0; 3 is not findable.
   SeededBy seeded{{1, 0b11U}, {2, 0b11U}, {3, 0b01U}, {4, 0b01U}};
 };
@@ -183,8 +175,7 @@ BOOST_AUTO_TEST_CASE(TheTotalsAreTheTextScore)
 BOOST_AUTO_TEST_CASE(TheEtaReachOfEnvelopes)
 {
   // A barrel layer at r 2.3 cm, |z| < 13.5 cm, and a disc at z 77 cm over r 3.4-15 cm.
-  const std::array<LayerEnvelope, 2> envelopes{LayerEnvelope{.position = 2.3, .rMin = 2.3, .rMax = 2.4, .zMin = -13.5, .zMax = 13.5},
-                                               LayerEnvelope{.position = 77., .rMin = 3.4, .rMax = 15., .zMin = 76.9, .zMax = 77.1}};
+  const std::array<LayerEnvelope, 2> envelopes{LayerEnvelope{.position = 2.3, .rMin = 2.3, .rMax = 2.4, .zMin = -13.5, .zMax = 13.5}, LayerEnvelope{.position = 77., .rMin = 3.4, .rMax = 15., .zMin = 76.9, .zMax = 77.1}};
   const auto reach = etaReach(envelopes);
   BOOST_TEST(reach.low == -2.5); // asinh(-13.5 / 2.3) = -2.47
   BOOST_TEST(reach.high == 4.0); // asinh(77.1 / 3.4) = 3.81
@@ -193,8 +184,7 @@ BOOST_AUTO_TEST_CASE(TheEtaReachOfEnvelopes)
 BOOST_AUTO_TEST_CASE(TheExtrasLayersAndTheOtherTrackersParticles)
 {
   const Toy toy;
-  const ParticleExtrasTable extras{{2, {.vr = 1.5F, .d0 = 0.25F, .z0 = -0.5F, .openingAngle = 0.1F, .motherMiss = 0.01F, .lostAt = 6U, .raisedFit = 5U}},
-                                   {4, {.vr = 3.F, .lostAt = 4U, .pairLoss = 6U, .fitLoss = 1U, .fitRoadLayers = 0b110U, .fitLosses = 0b1010U}}};
+  const ParticleExtrasTable extras{{2, {.vr = 1.5F, .d0 = 0.25F, .z0 = -0.5F, .openingAngle = 0.1F, .motherMiss = 0.01F, .lostAt = 6U, .raisedFit = 5U}}, {4, {.vr = 3.F, .lostAt = 4U, .pairLoss = 6U, .fitLoss = 1U, .fitRoadLayers = 0b110U, .fitLosses = 0b1010U}}};
   const TrackRows theirs{{3, 4, 5}, {8, 9, 0}}; // particle 2, and a fake
   const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, extras, &theirs, 2, toy.settings);
   const auto* first = particleOf(qa, 1.F);
@@ -291,9 +281,11 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixMissesTheBeamLineByItsCircle)
         const double angle = 0.3;
         // Clockwise for q Bz > 0: the direction is the radius turned by -90 degrees.
         const double sense = charge * bz > 0. ? -1. : 1.;
-        const TruthHelix helix{.position = {3. + (radius * std::cos(angle)), 4. + (radius * std::sin(angle)), 1.},
-                               .momentum = {-sense * pt * std::sin(angle), sense * pt * std::cos(angle), 0.5 * pt},
-                               .charge = charge};
+        const TruthHelix helix{
+          .position = {3. + (radius * std::cos(angle)), 4. + (radius * std::sin(angle)), 1.},
+          .momentum = {-sense * pt * std::sin(angle), sense * pt * std::cos(angle), 0.5 * pt},
+          .charge = charge,
+        };
         // The motion keeps to that circle: the setup's sense is the field's.
         const auto ahead = integrate(helix, bz, 1e-3, 3000);
         BOOST_TEST(std::abs(std::hypot(ahead.position[0] - 3., ahead.position[1] - 4.) - radius) < 1e-6);
@@ -373,8 +365,7 @@ BOOST_AUTO_TEST_CASE(AnIterationOutsideTheConfiguredIsRefused)
   Toy toy;
   toy.kinematics[0].iteration = 2;
   BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings), std::invalid_argument);
-  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, kQAMaxIterations + 1, toy.settings),
-                    std::invalid_argument);
+  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, kQAMaxIterations + 1, toy.settings), std::invalid_argument);
 }
 
 } // namespace o2::gtrk::study

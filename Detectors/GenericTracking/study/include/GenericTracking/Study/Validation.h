@@ -49,16 +49,14 @@ namespace o2::gtrk::study
 /// The triplet's kink variance with theta from the first to the third
 /// measurement.
 template <DetectorLayout Det>
-[[nodiscard]] inline Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer,
-                                              const PairPoint& first, const PairPoint& middle, const PairPoint& third)
+[[nodiscard]] inline Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
 {
   return tripletScattering(table, cut, middleLayer, first, middle, third, detail::referenceSinTheta(first, third));
 }
 
 /// The fit factor from the points and a given angular variance, the kink
 /// terms computed here.
-[[nodiscard]] inline bool makeTripletFitFactor(const PairPoint& first, const PairPoint& middle, const PairPoint& third,
-                                               Scalar angularVariance, TripletFitFactor& result)
+[[nodiscard]] inline bool makeTripletFitFactor(const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar angularVariance, TripletFitFactor& result)
 {
   KinkTerms terms;
   return makeKinkTerms(first, middle, third, terms) && makeTripletFitFactor(terms, first, middle, third, angularVariance, result);
@@ -101,11 +99,9 @@ inline constexpr std::array<std::string_view, kFitRefusals> kFitRefusalNames{"ti
 /// where the iteration has the allowance (`takesLastStepAllowance`), for the
 /// studies that repeat it; the stages choose at compile time.
 template <typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material,
-                                    const Chain& measurements, int n)
+[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
 {
-  return takesLastStepAllowance(parameters) ? o2::gtrk::fitRoad<true>(parameters, prop, geometry, material, measurements, n)
-                                            : o2::gtrk::fitRoad<false>(parameters, prop, geometry, material, measurements, n);
+  return takesLastStepAllowance(parameters) ? o2::gtrk::fitRoad<true>(parameters, prop, geometry, material, measurements, n) : o2::gtrk::fitRoad<false>(parameters, prop, geometry, material, measurements, n);
 }
 
 /// The road fit stage's tests on the road of \a rows of \a frame, innermost
@@ -115,8 +111,7 @@ template <typename Parameters, typename Prop, DetectorLayout Det, typename Mater
 /// constraint the beam line. The road as given: `iterationInnerTrim`'s
 /// shorter fits of a refused road are not replayed.
 template <DetectorLayout Det, typename Material>
-[[nodiscard]] FitRefusal roadFitRefusal(const IterationParameters<Det>& parameters, const Propagator& propagator, const TrackingGeometry<Det>& tracking,
-                                        const Material& material, const TimeFrame<Det>& frame, std::span<const std::uint32_t> rows)
+[[nodiscard]] FitRefusal roadFitRefusal(const IterationParameters<Det>& parameters, const Propagator& propagator, const TrackingGeometry<Det>& tracking, const Material& material, const TimeFrame<Det>& frame, std::span<const std::uint32_t> rows)
 {
   const auto columns = frame.measurements();
   auto common = timeBoxAt(columns, rows[0]);
@@ -138,8 +133,7 @@ template <DetectorLayout Det, typename Material>
   if (!clearsPtFloor(parameters, count, fit)) {
     return FitRefusal::kPtFloor;
   }
-  if (Scalar beamChi2 = 0.F;
-      parameters.beamConstraint && !clearsBeamLine(propagator, parameters, frame, tracking, material, rows.data(), count, fit.state, beamChi2)) {
+  if (Scalar beamChi2 = 0.F; parameters.beamConstraint && !clearsBeamLine(propagator, parameters, frame, tracking, material, rows.data(), count, fit.state, beamChi2)) {
     return FitRefusal::kBeamLine;
   }
   return FitRefusal::kTaken;

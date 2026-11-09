@@ -114,8 +114,7 @@ class SeedingStrategy
   /// \a steps [GeV]; with \a remove, each pass's seeded particles' rows held;
   /// with \a fit, seeded by the road fit's records rather than the roads;
   /// the findable of \a population.
-  SeedingStrategy(const study::TrackingTruth& truth, const study::ComparisonSettings& comparison, std::vector<double> steps, bool remove, bool fit,
-                  Population population = Population::kPrimaries)
+  SeedingStrategy(const study::TrackingTruth& truth, const study::ComparisonSettings& comparison, std::vector<double> steps, bool remove, bool fit, Population population = Population::kPrimaries)
     : mTruth(truth),
       mComparison(comparison),
       mSteps(std::move(steps)),
@@ -280,9 +279,7 @@ class SeedingStrategy
       held += mHeld[row];
     }
     mPassIndex = static_cast<std::uint32_t>(iterations);
-    std::string line =
-      std::format("after the run's first {} iterations: {} tracks, {} fake; {} rows held ({:.2f} %); found of the findable {} at or above:", iterations,
-                  tracks.size(), fakes, held, study::percent(held, mHeld.size()), mPopulation);
+    std::string line = std::format("after the run's first {} iterations: {} tracks, {} fake; {} rows held ({:.2f} %); found of the findable {} at or above:", iterations, tracks.size(), fakes, held, study::percent(held, mHeld.size()), mPopulation);
     for (const auto step : mSteps) {
       std::uint64_t findable = 0U;
       std::uint64_t found = 0U;
@@ -350,15 +347,13 @@ class SeedingStrategy
   /// pass must not read -- every row of the particles it seeded, with removal.
   /// With the fit, \a refit says why it refused the pure roads of the
   /// findable without a pure record.
-  [[nodiscard]] std::vector<std::uint32_t> endPass(const IterationSettings& settings, const PassCost& cost, std::ostream& out, std::ostream* json,
-                                                   const Refit& refit = {})
+  [[nodiscard]] std::vector<std::uint32_t> endPass(const IterationSettings& settings, const PassCost& cost, std::ostream& out, std::ostream* json, const Refit& refit = {})
   {
     std::vector<std::uint32_t> hold;
     if (mRemove && !mShadow) {
       for (const auto particle : mSeeded) {
         const std::span<const std::uint32_t> rows{mParticleRows};
-        hold.insert(hold.end(), rows.begin() + static_cast<std::ptrdiff_t>(mParticleOffsets[particle]),
-                    rows.begin() + static_cast<std::ptrdiff_t>(mParticleOffsets[particle + 1U]));
+        hold.insert(hold.end(), rows.begin() + static_cast<std::ptrdiff_t>(mParticleOffsets[particle]), rows.begin() + static_cast<std::ptrdiff_t>(mParticleOffsets[particle + 1U]));
       }
       std::ranges::sort(hold);
       const auto [last, end] = std::ranges::unique(hold);
@@ -452,25 +447,14 @@ class SeedingStrategy
     out << std::format(
              "pass {}{}: floor {} GeV, layers {} (mask {}), starts {}, {} clusters, kink sigma {}; {} tracklets, {} triplets{}, {} neighbours{}, {} roads "
              "({:.2f} % impure, {:.2f} owners per seeded particle); {:.3f} s, pool peak {:.2f} GB\n",
-             mPassIndex, mShadow ? " (shadow: holds nothing)" : "", floor, layerList(settings.layerMask), settings.layerMask,
-             settings.roadStartLayers == 0U ? "any" : layerList(settings.roadStartLayers), settings.minClusters,
-             settings.graphKinkSigma > 0. ? std::format("{} (graph {})", settings.kinkSigma, settings.graphKinkSigma) : std::format("{}", settings.kinkSigma),
-             mPass.tracklets, mPass.triplets, cost.counted ? std::format(" ({} fits)", cost.tripletFits) : std::string{}, mPass.neighbours,
-             cost.counted ? std::format(" ({} fits)", cost.neighbourFits) : std::string{}, mPass.roads, study::percent(mPass.impureRoads, mPass.roads), multiplicity,
-             cost.seconds, static_cast<double>(cost.poolPeakBytes) / 1.e9)
-        << std::format("  seeded {} particles: {} findable {} ({} first seeded here); by origin {} primaries, {} decay daughters, {} material; {} rows held\n",
-                       mSeeded.size(), seededFindable, mPopulation, firstFindable,
-                       seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kPhysicalPrimary)],
-                       seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kDecay)],
-                       seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kMaterial)], hold.size());
+             mPassIndex, mShadow ? " (shadow: holds nothing)" : "", floor, layerList(settings.layerMask), settings.layerMask, settings.roadStartLayers == 0U ? "any" : layerList(settings.roadStartLayers), settings.minClusters, settings.graphKinkSigma > 0. ? std::format("{} (graph {})", settings.kinkSigma, settings.graphKinkSigma) : std::format("{}", settings.kinkSigma), mPass.tracklets, mPass.triplets, cost.counted ? std::format(" ({} fits)", cost.tripletFits) : std::string{}, mPass.neighbours, cost.counted ? std::format(" ({} fits)", cost.neighbourFits) : std::string{}, mPass.roads, study::percent(mPass.impureRoads, mPass.roads), multiplicity, cost.seconds, static_cast<double>(cost.poolPeakBytes) / 1.e9)
+        << std::format("  seeded {} particles: {} findable {} ({} first seeded here); by origin {} primaries, {} decay daughters, {} material; {} rows held\n", mSeeded.size(), seededFindable, mPopulation, firstFindable, seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kPhysicalPrimary)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kDecay)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kMaterial)], hold.size());
     std::uint64_t lost = 0U;
     for (const auto count : lostByLength) {
       lost += count;
     }
     if (mFit) {
-      std::string line =
-        std::format("  road fit: {} records ({} pure) in {:.3f} s; findable {} with a pure road {}, without a pure record {} ({:.2f} %), by pure road length:",
-                    mPass.records, mPass.pureRecords, cost.fitSeconds, mPopulation, roadFindable, lost, study::percent(lost, roadFindable));
+      std::string line = std::format("  road fit: {} records ({} pure) in {:.3f} s; findable {} with a pure road {}, without a pure record {} ({:.2f} %), by pure road length:", mPass.records, mPass.pureRecords, cost.fitSeconds, mPopulation, roadFindable, lost, study::percent(lost, roadFindable));
       for (std::size_t length = 0; length < lostByLength.size(); ++length) {
         line += lostByLength[length] == 0U ? std::string{} : std::format(" {}: {}", length, lostByLength[length]);
       }
@@ -484,13 +468,10 @@ class SeedingStrategy
       out << std::format(
         "  real run: {} tracks, {} good, {} fake; held rows {}, of them {} carry no found particle; the found particles' rows {}, {} of them "
         "free ({:.2f} %), on {} particles ({} findable {})\n",
-        mReal->tracks, mReal->tracks - mReal->fakes, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree,
-        study::percent(mReal->foundRowsFree, mReal->foundRows), mReal->foundWithFree, mReal->findableWithFree, mPopulation);
+        mReal->tracks, mReal->tracks - mReal->fakes, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree, study::percent(mReal->foundRowsFree, mReal->foundRows), mReal->foundWithFree, mReal->findableWithFree, mPopulation);
     }
     if (versus) {
-      out << std::format("  against shadow pass {}: both seed {} findable {}; only this pass {} (in the shadow: {}), only the shadow {} (here: {})\n",
-                         mShadowPass, bothSeeded, mPopulation, mainOnly[0] + mainOnly[1] + mainOnly[2] + mainOnly[3], mechanismLine(mainOnly),
-                         shadowOnly[0] + shadowOnly[1] + shadowOnly[2] + shadowOnly[3], mechanismLine(shadowOnly));
+      out << std::format("  against shadow pass {}: both seed {} findable {}; only this pass {} (in the shadow: {}), only the shadow {} (here: {})\n", mShadowPass, bothSeeded, mPopulation, mainOnly[0] + mainOnly[1] + mainOnly[2] + mainOnly[3], mechanismLine(mainOnly), shadowOnly[0] + shadowOnly[1] + shadowOnly[2] + shadowOnly[3], mechanismLine(shadowOnly));
     }
     std::string line = std::format("  coverage of the findable {} at or above:", mPopulation);
     for (std::size_t step = 0; step < mSteps.size(); ++step) {
@@ -499,8 +480,7 @@ class SeedingStrategy
     out << line << '\n';
     line = std::format("  at the floor, by class, covered % (this pass's gain %) of the findable:");
     for (std::size_t kind = 0; kind < kClasses; ++kind) {
-      line += std::format(" {} {:.2f} ({:+.2f}) of {}", kClassNames[kind], study::percent(classCovered[kind], classFindable[kind]),
-                          study::percent(classGained[kind], classFindable[kind]), classFindable[kind]);
+      line += std::format(" {} {:.2f} ({:+.2f}) of {}", kClassNames[kind], study::percent(classCovered[kind], classFindable[kind]), study::percent(classGained[kind], classFindable[kind]), classFindable[kind]);
     }
     out << line << '\n';
     // The rows left free: noise, a findable particle's (unseeded), another
@@ -528,8 +508,7 @@ class SeedingStrategy
     out << std::format(
       "  rows free after the pass: {:.2f} % of all; of them noise {:.2f} %, findable {} {:.2f} %, other particles >= {} GeV {:.2f} %, "
       "only particles below {:.2f} %\n",
-      study::percent(freeTotal, mHeld.size()), study::percent(free[0], freeTotal), mPopulation, study::percent(free[1], freeTotal), lowest, study::percent(free[2], freeTotal),
-      study::percent(free[3], freeTotal));
+      study::percent(freeTotal, mHeld.size()), study::percent(free[0], freeTotal), mPopulation, study::percent(free[1], freeTotal), lowest, study::percent(free[2], freeTotal), study::percent(free[3], freeTotal));
     std::vector<std::pair<std::uint64_t, std::uint64_t>> patterns(unseeded.begin(), unseeded.end());
     std::ranges::sort(patterns, [](const auto& a, const auto& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
     std::uint64_t unseededTotal = 0U;
@@ -538,8 +517,7 @@ class SeedingStrategy
     }
     out << std::format("  unseeded at the floor: {} (over the passes so far: {}); the most common layer patterns:\n", unseededTotal, mechanismLine(unseededBy));
     for (std::size_t at = 0; at < std::min<std::size_t>(patterns.size(), kPatterns); ++at) {
-      out << std::format("    {:7d} ({:5.2f} %)  {} (mask {})\n", patterns[at].second, study::percent(patterns[at].second, unseededTotal),
-                         layerList(patterns[at].first), patterns[at].first);
+      out << std::format("    {:7d} ({:5.2f} %)  {} (mask {})\n", patterns[at].second, study::percent(patterns[at].second, unseededTotal), layerList(patterns[at].first), patterns[at].first);
     }
     if (json != nullptr) {
       std::string coverage;
@@ -559,41 +537,25 @@ class SeedingStrategy
         origins += std::format("{}{}", origin == 0U ? "" : ",", seededByOrigin[origin]);
       }
       const auto fits = [&](std::uint64_t count) { return cost.counted ? std::to_string(count) : std::string{"null"}; };
-      const auto byMechanism = [](const std::array<std::uint64_t, kMechanisms>& counts) {
-        return std::format("[{},{},{},{}]", counts[0], counts[1], counts[2], counts[3]);
-      };
+      const auto byMechanism = [](const std::array<std::uint64_t, kMechanisms>& counts) { return std::format("[{},{},{},{}]", counts[0], counts[1], counts[2], counts[3]); };
       std::string lostLengths;
       for (std::size_t length = 0; length < lostByLength.size(); ++length) {
         if (lostByLength[length] != 0U) {
           lostLengths += std::format("{}[{},{}]", lostLengths.empty() ? "" : ",", length, lostByLength[length]);
         }
       }
-      const std::string fitJson =
-        mFit && !mShadow
-          ? std::format(R"({{"records":{},"pureRecords":{},"seconds":{:.6f},"roadFindable":{},"lost":{},"lostByLength":[{}],"lostByClass":[{},{},{},{}],)"
-                        R"("lostBy":[{},{},{},{},{},{}]}})",
-                        mPass.records, mPass.pureRecords, cost.fitSeconds, roadFindable, lost, lostLengths, lostByClass[0], lostByClass[1], lostByClass[2],
-                        lostByClass[3], lostBy[0], lostBy[1], lostBy[2], lostBy[3], lostBy[4], lostBy[5])
-          : std::string{"null"};
-      const std::string realJson =
-        mReal
-          ? std::format(R"({{"tracks":{},"fakes":{},"heldRows":{},"wrongHeld":{},"foundRows":{},"foundRowsFree":{},"foundWithFree":{},"findableWithFree":{}}})",
-                        mReal->tracks, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree, mReal->foundWithFree,
-                        mReal->findableWithFree)
-          : std::string{"null"};
-      const std::string versusJson =
-        versus ? std::format(R"({{"shadowPass":{},"both":{},"mainOnly":{},"shadowOnly":{}}})", mShadowPass, bothSeeded, byMechanism(mainOnly), byMechanism(shadowOnly))
-               : std::string{"null"};
-      *json << std::format(
-                 R"({{"pass":{},"floor":{},"layerMask":{},"startLayers":{},"minClusters":{},"remove":{},"tracklets":{},"triplets":{},"neighbours":{},)"
-                 R"("tripletFits":{},"neighbourFits":{},"roads":{},"impureRoads":{},"pureRoads":{},"owners":{},"seeded":{},"seededByOrigin":[{}],)"
-                 R"("seededFindable":{},"firstFindable":{},"rowsHeld":{},"seconds":{:.6f},"poolPeakBytes":{},)"
-                 R"("coverage":[{}],"classes":{{{}}},"unseeded":{},"unseededBy":{},"patterns":[{}],"free":[{},{},{},{},{}],)"
-                 R"("shadow":{},"kinkSigma":{},"graphKinkSigma":{},"fit":{},"versus":{},"real":{}}})",
-                 mPassIndex, floor, settings.layerMask, settings.roadStartLayers, settings.minClusters, mRemove, mPass.tracklets, mPass.triplets,
-                 mPass.neighbours, fits(cost.tripletFits), fits(cost.neighbourFits), mPass.roads, mPass.impureRoads, mPass.pureRoads, mPass.owners,
-                 mSeeded.size(), origins, seededFindable, firstFindable, hold.size(), cost.seconds, cost.poolPeakBytes, coverage, classes, unseededTotal,
-                 byMechanism(unseededBy), top, freeTotal, free[0], free[1], free[2], free[3], mShadow, settings.kinkSigma, settings.graphKinkSigma, fitJson, versusJson, realJson)
+      const std::string fitJson = mFit && !mShadow ? std::format(R"({{"records":{},"pureRecords":{},"seconds":{:.6f},"roadFindable":{},"lost":{},"lostByLength":[{}],"lostByClass":[{},{},{},{}],)"
+                                                                 R"("lostBy":[{},{},{},{},{},{}]}})",
+                                                                 mPass.records, mPass.pureRecords, cost.fitSeconds, roadFindable, lost, lostLengths, lostByClass[0], lostByClass[1], lostByClass[2], lostByClass[3], lostBy[0], lostBy[1], lostBy[2], lostBy[3], lostBy[4], lostBy[5])
+                                                   : std::string{"null"};
+      const std::string realJson = mReal ? std::format(R"({{"tracks":{},"fakes":{},"heldRows":{},"wrongHeld":{},"foundRows":{},"foundRowsFree":{},"foundWithFree":{},"findableWithFree":{}}})", mReal->tracks, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree, mReal->foundWithFree, mReal->findableWithFree) : std::string{"null"};
+      const std::string versusJson = versus ? std::format(R"({{"shadowPass":{},"both":{},"mainOnly":{},"shadowOnly":{}}})", mShadowPass, bothSeeded, byMechanism(mainOnly), byMechanism(shadowOnly)) : std::string{"null"};
+      *json << std::format(R"({{"pass":{},"floor":{},"layerMask":{},"startLayers":{},"minClusters":{},"remove":{},"tracklets":{},"triplets":{},"neighbours":{},)"
+                           R"("tripletFits":{},"neighbourFits":{},"roads":{},"impureRoads":{},"pureRoads":{},"owners":{},"seeded":{},"seededByOrigin":[{}],)"
+                           R"("seededFindable":{},"firstFindable":{},"rowsHeld":{},"seconds":{:.6f},"poolPeakBytes":{},)"
+                           R"("coverage":[{}],"classes":{{{}}},"unseeded":{},"unseededBy":{},"patterns":[{}],"free":[{},{},{},{},{}],)"
+                           R"("shadow":{},"kinkSigma":{},"graphKinkSigma":{},"fit":{},"versus":{},"real":{}}})",
+                           mPassIndex, floor, settings.layerMask, settings.roadStartLayers, settings.minClusters, mRemove, mPass.tracklets, mPass.triplets, mPass.neighbours, fits(cost.tripletFits), fits(cost.neighbourFits), mPass.roads, mPass.impureRoads, mPass.pureRoads, mPass.owners, mSeeded.size(), origins, seededFindable, firstFindable, hold.size(), cost.seconds, cost.poolPeakBytes, coverage, classes, unseededTotal, byMechanism(unseededBy), top, freeTotal, free[0], free[1], free[2], free[3], mShadow, settings.kinkSigma, settings.graphKinkSigma, fitJson, versusJson, realJson)
             << '\n';
     }
     if (mShadow) {
@@ -622,10 +584,7 @@ class SeedingStrategy
       const auto number = particle.particle;
       const auto found = mTruth.particles.find(mIds[number]);
       const auto truth = found == mTruth.particles.end() ? study::ParticleTruth{} : found->second;
-      out << std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", mIds[number], particle.pt, static_cast<int>(particle.kind), particle.layers,
-                         pass(mSeededBy[number]), pass(mRoadBy[number]), pass(mShadowBy[number]),
-                         mSeededBy[number] == kUnseeded ? static_cast<int>(mEver[number]) : -1, truth.pdg, truth.eta, std::hypot(truth.vx, truth.vy), truth.vz,
-                         mRefusals[number], mRefusal[number], truth.motherPdg);
+      out << std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", mIds[number], particle.pt, static_cast<int>(particle.kind), particle.layers, pass(mSeededBy[number]), pass(mRoadBy[number]), pass(mShadowBy[number]), mSeededBy[number] == kUnseeded ? static_cast<int>(mEver[number]) : -1, truth.pdg, truth.eta, std::hypot(truth.vx, truth.vy), truth.vz, mRefusals[number], mRefusal[number], truth.motherPdg);
     }
   }
 
@@ -692,10 +651,7 @@ class SeedingStrategy
   /// Mechanisms best first: refused, inside, partly, none.
   [[nodiscard]] static int rank(Mechanism mechanism) { return mechanism == Mechanism::kRefused ? -1 : static_cast<int>(mechanism); }
 
-  [[nodiscard]] static std::string mechanismLine(const std::array<std::uint64_t, kMechanisms>& counts)
-  {
-    return std::format("{} inside an impure road, {} partly in one, {} in none, {} in a pure road the fit refused", counts[0], counts[1], counts[2], counts[3]);
-  }
+  [[nodiscard]] static std::string mechanismLine(const std::array<std::uint64_t, kMechanisms>& counts) { return std::format("{} inside an impure road, {} partly in one, {} in none, {} in a pure road the fit refused", counts[0], counts[1], counts[2], counts[3]); }
 
   /// \a particle seeded by this pass: a shadow pass's own record, else
   /// the study's, and held after the pass.

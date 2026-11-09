@@ -111,11 +111,7 @@ class BoundedColumns
   void copyTo(std::size_t from, BoundedColumns& destination, std::size_t to, std::size_t count) const
   {
     assert(from + count <= size() && to + count <= destination.size());
-    mColumns.apply([&](const auto&... source) {
-      destination.mColumns.apply([&](auto&... target) {
-        (std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(from), count, target.begin() + static_cast<std::ptrdiff_t>(to)), ...);
-      });
-    });
+    mColumns.apply([&](const auto&... source) { destination.mColumns.apply([&](auto&... target) { (std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(from), count, target.begin() + static_cast<std::ptrdiff_t>(to)), ...); }); });
   }
 
  private:

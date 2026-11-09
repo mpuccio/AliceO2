@@ -139,7 +139,11 @@ class Fixture
     std::ranges::copy(reference, input.begin());
     for (std::size_t i = 0; i < kExtraSources; ++i) {
       input[kReferenceMeasurements + i] = {
-        .layer = 0, .r = 2.F, .phi = (2 * std::numbers::pi_v<Scalar>)*static_cast<Scalar>(i) / static_cast<Scalar>(kExtraSources), .z = 20.F};
+        .layer = 0,
+        .r = 2.F,
+        .phi = (2 * std::numbers::pi_v<Scalar>)*static_cast<Scalar>(i) / static_cast<Scalar>(kExtraSources),
+        .z = 20.F,
+      };
     }
 
     frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r * std::cos(input[i].phi), .y = input[i].r * std::sin(input[i].phi), .z = input[i].z, .r = input[i].r, .phi = input[i].phi}; }, [&](std::size_t i) { return kRowBox; }, [&](std::size_t i) { return test::PointVariances{1e-4F, 1e-4F, 1e-4F}; }, columns, offsets);
@@ -167,10 +171,7 @@ class Fixture
   std::array<std::uint32_t, Sources::kLayerCount> maxCandidateWidthPS{kRowBox.width, kRowBox.width, kRowBox.width};
 };
 
-[[nodiscard]] bool vertexUsed(const IterationParameters<StageToy>& parameters, const auto& source, const VertexSeed& vertex)
-{
-  return vertexUsable(parameters, timeBox(source), vertex);
-}
+[[nodiscard]] bool vertexUsed(const IterationParameters<StageToy>& parameters, const auto& source, const VertexSeed& vertex) { return vertexUsable(parameters, timeBox(source), vertex); }
 
 template <typename Stage>
 std::unique_ptr<Output> runStage(const Fixture& fixture, const Stage& stage)
@@ -182,8 +183,7 @@ std::unique_ptr<Output> runStage(const Fixture& fixture, const Stage& stage)
   return output;
 }
 
-std::vector<std::uint32_t> bruteForceTargets(const Fixture& fixture, const IterationParameters<StageToy>& parameters, std::span<const VertexSeed> vertices,
-                                             Sources::Index sourceElement, std::size_t linkIndex)
+std::vector<std::uint32_t> bruteForceTargets(const Fixture& fixture, const IterationParameters<StageToy>& parameters, std::span<const VertexSeed> vertices, Sources::Index sourceElement, std::size_t linkIndex)
 {
   const auto sourceAt = fixture.sources.row(sourceElement);
   const auto source = fixture.frame->measurement(sourceAt.row);
@@ -228,9 +228,7 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
   const std::span<const VertexSeed> selected = vertexSource == VertexSource::kBeamLine ? std::span<const VertexSeed>{&fixture.beamLine, 1U} : vertexList;
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, vertexList);
 
-  const TrackletStage<StageToy> stage{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertexList, fixture.maxCandidateWidthPS,
-    vertexWindows, fixture.used.data()};
+  const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertexList, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   Output output;
   output.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   output.prepare(fixture.sources.size());
@@ -272,11 +270,13 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
           const Scalar dx = target.x - source.x;
           const Scalar dy = target.y - source.y;
           const Scalar dz = target.z - source.z;
-          expectedOrder.push_back({.source = sourceAt.row,
-                                   .target = targetRow,
-                                   .link = static_cast<std::uint16_t>(linkIndex),
-                                   .lambda = o2::gpu::GPUCommonMath::ATan2(dz, o2::gpu::GPUCommonMath::Sqrt((dx * dx) + (dy * dy))),
-                                   .phi = o2::gpu::GPUCommonMath::ATan2(dy, dx)});
+          expectedOrder.push_back({
+            .source = sourceAt.row,
+            .target = targetRow,
+            .link = static_cast<std::uint16_t>(linkIndex),
+            .lambda = o2::gpu::GPUCommonMath::ATan2(dz, o2::gpu::GPUCommonMath::Sqrt((dx * dx) + (dy * dy))),
+            .phi = o2::gpu::GPUCommonMath::ATan2(dy, dx),
+          });
         }
       });
     }
@@ -321,8 +321,7 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
         BOOST_TEST(!pairCompatible(parameters.pairCut, selected[i], sourcePoint, scattering, targetPoint));
       }
       BOOST_REQUIRE(vertexUsed(parameters, fixture.frame->measurement(wrappedSource), selected[kFirstPassingVertex]));
-      const Scalar passingScattering =
-        sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, selected[kFirstPassingVertex], LayerID{0}, sourcePoint);
+      const Scalar passingScattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, selected[kFirstPassingVertex], LayerID{0}, sourcePoint);
       BOOST_TEST(pairCompatible(parameters.pairCut, selected[kFirstPassingVertex], sourcePoint, passingScattering, targetPoint));
       bool found = false;
       for (std::size_t i = 0; i < output.size(); ++i) {
@@ -349,8 +348,7 @@ BOOST_AUTO_TEST_CASE(WithoutSkipsAPairCrossingALayerIsNotATracklet)
   const std::array<double, 3> material{};
   const auto table = scatteringTable<StageToy>(material);
   const auto withSkips = iterationParameters<StageToy>({.windows = windowParameters(), .minClusters = kChainClusters}, Fixture::kBeamConstraint, table);
-  const auto without =
-    iterationParameters<StageToy>({.windows = windowParameters(), .minClusters = kChainClusters, .skipLinks = false}, Fixture::kBeamConstraint, table);
+  const auto without = iterationParameters<StageToy>({.windows = windowParameters(), .minClusters = kChainClusters, .skipLinks = false}, Fixture::kBeamConstraint, table);
   BOOST_TEST(withSkips.holeLayers[0] == 0U);
   BOOST_TEST(without.holeLayers[0] == 0b010U);
   BOOST_TEST(without.holeLayers[1] == 0U);
@@ -404,16 +402,7 @@ BOOST_AUTO_TEST_CASE(TheSourceGateSkipsHaloSourcesOutsideItsWindow)
     everything[layer] = fixture.frame->grid().layerRows(static_cast<LayerID>(layer));
   }
   const auto run = [&](const SourceGate& gate) {
-    const TrackletStage<StageToy> stage{parameters,
-                                        fixture.sources,
-                                        *fixture.frame,
-                                        fixture.geometry.allBlocks(),
-                                        fixture.beamLine,
-                                        {},
-                                        fixture.maxCandidateWidthPS,
-                                        vertexWindows,
-                                        fixture.used.data(),
-                                        gate};
+    const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data(), gate};
     return runStage(fixture, stage);
   };
 
@@ -434,8 +423,7 @@ BOOST_AUTO_TEST_CASE(TheUsedMaskRemovesExclusiveRows)
   const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   const auto run = [&](const std::vector<std::uint8_t>& used) {
-    const TrackletStage<StageToy> stage{
-      parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, used.data()};
+    const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, used.data()};
     return runStage(fixture, stage);
   };
   const auto free = run(fixture.used);
@@ -488,12 +476,8 @@ BOOST_AUTO_TEST_CASE(ForcedVertexCapacityOneKeepsTheSameTracklets)
   vertices.back() = {.timePS = 110'200U, .z = 5.F};
   std::ranges::sort(vertices, {}, &VertexSeed::timePS);
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, vertices);
-  const TrackletStage<StageToy> normal{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertices, fixture.maxCandidateWidthPS,
-    vertexWindows, fixture.used.data()};
-  const TrackletStage<StageToy, 1U> forced{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertices, fixture.maxCandidateWidthPS,
-    vertexWindows, fixture.used.data()};
+  const TrackletStage<StageToy> normal{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertices, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const TrackletStage<StageToy, 1U> forced{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, vertices, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   BOOST_TEST(!vertexUsable(parameters, kRowBox, vertices[2]));
 
   const auto normalOutput = runStage(fixture, normal);
@@ -510,13 +494,9 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = kChainClusters};
   const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
-  const auto run = [&](const auto& stage) {
-    return runStage(fixture, stage);
-  };
-  const TrackletStage<StageToy> general{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
-  const TrackletStageFor<StageToy, true> beamLine{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const auto run = [&](const auto& stage) { return runStage(fixture, stage); };
+  const TrackletStage<StageToy> general{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const TrackletStageFor<StageToy, true> beamLine{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   const auto expected = run(general);
   BOOST_REQUIRE(expected->size() > 0U);
   BOOST_TEST(sameStageOutput(*run(beamLine), *expected));
@@ -524,9 +504,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
   const IterationSettings listSettings{.windows = windowParameters(), .vertexSource = VertexSource::kVertexList, .minClusters = kChainClusters};
   const auto listParameters = iterationParameters<StageToy>(listSettings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
   const auto listWindows = vertexWindowParameters<StageToy>(listParameters, listSettings.windows, fixture.vertices);
-  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{listParameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine,
-                                                      fixture.vertices, fixture.maxCandidateWidthPS, listWindows, fixture.used.data()}),
-                    std::invalid_argument);
+  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{listParameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, listWindows, fixture.used.data()}), std::invalid_argument);
 }
 
 /// A displaced iteration: its stage makes
@@ -551,11 +529,8 @@ BOOST_AUTO_TEST_CASE(TheDisplacedStageMakesThePairsItsTestAdmits)
     BOOST_TEST(parameters.windows[link].phiHalfWidth >= prompt.windows[link].phiHalfWidth);
     BOOST_TEST(std::isinf(parameters.sourceMax[link]));
   }
-  const auto run = [&](const auto& stage) {
-    return runStage(fixture, stage);
-  };
-  const TrackletStageFor<StageToy, true, true> stage{
-    parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const auto run = [&](const auto& stage) { return runStage(fixture, stage); };
+  const TrackletStageFor<StageToy, true, true> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   const auto output = run(stage);
   const auto view = std::as_const(*output).view();
   std::size_t admitted = 0U;
@@ -570,8 +545,7 @@ BOOST_AUTO_TEST_CASE(TheDisplacedStageMakesThePairsItsTestAdmits)
       const Scalar scattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, fixture.beamLine, sourceAt.layer, sourcePoint);
       for (auto targetRow = targets.begin; targetRow < targets.end; ++targetRow) {
         const auto target = fixture.frame->measurement(targetRow);
-        if (!timeBox(source).isCompatible(timeBox(target)) ||
-            segmentLeavesHole(parameters.holeLayers[link], parameters.barrelLayers, parameters.layerSpans, source.r, source.z, target.r, target.z)) {
+        if (!timeBox(source).isCompatible(timeBox(target)) || segmentLeavesHole(parameters.holeLayers[link], parameters.barrelLayers, parameters.layerSpans, source.r, source.z, target.r, target.z)) {
           continue;
         }
         const auto result = displacedPairOf(parameters, fixture.beamLine, sourcePoint, scattering, pairPoint(target), 0.F);
@@ -590,30 +564,11 @@ BOOST_AUTO_TEST_CASE(TheDisplacedStageMakesThePairsItsTestAdmits)
     admitted += expected.size();
   }
   BOOST_TEST(admitted == output->size());
-  const TrackletStageFor<StageToy, true> promptStage{
-    prompt, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const TrackletStageFor<StageToy, true> promptStage{prompt, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   BOOST_TEST(output->size() > run(promptStage)->size());
 
-  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{parameters,
-                                                      fixture.sources,
-                                                      *fixture.frame,
-                                                      fixture.geometry.allBlocks(),
-                                                      fixture.beamLine,
-                                                      {},
-                                                      fixture.maxCandidateWidthPS,
-                                                      vertexWindows,
-                                                      fixture.used.data()}),
-                    std::invalid_argument);
-  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true, true>{prompt,
-                                                            fixture.sources,
-                                                            *fixture.frame,
-                                                            fixture.geometry.allBlocks(),
-                                                            fixture.beamLine,
-                                                            {},
-                                                            fixture.maxCandidateWidthPS,
-                                                            vertexWindows,
-                                                            fixture.used.data()}),
-                    std::invalid_argument);
+  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()}), std::invalid_argument);
+  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true, true>{prompt, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()}), std::invalid_argument);
   auto noZ = settings;
   noZ.windows.impactZMax = 0.;
   BOOST_CHECK_THROW(static_cast<void>(iterationParameters<StageToy>(noZ, Fixture::kBeamConstraint, table)), std::invalid_argument);
@@ -635,16 +590,7 @@ BOOST_AUTO_TEST_CASE(ABoundStageReadsItsBindingsOnly)
     const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, fixture.vertices);
     const std::array<MeasurementRange, Sources::kLayerCount> nothing{};
     const SourceGate gate{.core = nothing.data(), .earliestPS = 0, .latestPS = 120'000};
-    const TrackletStage<StageToy> stage{parameters,
-                                        fixture.sources,
-                                        *fixture.frame,
-                                        fixture.geometry.allBlocks(),
-                                        fixture.beamLine,
-                                        fixture.vertices,
-                                        fixture.maxCandidateWidthPS,
-                                        vertexWindows,
-                                        fixture.used.data(),
-                                        gate};
+    const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data(), gate};
     const auto run = [&](const auto& generator) {
       auto output = std::make_unique<Output>();
       output->setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -661,18 +607,18 @@ BOOST_AUTO_TEST_CASE(ABoundStageReadsItsBindingsOnly)
     const auto frameCopy = std::make_unique<Frame>(*fixture.frame);
     const auto windowsCopy = std::make_unique<VertexWindowParameters<StageToy>>(vertexWindows);
     // The vertices the stage reads, as its iteration chose: the beam line or the list.
-    const std::vector<VertexSeed> verticesCopy = vertexSource == VertexSource::kBeamLine
-                                                   ? std::vector<VertexSeed>{fixture.beamLine}
-                                                   : std::vector<VertexSeed>(fixture.vertices.begin(), fixture.vertices.end());
+    const std::vector<VertexSeed> verticesCopy = vertexSource == VertexSource::kBeamLine ? std::vector<VertexSeed>{fixture.beamLine} : std::vector<VertexSeed>(fixture.vertices.begin(), fixture.vertices.end());
     const auto coreCopy = nothing;
     auto usedCopy = fixture.used;
-    const TrackletBindings<StageToy> bindings{.parameters = parametersCopy.get(),
-                                              .sources = sourcesCopy.get(),
-                                              .frame = frameCopy.get(),
-                                              .used = usedCopy.data(),
-                                              .vertexWindows = windowsCopy.get(),
-                                              .vertices = verticesCopy.data(),
-                                              .gateCore = coreCopy.data()};
+    const TrackletBindings<StageToy> bindings{
+      .parameters = parametersCopy.get(),
+      .sources = sourcesCopy.get(),
+      .frame = frameCopy.get(),
+      .used = usedCopy.data(),
+      .vertexWindows = windowsCopy.get(),
+      .vertices = verticesCopy.data(),
+      .gateCore = coreCopy.data(),
+    };
     const auto bound = stage.bind(bindings);
     BOOST_TEST(sameStageOutput(*run(bound), *reference));
 
@@ -700,9 +646,7 @@ BOOST_AUTO_TEST_CASE(CpuStageMatchesTheSerialReference)
     const std::array<double, 3> material{};
     const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
     const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, fixture.vertices);
-    const TrackletStage<StageToy> stage{
-      parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS,
-      vertexWindows, fixture.used.data()};
+    const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
 
     Output serial;
     serial.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -720,8 +664,7 @@ BOOST_AUTO_TEST_CASE(CpuStageMatchesTheSerialReference)
         Cpu cpu{cpuArena};
         cpu.setMemoryPool(parallelPool);
         const auto status = cpu.run(parallel, chunk, stage);
-        BOOST_REQUIRE_MESSAGE(status == StageStatus::kComplete,
-                              "vertex source " << static_cast<int>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
+        BOOST_REQUIRE_MESSAGE(status == StageStatus::kComplete, "vertex source " << static_cast<int>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
         BOOST_TEST(sameStageOutput(parallel, serial), "vertex source " << static_cast<int>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
       }
     }

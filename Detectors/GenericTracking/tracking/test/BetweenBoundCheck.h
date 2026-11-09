@@ -92,8 +92,7 @@ std::vector<BetweenBoundRatio> betweenOverBound(const ScatteringTable<Det>& scat
       const Scalar kink = betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target);
       const Scalar masked = betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target, parameters.betweenPassives[link]);
       ratio.maskMismatches += std::bit_cast<std::uint32_t>(masked) != std::bit_cast<std::uint32_t>(kink) ? 1 : 0;
-      const Scalar fromSource =
-        betweenScattering<Det>(betweenSource<Det>(parameters.scattering, vertex, source), parameters.pairCut, vertex, target, parameters.betweenPassives[link]);
+      const Scalar fromSource = betweenScattering<Det>(betweenSource<Det>(parameters.scattering, vertex, source), parameters.pairCut, vertex, target, parameters.betweenPassives[link]);
       ratio.sourcePartMismatches += std::bit_cast<std::uint32_t>(fromSource) != std::bit_cast<std::uint32_t>(masked) ? 1 : 0;
       ratio.worst = std::max(ratio.worst, static_cast<double>(kink) / static_cast<double>(parameters.betweenBound[link]));
     }
@@ -130,8 +129,7 @@ int segmentMaskMismatches(const ScatteringTable<Det>& table)
       const auto to = point(link.to, u[2], u[3]);
       const auto visits = [&](std::uint64_t passives) {
         std::vector<std::uint32_t> seen;
-        visitPassivesBetween(
-          table, cut, from, to, 1.F, [&](Scalar variance, Scalar t) { seen.push_back(std::bit_cast<std::uint32_t>(variance * t)); }, passives);
+        visitPassivesBetween(table, cut, from, to, 1.F, [&](Scalar variance, Scalar t) { seen.push_back(std::bit_cast<std::uint32_t>(variance * t)); }, passives);
         return seen;
       };
       const auto all = visits(ScatteringTable<Det>::kAllPassives);

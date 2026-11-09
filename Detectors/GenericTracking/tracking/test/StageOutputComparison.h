@@ -22,9 +22,7 @@ namespace o2::gtrk
 template <typename Output>
 [[nodiscard]] bool sameStageShape(const Output& lhs, const Output& rhs)
 {
-  return lhs.size() == rhs.size() && lhs.counts().size() == rhs.counts().size() && lhs.offsets().size() == rhs.offsets().size() &&
-         std::memcmp(lhs.counts().data(), rhs.counts().data(), lhs.counts().size_bytes()) == 0 &&
-         std::memcmp(lhs.offsets().data(), rhs.offsets().data(), lhs.offsets().size_bytes()) == 0;
+  return lhs.size() == rhs.size() && lhs.counts().size() == rhs.counts().size() && lhs.offsets().size() == rhs.offsets().size() && std::memcmp(lhs.counts().data(), rhs.counts().data(), lhs.counts().size_bytes()) == 0 && std::memcmp(lhs.offsets().data(), rhs.offsets().data(), lhs.offsets().size_bytes()) == 0;
 }
 
 /// Compare counts, offsets and every schema column byte for byte.

@@ -84,12 +84,9 @@ TrackClusters TrackFile::read(long long entry)
     return {};
   }
   if (mChips == Chips::kITS) {
-    return readEntry<o2::its::TrackITS>(*mTree, entry, "ITSTrack", "ITSTrackClusIdx",
-                                        [](const o2::its::TrackITS& track) { return std::pair{track.getFirstClusterEntry(), track.getNumberOfClusters()}; });
+    return readEntry<o2::its::TrackITS>(*mTree, entry, "ITSTrack", "ITSTrackClusIdx", [](const o2::its::TrackITS& track) { return std::pair{track.getFirstClusterEntry(), track.getNumberOfClusters()}; });
   }
-  return readEntry<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack", "MFTTrackClusIdx", [](const o2::mft::TrackMFT& track) {
-    return std::pair{track.getExternalClusterIndexOffset(), track.getNumberOfPoints()};
-  });
+  return readEntry<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack", "MFTTrackClusIdx", [](const o2::mft::TrackMFT& track) { return std::pair{track.getExternalClusterIndexOffset(), track.getNumberOfPoints()}; });
 }
 
 std::vector<bool> TrackFile::fakeFlags(long long entry)

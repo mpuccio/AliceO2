@@ -247,13 +247,7 @@ namespace
 {
 // A numeric layer order deliberately opposite to the topological order.
 struct ReverseBarrel8 : detectors::ToyBarrel8 {
-  static constexpr std::array<LayerLink, 7> layerLinks{{{.from = 7, .to = 6, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 6, .to = 5, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 5, .to = 4, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 4, .to = 3, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 3, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 2, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-                                                        {.from = 1, .to = 0, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}}};
+  static constexpr std::array<LayerLink, 7> layerLinks{{{.from = 7, .to = 6, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 6, .to = 5, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 5, .to = 4, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 4, .to = 3, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 3, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 2, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}, {.from = 1, .to = 0, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false}}};
 };
 } // namespace
 BOOST_AUTO_TEST_CASE(PathSweepsFollowTopologyInsteadOfNumericLayerOrder)

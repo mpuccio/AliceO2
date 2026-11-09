@@ -68,8 +68,7 @@ using LayerBudget = std::array<double, static_cast<std::size_t>(Detector<Det>::n
 /// so the cell adds that mean times the integral of overlap(t) / t, a
 /// logarithm and a line: a fixed grid misreads the supports' sharp radial
 /// edges.
-[[nodiscard]] inline double sampledBudget(const o2::base::MatLayerCylSet& lut, bool barrel, double low, double high, double axisMin, double axisMax,
-                                          double position)
+[[nodiscard]] inline double sampledBudget(const o2::base::MatLayerCylSet& lut, bool barrel, double low, double high, double axisMin, double axisMax, double position)
 {
   if (barrel) {
     const double from = std::min(low, high);
@@ -105,8 +104,7 @@ using LayerBudget = std::array<double, static_cast<std::size_t>(Detector<Det>::n
         const double c = std::cos(phi);
         const double s = std::sin(phi);
         for (const auto& [z, weight] : along) {
-          const auto segment = lut.getMatBudget(static_cast<float>(pieceLow * c), static_cast<float>(pieceLow * s), static_cast<float>(z),
-                                                static_cast<float>(pieceHigh * c), static_cast<float>(pieceHigh * s), static_cast<float>(z));
+          const auto segment = lut.getMatBudget(static_cast<float>(pieceLow * c), static_cast<float>(pieceLow * s), static_cast<float>(z), static_cast<float>(pieceHigh * c), static_cast<float>(pieceHigh * s), static_cast<float>(z));
           sum += weight * static_cast<double>(segment.meanX2X0);
         }
       }
@@ -282,8 +280,7 @@ template <DetectorLayout Det>
   if constexpr (Detector<Det>::nPassives > 0) {
     for (std::size_t i = 0; i < budget.size(); ++i) {
       const auto& passive = Detector<Det>::passive(i);
-      budget[i] =
-        sampledBudget(lut, passive.kind == PassiveSpec::Kind::kBarrel, passive.bandLow, passive.bandHigh, passive.low, passive.high, passive.position);
+      budget[i] = sampledBudget(lut, passive.kind == PassiveSpec::Kind::kBarrel, passive.bandLow, passive.bandHigh, passive.low, passive.high, passive.position);
     }
   }
   return budget;

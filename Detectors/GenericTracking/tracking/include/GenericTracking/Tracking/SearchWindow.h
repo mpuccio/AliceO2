@@ -180,8 +180,7 @@ struct Interval {
 /// their intervals. Neither interval may contain `origin`.
 [[nodiscard]] inline Interval ratioRange(Interval to, Interval from, double origin)
 {
-  const double corners[4] = {(to.low - origin) / (from.low - origin), (to.low - origin) / (from.high - origin), (to.high - origin) / (from.low - origin),
-                             (to.high - origin) / (from.high - origin)};
+  const double corners[4] = {(to.low - origin) / (from.low - origin), (to.low - origin) / (from.high - origin), (to.high - origin) / (from.low - origin), (to.high - origin) / (from.high - origin)};
   return {.low = *std::min_element(corners, corners + 4), .high = *std::max_element(corners, corners + 4)};
 }
 
@@ -199,10 +198,7 @@ struct Interval {
 /// The distances between \a a and \a b: the nearest, zero where they
 /// overlap, and the farthest, between their ends.
 [[nodiscard]] inline double nearestApart(Interval a, Interval b) { return std::max({a.low - b.high, b.low - a.high, 0.}); }
-[[nodiscard]] inline double farthestApart(Interval a, Interval b)
-{
-  return std::max({std::abs(b.low - a.low), std::abs(b.low - a.high), std::abs(b.high - a.low), std::abs(b.high - a.high)});
-}
+[[nodiscard]] inline double farthestApart(Interval a, Interval b) { return std::max({std::abs(b.low - a.low), std::abs(b.low - a.high), std::abs(b.high - a.low), std::abs(b.high - a.high)}); }
 
 /// The z the vertex constraint reaches: `nSigma` of its width either side.
 [[nodiscard]] inline Interval vertexReach(const SearchWindowParams& params, const VertexConstraint& vertex)
@@ -268,11 +264,7 @@ template <DetectorLayout Det>
 /// at normal incidence in the seed's layer alone. It sizes the grid's cells;
 /// the pair queries take the pair cut's own table (`sourceKinkBound` in
 /// `PairCut.h`).
-[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params)
-{
-  return static_cast<double>(
-    highlandTheta0(static_cast<Scalar>(params.materialX2X0), betaMomentum(static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(params.massGeV))));
-}
+[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), betaMomentum(static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(params.massGeV)))); }
 
 /// How far the scattering before the seed moves the target's second
 /// coordinate, in one standard deviation [cm], for vertices in \a vertexZ and
@@ -295,8 +287,7 @@ template <DetectorLayout Det>
 /// `(s_i^2 + (z_i - z_v)^2) T`, which moves the target's second coordinate by
 /// `sqrt(T) hypot(s_i, z_i - z_v)` over the same factor `s_i` or `|z_i - z_v|`.
 template <DetectorLayout Det>
-[[nodiscard]] inline double secondScattering(LayerID from, LayerID to, const SearchWindowParams& params, Interval vertexZ, double sourceKink,
-                                             double betweenKink = 0.)
+[[nodiscard]] inline double secondScattering(LayerID from, LayerID to, const SearchWindowParams& params, Interval vertexZ, double sourceKink, double betweenKink = 0.)
 {
   const double rFromLow = radiusMin<Det>(from);
   const double rToHigh = radiusMax<Det>(to);
@@ -393,8 +384,7 @@ struct VertexPairWindow {
 /// test's variance gains `r_i^2 T`, which in the accepted `sin(dphi)` is
 /// `T / r_j^2`.
 template <DetectorLayout Det>
-[[nodiscard]] inline double phiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink,
-                                      double betweenKink = 0.)
+[[nodiscard]] inline double phiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
   constexpr double kQuarter = 0.5 * std::numbers::pi_v<double>;
   constexpr double kStep = 1.e-3;
@@ -420,8 +410,7 @@ template <DetectorLayout Det>
     }
     const double chord = std::sqrt(std::max((rFrom * rFrom) + (rTo * rTo) - (2. * rFrom * rTo * std::cos(phi)), 0.));
     const double lever = chord / rTo;
-    const double gaussian = std::sqrt((variance * ((1. / (rFrom * rFrom)) + (1. / (rTo * rTo)))) + (lever * lever * sourceKink * sourceKink) +
-                                      (betweenKink * betweenKink / (rTo * rTo)));
+    const double gaussian = std::sqrt((variance * ((1. / (rFrom * rFrom)) + (1. / (rTo * rTo)))) + (lever * lever * sourceKink * sourceKink) + (betweenKink * betweenKink / (rTo * rTo)));
     return std::sin(phi) <= (chord / twoR) + (params.nSigma * gaussian);
   };
 
@@ -474,8 +463,7 @@ template <DetectorLayout Det>
 /// a precomputed per-pair window has to make. \a sourceKink is as for
 /// `secondScattering`.
 template <DetectorLayout Det>
-[[nodiscard]] inline double secondWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params,
-                                         const VertexConstraint& vertexConstraint, double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline double secondWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params, const VertexConstraint& vertexConstraint, double sourceKink, double betweenKink = 0.)
 {
   const double fullExtent = secondMax<Det>(to) - secondMin<Det>(to);
   const Interval vertexZ = vertexReach(params, vertexConstraint);
@@ -551,8 +539,7 @@ template <DetectorLayout Det>
     return 0.;
   }
   const double curvature = std::min(curvatureMax, 2. / targetRadius);
-  const double arcExcess =
-    (transverseArcAtRadius(curvature, targetRadius) / targetRadius) / (transverseArcAtRadius(curvature, sourceRadius) / sourceRadius) - 1.;
+  const double arcExcess = (transverseArcAtRadius(curvature, targetRadius) / targetRadius) / (transverseArcAtRadius(curvature, sourceRadius) / sourceRadius) - 1.;
   if (!Detector<Det>::isBarrelLayer(to)) {
     return targetRadius * arcExcess;
   }
@@ -623,8 +610,7 @@ struct VertexSecondWindow {
 /// The same-kind second-coordinate uncertainty terms, bounded over the z
 /// range the vertices an iteration uses can take.
 template <DetectorLayout Det>
-[[nodiscard]] inline VertexSecondWindow vertexSecondWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params, Interval vertexZ,
-                                                           double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline VertexSecondWindow vertexSecondWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params, Interval vertexZ, double sourceKink, double betweenKink = 0.)
 {
   const double scattering = secondScattering<Det>(from, to, params, vertexZ, sourceKink, betweenKink);
   if (Detector<Det>::isBarrelLayer(from) && Detector<Det>::isBarrelLayer(to)) {
@@ -652,15 +638,13 @@ template <DetectorLayout Det>
 /// centre and, for disc pairs, one division. \a sourceKink is as for
 /// `secondScattering`.
 template <DetectorLayout Det>
-[[nodiscard]] inline VertexPairWindow vertexPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, Interval vertexZ, double maxSigmaZ,
-                                                       double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline VertexPairWindow vertexPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, Interval vertexZ, double maxSigmaZ, double sourceKink, double betweenKink = 0.)
 {
   const double centre = 0.5 * (vertexZ.low + vertexZ.high);
   const double reach = (0.5 * (vertexZ.high - vertexZ.low)) + (params.nSigma * maxSigmaZ);
   const VertexConstraint envelope{.z = centre, .sigmaZ = params.nSigma > 0. ? reach / params.nSigma : 0.};
   const double helix = helixSecondSpread<Det>(from, to, params, envelope);
-  const double boundaryRounding =
-    4. * static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * std::max(std::abs(secondMin<Det>(to)), std::abs(secondMax<Det>(to)));
+  const double boundaryRounding = 4. * static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * std::max(std::abs(secondMin<Det>(to)), std::abs(secondMax<Det>(to)));
 
   if (Detector<Det>::isBarrelLayer(from) != Detector<Det>::isBarrelLayer(to)) {
     const double scattering = secondScattering<Det>(from, to, params, vertexZ, sourceKink, betweenKink);
@@ -721,26 +705,27 @@ template <DetectorLayout Det>
 /// vertex range, the seed's resolution, and a padding for scattering over the
 /// longest lever arm between the two layers and for the target's resolution.
 template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow crossingPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex,
-                                                        double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline LayerPairWindow crossingPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
   const bool toDisc = !Detector<Det>::isBarrelLayer(to);
   const Interval vertexZ = vertexReach(params, vertex);
   const double scattering = secondScattering<Det>(from, to, params, vertexZ, sourceKink, betweenKink);
   const double padding = (params.nSigma * std::hypot(scattering, params.positionSigma)) + helixSecondSpread<Det>(from, to, params, vertex);
 
-  return {.phiHalfWidth = conservativeScalarBound(phiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
-          .secondScale = 0.F,
-          .secondOffset = static_cast<Scalar>(secondOffset<Det>(from, to, vertex.z)),
-          .secondHalfWidth = conservativeScalarBound(padding),
-          .kind = toDisc ? PairKind::kBarrelToDisc : PairKind::kDiscToBarrel,
-          .targetLow = static_cast<Scalar>(toDisc ? zMin<Det>(to) : radiusMin<Det>(to)),
-          .targetHigh = static_cast<Scalar>(toDisc ? zMax<Det>(to) : radiusMax<Det>(to)),
-          .vertexLow = static_cast<Scalar>(vertexZ.low),
-          .vertexHigh = static_cast<Scalar>(vertexZ.high),
-          .seedSpread = conservativeScalarBound(params.nSigma * params.positionSigma),
-          .targetSecondMin = static_cast<Scalar>(secondMin<Det>(to)),
-          .targetSecondMax = static_cast<Scalar>(secondMax<Det>(to))};
+  return {
+    .phiHalfWidth = conservativeScalarBound(phiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
+    .secondScale = 0.F,
+    .secondOffset = static_cast<Scalar>(secondOffset<Det>(from, to, vertex.z)),
+    .secondHalfWidth = conservativeScalarBound(padding),
+    .kind = toDisc ? PairKind::kBarrelToDisc : PairKind::kDiscToBarrel,
+    .targetLow = static_cast<Scalar>(toDisc ? zMin<Det>(to) : radiusMin<Det>(to)),
+    .targetHigh = static_cast<Scalar>(toDisc ? zMax<Det>(to) : radiusMax<Det>(to)),
+    .vertexLow = static_cast<Scalar>(vertexZ.low),
+    .vertexHigh = static_cast<Scalar>(vertexZ.high),
+    .seedSpread = conservativeScalarBound(params.nSigma * params.positionSigma),
+    .targetSecondMin = static_cast<Scalar>(secondMin<Det>(to)),
+    .targetSecondMax = static_cast<Scalar>(secondMax<Det>(to)),
+  };
 }
 
 /// The half-width in phi of a displaced iteration (`SearchWindowParams::
@@ -752,8 +737,7 @@ template <DetectorLayout Det>
 /// `phiWindow` (a source kink of `theta` is `S = (theta r_i)^2`), the beam
 /// spot's width. The test is symmetric in the sign of the turn.
 template <DetectorLayout Det>
-[[nodiscard]] inline double displacedPhiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink,
-                                               double betweenKink = 0.)
+[[nodiscard]] inline double displacedPhiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
   constexpr double kHalf = std::numbers::pi_v<double>;
   constexpr double kStep = 1.e-3;
@@ -780,8 +764,7 @@ template <DetectorLayout Det>
       const double rTo = toLow + ((toHigh - toLow) * j / (kSamples - 1));
       for (int step = kSteps; step >= 0 && kStep * (step + 1) > widest; --step) {
         const double phi = kStep * step;
-        const auto result = displaced::displacedPairWithin(rFrom, 0., 0., rTo * std::cos(phi), rTo * std::sin(phi), 0., errors, params.nSigma, curvatureMax,
-                                                           params.impactMax, -kInfinity, kInfinity);
+        const auto result = displaced::displacedPairWithin(rFrom, 0., 0., rTo * std::cos(phi), rTo * std::sin(phi), 0., errors, params.nSigma, curvatureMax, params.impactMax, -kInfinity, kInfinity);
         if (result.transverse) {
           widest = kStep * (step + 1);
           break;
@@ -797,18 +780,19 @@ template <DetectorLayout Det>
 /// approach's z bound is the pair test's to apply, not a line's from the
 /// beam spot.
 template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow displacedPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex,
-                                                         double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline LayerPairWindow displacedPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
   const double low = secondMin<Det>(to);
   const double high = secondMax<Det>(to);
   const auto middle = static_cast<Scalar>(0.5 * (low + high));
   const double reach = std::max(std::abs(high - static_cast<double>(middle)), std::abs(static_cast<double>(middle) - low));
-  return {.phiHalfWidth = conservativeScalarBound(displacedPhiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
-          .secondScale = 0.F,
-          .secondOffset = middle,
-          .secondHalfWidth = conservativeScalarBound(reach + params.positionSigma),
-          .kind = Detector<Det>::isBarrelLayer(to) ? PairKind::kBarrel : PairKind::kDisc};
+  return {
+    .phiHalfWidth = conservativeScalarBound(displacedPhiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
+    .secondScale = 0.F,
+    .secondOffset = middle,
+    .secondHalfWidth = conservativeScalarBound(reach + params.positionSigma),
+    .kind = Detector<Det>::isBarrelLayer(to) ? PairKind::kBarrel : PairKind::kDisc,
+  };
 }
 
 /// Assemble the per-pair window an iteration queries with.
@@ -819,8 +803,7 @@ template <DetectorLayout Det>
 /// `secondScattering`; the pair queries pass the pair cut's
 /// (`layerPairWindow(..., table)` in `PairCut.h`).
 template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params,
-                                                     const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
+[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
   if (params.impactMax > 0.) {
     return displacedPairWindow<Det>(from, to, params, vertex, sourceKink, betweenKink);
@@ -840,9 +823,9 @@ template <DetectorLayout Det>
     .phiHalfWidth = conservativeScalarBound(phiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
     .secondScale = deviceScale,
     .secondOffset = deviceOffset,
-    .secondHalfWidth = conservativeScalarBound(secondWindow<Det>(from, to, seedSecond, params, vertex, sourceKink, betweenKink) +
-                                               secondCentreSpread<Det>(from, to, vertex.z) + helixSecondSpread<Det>(from, to, params, vertex) + centreRounding),
-    .kind = Detector<Det>::isBarrelLayer(from) ? PairKind::kBarrel : PairKind::kDisc};
+    .secondHalfWidth = conservativeScalarBound(secondWindow<Det>(from, to, seedSecond, params, vertex, sourceKink, betweenKink) + secondCentreSpread<Det>(from, to, vertex.z) + helixSecondSpread<Det>(from, to, params, vertex) + centreRounding),
+    .kind = Detector<Det>::isBarrelLayer(from) ? PairKind::kBarrel : PairKind::kDisc,
+  };
 }
 
 /// The same with the uniform kink, taking the seeding layer's own outer edge

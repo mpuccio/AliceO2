@@ -71,9 +71,11 @@ struct Helix {
 Helix helix(std::size_t track)
 {
   const auto k = static_cast<double>(track);
-  return {.phi0 = std::fmod(0.4 + (2.3 * k), 2 * std::numbers::pi_v<double>),
-          .slope = 0.04 * std::sin(1.7 * k),
-          .ptGeV = 1.5 + (0.25 * static_cast<double>(track % 5U))};
+  return {
+    .phi0 = std::fmod(0.4 + (2.3 * k), 2 * std::numbers::pi_v<double>),
+    .slope = 0.04 * std::sin(1.7 * k),
+    .ptGeV = 1.5 + (0.25 * static_cast<double>(track % 5U)),
+  };
 }
 
 /// The tracks' hits, one per layer each.
@@ -177,8 +179,7 @@ BOOST_AUTO_TEST_CASE(TheOutwardPassStopsWhereTheFullOneWouldReject)
     const auto outward = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), kNoCut.data());
     const auto cutAt = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), iteration.roadChi2MaxByNdf);
     // A kink cannot absorb a displaced cluster: the one after it misses.
-    const auto kinked =
-      fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+    const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
     BOOST_TEST_CONTEXT("track " << track)
     {
       // Read by row or copied, the same pass, to the bit.
@@ -247,26 +248,30 @@ static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double tur
   BOOST_REQUIRE(hits.size() == kLayers);
   std::array<Measurement, kLayers> chain{};
   const auto measurementOf = [](const BoundTrackState& state, std::size_t index) {
-    return Measurement{.loc0 = state.loc0(),
-                       .loc1 = state.loc1(),
-                       .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
-                       .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
-                       .varLoc0 = 3.e-6F,
-                       .covLoc01 = 0.F,
-                       .varLoc1 = 1.e-6F,
-                       .clusterIndex = static_cast<std::uint32_t>(index),
-                       .surface = state.surface};
+    return Measurement{
+      .loc0 = state.loc0(),
+      .loc1 = state.loc1(),
+      .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
+      .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
+      .varLoc0 = 3.e-6F,
+      .covLoc01 = 0.F,
+      .varLoc1 = 1.e-6F,
+      .clusterIndex = static_cast<std::uint32_t>(index),
+      .surface = state.surface,
+    };
   };
   for (std::size_t layer = 0; layer <= kink; ++layer) {
-    chain[layer] = Measurement{.loc0 = hits[layer].loc0,
-                               .loc1 = hits[layer].loc1,
-                               .timePS = test::toyTimeBox(hits[layer].timeNS).start,
-                               .widthPS = test::toyTimeBox(hits[layer].timeNS).width,
-                               .varLoc0 = 3.e-6F,
-                               .covLoc01 = 0.F,
-                               .varLoc1 = 1.e-6F,
-                               .clusterIndex = static_cast<std::uint32_t>(layer),
-                               .surface = hits[layer].surface};
+    chain[layer] = Measurement{
+      .loc0 = hits[layer].loc0,
+      .loc1 = hits[layer].loc1,
+      .timePS = test::toyTimeBox(hits[layer].timeNS).start,
+      .widthPS = test::toyTimeBox(hits[layer].timeNS).width,
+      .varLoc0 = 3.e-6F,
+      .covLoc01 = 0.F,
+      .varLoc1 = 1.e-6F,
+      .clusterIndex = static_cast<std::uint32_t>(layer),
+      .surface = hits[layer].surface,
+    };
   }
   // The prefix's own fit gives the helix's state on the kink's sensor.
   auto state = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kink + 1U)).outwardState;
@@ -274,8 +279,7 @@ static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double tur
   for (std::size_t layer = kink + 1U; layer < kLayers; ++layer) {
     const auto& from = trackingGeometry().surface(state.surface);
     bool crossed = false;
-    for (SensorID sensor = firstSensorOfLayer<Det>(static_cast<LayerID>(layer)); sensor < firstSensorOfLayer<Det>(static_cast<LayerID>(layer + 1U)) && !crossed;
-         ++sensor) {
+    for (SensorID sensor = firstSensorOfLayer<Det>(static_cast<LayerID>(layer)); sensor < firstSensorOfLayer<Det>(static_cast<LayerID>(layer + 1U)) && !crossed; ++sensor) {
       BoundTrackState probe = state;
       if (propagate(kPropagator, probe, from, trackingGeometry().surface(sensor), PropagationDirection::kForward).status == PropagationStatus::kOk) {
         state = probe;
@@ -359,8 +363,7 @@ BOOST_AUTO_TEST_CASE(AKinkCannotAbsorbAWrongLastCluster)
   const auto iteration = parameters();
   auto chain = kinkedChain(kLayers - 1U, 0.);
   chain[kLayers - 1U].loc0 += 30.F * std::sqrt(chain[kLayers - 1U].varLoc0);
-  const auto fit =
-    fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+  const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
   BOOST_TEST((fit.status == RoadFitStatus::kRejected));
   BOOST_TEST(fit.kinks == 0U);
 }
@@ -379,14 +382,10 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   // 0.014 rad is inside the allowance there.
   constexpr UniformMaterial material{.x2X0PerCm = 0.01F, .rho = 0.F};
   auto iteration = parameters();
-  const auto road = [&](const std::array<Measurement, kLayers>& chain) {
-    return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers))
-                                             : fitRoad<false>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers));
-  };
+  const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)); };
   const auto inside = kinkedChain(kLayers - 2U, 0.014);
   const auto beyond = kinkedChain(kLayers - 2U, 0.08);
-  const auto refitBudget =
-    fitOutward(kPropagator, trackingGeometry(), material, inside.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+  const auto refitBudget = fitOutward(kPropagator, trackingGeometry(), material, inside.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
   BOOST_TEST((refitBudget.status == RoadFitStatus::kRejected));
   BOOST_TEST((road(inside).status == RoadFitStatus::kRejected));
   iteration.kinkScale2 = 25.F;
@@ -419,8 +418,7 @@ struct RoadsRun {
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     count.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     const auto iteration = parameters();
-    BOOST_REQUIRE(fixedPointRoads(count, SerialForEach{}, iteration.linkSources, slice.core.data(), roadStartRule(iteration), *result.tracklets,
-                                  *result.triplets, *result.neighbours) == StageStatus::kComplete);
+    BOOST_REQUIRE(fixedPointRoads(count, SerialForEach{}, iteration.linkSources, slice.core.data(), roadStartRule(iteration), *result.tracklets, *result.triplets, *result.neighbours) == StageStatus::kComplete);
   }
 };
 } // namespace
@@ -436,8 +434,7 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
   const SerialForEach serial{};
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
-  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial,
-                    kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
   RecordOutput records;
   records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   records.prepare(count.roadCount());
@@ -497,8 +494,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
     settings.minPtGeVByClusters[kLayers] = floorAll;
     settings.minPtGeVByClusters[kLayers - 1U] = floorOneShort;
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
-    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial,
-                      kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
@@ -541,8 +537,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
       settings.minPtGeVByClusters[clusters] = 100.;
     }
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
-    const RoadFitStage<Det, UniformMaterial, false, false, false, Trim> stage{
-      iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    const RoadFitStage<Det, UniformMaterial, false, false, false, Trim> stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
@@ -584,8 +579,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   const auto& run = roads.result;
   auto& count = roads.count;
   const SerialForEach serial{};
-  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial,
-                    kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
   RecordOutput records;
   records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   records.prepare(count.roadCount());
@@ -594,8 +588,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   selection.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   BOOST_REQUIRE(selection.append(records, SerialForEach{}) == StageStatus::kComplete);
   std::vector<std::uint8_t> mask(fixture.frame->size(), kFree);
-  BOOST_REQUIRE(
-    selection.select(serial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, 0U, mask) == StageStatus::kComplete);
+  BOOST_REQUIRE(selection.select(serial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, 0U, mask) == StageStatus::kComplete);
   BOOST_REQUIRE(selection.selected().size() == kTracks);
 
   TrackRefit<Det> refit;
@@ -639,8 +632,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
     cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     TrackRefit<Det> parallel;
     parallel.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame,
-                               trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
+    BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
     // Bit for bit.
     const auto other = parallel.tracks().view();
     const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };

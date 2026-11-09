@@ -43,17 +43,13 @@ template <typename Summary>
 [[nodiscard]] std::vector<std::string> describeIteration(const Summary& summary, std::size_t iteration)
 {
   std::vector<std::string> lines;
-  lines.push_back(std::format(
-    "  iteration {}: {} slices, halo {} ps; {} roads, {} records ({:.1f} MB), {} duplicates, {} mismatches, {} rounds, {} tracks; "
-    "{} refit failed; {} followed (+{} outward, +{} inward), {} dropped; {:.3f} s slices, {:.3f} s roads, {:.3f} s selection, {:.3f} s refit, "
-    "{:.3f} s follow",
-    iteration, summary.slices, summary.haloPS, summary.roads, summary.records, static_cast<double>(summary.recordBytes) / 1.e6, summary.duplicates,
-    summary.mismatches, summary.rounds, summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward,
-    summary.clustersFollowedInward, summary.tracksDropped, summary.seconds(profile::Phase::kSlices), summary.seconds(profile::Phase::kRoads),
-    summary.seconds(profile::Phase::kSelection), summary.seconds(profile::Phase::kRefit), summary.seconds(profile::Phase::kFollow)));
+  lines.push_back(
+    std::format("  iteration {}: {} slices, halo {} ps; {} roads, {} records ({:.1f} MB), {} duplicates, {} mismatches, {} rounds, {} tracks; "
+                "{} refit failed; {} followed (+{} outward, +{} inward), {} dropped; {:.3f} s slices, {:.3f} s roads, {:.3f} s selection, {:.3f} s refit, "
+                "{:.3f} s follow",
+                iteration, summary.slices, summary.haloPS, summary.roads, summary.records, static_cast<double>(summary.recordBytes) / 1.e6, summary.duplicates, summary.mismatches, summary.rounds, summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward, summary.tracksDropped, summary.seconds(profile::Phase::kSlices), summary.seconds(profile::Phase::kRoads), summary.seconds(profile::Phase::kSelection), summary.seconds(profile::Phase::kRefit), summary.seconds(profile::Phase::kFollow)));
   if (summary.tracksFollowedEarlier != 0U || summary.seconds(profile::Phase::kFollowEarlier) > 0.) {
-    lines.push_back(std::format("    earlier iterations' tracks followed: {} (+{} outward, +{} inward) in {:.3f} s", summary.tracksFollowedEarlier,
-                                summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward, summary.seconds(profile::Phase::kFollowEarlier)));
+    lines.push_back(std::format("    earlier iterations' tracks followed: {} (+{} outward, +{} inward) in {:.3f} s", summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward, summary.seconds(profile::Phase::kFollowEarlier)));
   }
   return lines;
 }

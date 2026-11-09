@@ -155,8 +155,7 @@ void describeFakes(std::vector<std::string>& report, const std::string& name, co
   report.push_back(
     std::format("  {:>6} fakes: {}; labelled with a primary {:.1f} %, a secondary {:.1f} %, nothing {:.1f} %; by wrong measurements 1 / 2 / 3 / "
                 "4+: {:.1f} / {:.1f} / {:.1f} / {:.1f} %",
-                name, mine.fakes, percent(a.labelPrimary, mine.fakes), percent(a.labelSecondary, mine.fakes), percent(a.byWrong[0], mine.fakes),
-                percent(a.byWrong[1], mine.fakes), percent(a.byWrong[2], mine.fakes), percent(a.byWrong[3], mine.fakes), percent(a.byWrong[4], mine.fakes)));
+                name, mine.fakes, percent(a.labelPrimary, mine.fakes), percent(a.labelSecondary, mine.fakes), percent(a.byWrong[0], mine.fakes), percent(a.byWrong[1], mine.fakes), percent(a.byWrong[2], mine.fakes), percent(a.byWrong[3], mine.fakes), percent(a.byWrong[4], mine.fakes)));
   std::string layers;
   for (int layer = 0; layer < nLayers; ++layer) {
     layers += std::format(" {}: {:.1f}", layer, percent(a.wrongByLayer[static_cast<std::size_t>(layer)], a.wrong));
@@ -165,8 +164,7 @@ void describeFakes(std::vector<std::string>& report, const std::string& name, co
   report.push_back(
     std::format("         the label's own measurement on that layer passed over {:.1f} %, none of its own there {:.1f} %; the wrong one "
                 "noise {:.1f} %, another primary's {:.1f} %, a secondary's {:.1f} %",
-                percent(a.swaps, a.wrong), percent(a.holes, a.wrong), percent(a.noise, a.wrong), percent(a.primaryStranger, a.wrong),
-                percent(a.secondaryStranger, a.wrong)));
+                percent(a.swaps, a.wrong), percent(a.holes, a.wrong), percent(a.noise, a.wrong), percent(a.primaryStranger, a.wrong), percent(a.secondaryStranger, a.wrong)));
   std::uint64_t cleanElsewhere = 0U;
   for (const auto label : a.labels) {
     cleanElsewhere += other.good.contains(label) ? 1U : 0U;
@@ -275,13 +273,9 @@ FindableScore rates(const std::unordered_map<std::uint64_t, Particle>& particles
 
 std::string describe(const std::string& name, const FindableScore& r)
 {
-  std::string line = std::format(
-    "  {:>6}: {:6.2f} % found ({:.2f} % complete, {:.1f} % of their layers), {:5.2f} % only with a fake, {:5.2f} % cloned; by pT, found (complete):", name,
-    percent(r.found, r.findable), percent(r.complete, r.findable), percent(r.layersFound, r.layersOf), percent(r.fakeOnly, r.findable),
-    percent(r.cloned, r.findable));
+  std::string line = std::format("  {:>6}: {:6.2f} % found ({:.2f} % complete, {:.1f} % of their layers), {:5.2f} % only with a fake, {:5.2f} % cloned; by pT, found (complete):", name, percent(r.found, r.findable), percent(r.complete, r.findable), percent(r.layersFound, r.layersOf), percent(r.fakeOnly, r.findable), percent(r.cloned, r.findable));
   for (std::size_t bin = 0; bin < kScorePtBins; ++bin) {
-    line += std::format(" [{:g},{:g}) {:.1f} ({:.1f})", kScorePtEdges[bin], kScorePtEdges[bin + 1U], percent(r.foundByPt[bin], r.findableByPt[bin]),
-                        percent(r.completeByPt[bin], r.findableByPt[bin]));
+    line += std::format(" [{:g},{:g}) {:.1f} ({:.1f})", kScorePtEdges[bin], kScorePtEdges[bin + 1U], percent(r.foundByPt[bin], r.findableByPt[bin]), percent(r.completeByPt[bin], r.findableByPt[bin]));
   }
   return line;
 }
@@ -336,15 +330,9 @@ std::unordered_map<std::uint64_t, Particle> particlesOf(std::span<const TruthRow
 }
 
 /// The findable classes.
-bool onAllLayers(const Particle& p, const ComparisonSettings& settings)
-{
-  return p.primary && static_cast<double>(p.pt) >= settings.minPtGeV && onEveryLayer(p.layers, settings);
-}
+bool onAllLayers(const Particle& p, const ComparisonSettings& settings) { return p.primary && static_cast<double>(p.pt) >= settings.minPtGeV && onEveryLayer(p.layers, settings); }
 
-bool onMinLayers(const Particle& p, const ComparisonSettings& settings)
-{
-  return p.primary && static_cast<double>(p.pt) >= settings.minPtGeV && std::popcount(p.layers) >= settings.minLayers;
-}
+bool onMinLayers(const Particle& p, const ComparisonSettings& settings) { return p.primary && static_cast<double>(p.pt) >= settings.minPtGeV && std::popcount(p.layers) >= settings.minLayers; }
 
 /// O2's own QA definition (CheckTracksCA.C): first labels on every layer, a
 /// primary, any pT; found with a good track, its further good tracks clones.
@@ -355,16 +343,14 @@ bool o2Findable(const Particle& p, const ComparisonSettings& settings)
 }
 
 /// The decay daughters by family and production bin.
-std::array<std::vector<DecayCounts>, kDecayFamilies> decayCounts(const std::unordered_map<std::uint64_t, Particle>& particles, const Tally& tally,
-                                                                 const ComparisonSettings& settings)
+std::array<std::vector<DecayCounts>, kDecayFamilies> decayCounts(const std::unordered_map<std::uint64_t, Particle>& particles, const Tally& tally, const ComparisonSettings& settings)
 {
   std::array<std::vector<DecayCounts>, kDecayFamilies> result;
   for (auto& bins : result) {
     bins.resize(settings.productionEdges.size() + 1U);
   }
   for (const auto& [id, particle] : particles) {
-    if (particle.origin != ParticleOrigin::kDecay || static_cast<double>(particle.pt) < settings.minPtGeV ||
-        std::popcount(particle.layers) < settings.minLayers) {
+    if (particle.origin != ParticleOrigin::kDecay || static_cast<double>(particle.pt) < settings.minPtGeV || std::popcount(particle.layers) < settings.minLayers) {
       continue;
     }
     auto& counts = result[static_cast<std::size_t>(particle.family)][particle.production];
@@ -399,29 +385,20 @@ std::array<FindableScore, kParticleOrigins> byOrigin(auto score)
 
 TrackScore scoreOf(const std::unordered_map<std::uint64_t, Particle>& particles, const Tally& tally, const ComparisonSettings& settings)
 {
-  return {.tracks = tally.tracks,
-          .fakes = tally.fakes,
-          .tracksByLength = tally.byLength,
-          .fakesByLength = tally.fakesByLength,
-          .allLayers = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return onAllLayers(p, settings); }),
-          .minLayers = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return onMinLayers(p, settings); }),
-          .o2 = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return o2Findable(p, settings); }),
-          .originAllLayers = byOrigin([&](ParticleOrigin origin) {
-            return rates(particles, tally, settings.etaEdges, [&](const Particle& p) {
-              return p.origin == origin && static_cast<double>(p.pt) >= settings.minPtGeV && onEveryLayer(p.layers, settings);
-            });
-          }),
-          .originMinLayers = byOrigin([&](ParticleOrigin origin) {
-            return rates(particles, tally, settings.etaEdges, [&](const Particle& p) {
-              return p.origin == origin && static_cast<double>(p.pt) >= settings.minPtGeV && std::popcount(p.layers) >= settings.minLayers;
-            });
-          }),
-          .originFindable = byOrigin([&](ParticleOrigin origin) {
-            return rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return p.origin == origin && isFindable(p.pt, p.chain, settings); });
-          }),
-          .primaryRegion = {rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return primaryInRegion(p, false, settings); }),
-                            rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return primaryInRegion(p, true, settings); })},
-          .decays = decayCounts(particles, tally, settings)};
+  return {
+    .tracks = tally.tracks,
+    .fakes = tally.fakes,
+    .tracksByLength = tally.byLength,
+    .fakesByLength = tally.fakesByLength,
+    .allLayers = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return onAllLayers(p, settings); }),
+    .minLayers = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return onMinLayers(p, settings); }),
+    .o2 = rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return o2Findable(p, settings); }),
+    .originAllLayers = byOrigin([&](ParticleOrigin origin) { return rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return p.origin == origin && static_cast<double>(p.pt) >= settings.minPtGeV && onEveryLayer(p.layers, settings); }); }),
+    .originMinLayers = byOrigin([&](ParticleOrigin origin) { return rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return p.origin == origin && static_cast<double>(p.pt) >= settings.minPtGeV && std::popcount(p.layers) >= settings.minLayers; }); }),
+    .originFindable = byOrigin([&](ParticleOrigin origin) { return rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return p.origin == origin && isFindable(p.pt, p.chain, settings); }); }),
+    .primaryRegion = {rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return primaryInRegion(p, false, settings); }), rates(particles, tally, settings.etaEdges, [&](const Particle& p) { return primaryInRegion(p, true, settings); })},
+    .decays = decayCounts(particles, tally, settings),
+  };
 }
 
 /// The lines of a score, each for one tracker or for the findable they share.
@@ -444,31 +421,19 @@ std::string allLayersHeader(const ComparisonSettings& settings, std::uint64_t fi
   return std::format("  findable, primaries above {} GeV on all {} layers: {}", settings.minPtGeV, settings.nLayers, findable);
 }
 
-std::string minLayersHeader(const ComparisonSettings& settings, std::uint64_t findable)
-{
-  return std::format("  findable, primaries above {} GeV on {} layers or more: {}", settings.minPtGeV, settings.minLayers, findable);
-}
+std::string minLayersHeader(const ComparisonSettings& settings, std::uint64_t findable) { return std::format("  findable, primaries above {} GeV on {} layers or more: {}", settings.minPtGeV, settings.minLayers, findable); }
 
-std::string o2Header(const ComparisonSettings& settings, std::uint64_t findable)
-{
-  return std::format("  O2's QA definition (CheckTracksCA.C), first labels on all {} layers, any pT: {} findable", settings.nLayers, findable);
-}
+std::string o2Header(const ComparisonSettings& settings, std::uint64_t findable) { return std::format("  O2's QA definition (CheckTracksCA.C), first labels on all {} layers, any pT: {} findable", settings.nLayers, findable); }
 
-std::string describeO2(const std::string& name, const FindableScore& r)
-{
-  return std::format("  {:>6}: found {} ({:.2f} %), clone tracks {}, with a fake track {}", name, r.found, percent(r.found, r.findable), r.cloneTracks,
-                     r.withFake);
-}
+std::string describeO2(const std::string& name, const FindableScore& r) { return std::format("  {:>6}: found {} ({:.2f} %), clone tracks {}, with a fake track {}", name, r.found, percent(r.found, r.findable), r.cloneTracks, r.withFake); }
 
 constexpr std::array<const char*, kParticleOrigins> kOriginNames{"physical primaries", "decay daughters", "material"};
 
 std::string originHeader(const ComparisonSettings& settings, const TrackScore& score)
 {
-  std::string line = std::format("  findable by origin above {} GeV, on all {} layers / on {} or more / on a chain of {}:", settings.minPtGeV, settings.nLayers,
-                                 settings.minLayers, settings.minLayers);
+  std::string line = std::format("  findable by origin above {} GeV, on all {} layers / on {} or more / on a chain of {}:", settings.minPtGeV, settings.nLayers, settings.minLayers, settings.minLayers);
   for (std::size_t origin = 0; origin < kParticleOrigins; ++origin) {
-    line += std::format("{} {} {} / {} / {}", origin == 0U ? "" : ",", kOriginNames[origin], score.originAllLayers[origin].findable,
-                        score.originMinLayers[origin].findable, score.originFindable[origin].findable);
+    line += std::format("{} {} {} / {} / {}", origin == 0U ? "" : ",", kOriginNames[origin], score.originAllLayers[origin].findable, score.originMinLayers[origin].findable, score.originFindable[origin].findable);
   }
   return line;
 }
@@ -480,8 +445,7 @@ std::string describeOrigins(const std::string& name, const ComparisonSettings& s
     const auto& all = score.originAllLayers[origin];
     const auto& some = score.originMinLayers[origin];
     const auto& adjacent = score.originFindable[origin];
-    line += std::format("{} {} {:.2f} / {:.2f} / {:.2f}", origin == 0U ? "" : ",", kOriginNames[origin], percent(all.found, all.findable),
-                        percent(some.found, some.findable), percent(adjacent.found, adjacent.findable));
+    line += std::format("{} {} {:.2f} / {:.2f} / {:.2f}", origin == 0U ? "" : ",", kOriginNames[origin], percent(all.found, all.findable), percent(some.found, some.findable), percent(adjacent.found, adjacent.findable));
   }
   return line;
 }
@@ -513,10 +477,12 @@ constexpr std::array<const char*, kDecayFamilies> kFamilyNames{"K0S", "Lambda", 
 
 DecayCounts operator+(DecayCounts a, const DecayCounts& b)
 {
-  return {.onMinLayers = a.onMinLayers + b.onMinLayers,
-          .foundOnMinLayers = a.foundOnMinLayers + b.foundOnMinLayers,
-          .findable = a.findable + b.findable,
-          .found = a.found + b.found};
+  return {
+    .onMinLayers = a.onMinLayers + b.onMinLayers,
+    .foundOnMinLayers = a.foundOnMinLayers + b.foundOnMinLayers,
+    .findable = a.findable + b.findable,
+    .found = a.found + b.found,
+  };
 }
 
 std::string decaysHeader(const ComparisonSettings& settings)
@@ -538,8 +504,7 @@ std::string describeDecays(const std::string& name, const std::string& family, s
   for (const auto& bin : bins) {
     total = total + bin;
   }
-  std::string line = std::format("  {:>6} {:<16} {:6.2f} ({}/{}), of all {:.2f} %; by production:", name, family, percent(total.found, total.findable),
-                                 total.findable, total.onMinLayers, percent(total.foundOnMinLayers, total.onMinLayers));
+  std::string line = std::format("  {:>6} {:<16} {:6.2f} ({}/{}), of all {:.2f} %; by production:", name, family, percent(total.found, total.findable), total.findable, total.onMinLayers, percent(total.foundOnMinLayers, total.onMinLayers));
   for (const auto& bin : bins) {
     line += std::format(" {:.1f} ({}/{})", percent(bin.found, bin.findable), bin.findable, bin.onMinLayers);
   }
@@ -608,8 +573,7 @@ std::string speciesName(std::int32_t species)
 
 std::size_t productionBin(const ParticleTruth& particle, const ComparisonSettings& settings)
 {
-  const auto production =
-    settings.productionAlongZ ? std::abs(static_cast<double>(particle.vz)) : std::hypot(static_cast<double>(particle.vx), static_cast<double>(particle.vy));
+  const auto production = settings.productionAlongZ ? std::abs(static_cast<double>(particle.vz)) : std::hypot(static_cast<double>(particle.vx), static_cast<double>(particle.vy));
   return static_cast<std::size_t>(std::ranges::upper_bound(settings.productionEdges, production) - settings.productionEdges.begin());
 }
 
@@ -662,8 +626,7 @@ std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const
       for (const auto b : own) {
         const auto& from = rows[a];
         const auto& to = rows[b];
-        if (from.layer == link.from && to.layer == link.to &&
-            !segmentLeavesHole(link.holes, settings.barrelLayers, settings.layerSpans.data(), from.r, from.z, to.r, to.z)) {
+        if (from.layer == link.from && to.layer == link.to && !segmentLeavesHole(link.holes, settings.barrelLayers, settings.layerSpans.data(), from.r, from.z, to.r, to.z)) {
           return true;
         }
       }
@@ -697,27 +660,12 @@ TrackScore scoreTracks(std::span<const TruthRow> rows, const ParticleTable& trut
 
 std::vector<std::string> describeScore(const TrackScore& score, const ComparisonSettings& settings, const std::string& name)
 {
-  std::vector<std::string> lines{describeTracks(name, score),
-                                 allLayersHeader(settings, score.allLayers.findable),
-                                 describe(name, score.allLayers),
-                                 describeAngles(name, score.allLayers, settings.etaEdges),
-                                 minLayersHeader(settings, score.minLayers.findable),
-                                 describe(name, score.minLayers),
-                                 o2Header(settings, score.o2.findable),
-                                 describeO2(name, score.o2),
-                                 originHeader(settings, score),
-                                 describeOrigins(name, settings, score),
-                                 describe(name + " primaries", score.originFindable[0]),
-                                 describeSpecies(name, settings, score, 0U),
-                                 describeSpecies(name, settings, score, 1U),
-                                 describeSpecies(name, settings, score, 2U),
-                                 decaysHeader(settings)};
+  std::vector<std::string> lines{describeTracks(name, score), allLayersHeader(settings, score.allLayers.findable), describe(name, score.allLayers), describeAngles(name, score.allLayers, settings.etaEdges), minLayersHeader(settings, score.minLayers.findable), describe(name, score.minLayers), o2Header(settings, score.o2.findable), describeO2(name, score.o2), originHeader(settings, score), describeOrigins(name, settings, score), describe(name + " primaries", score.originFindable[0]), describeSpecies(name, settings, score, 0U), describeSpecies(name, settings, score, 1U), describeSpecies(name, settings, score, 2U), decaysHeader(settings)};
   std::ranges::move(describeDecays(name, score), std::back_inserter(lines));
   return lines;
 }
 
-std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& ours, const TrackRows& theirs,
-                                          const ComparisonSettings& settings, const std::string& ourName, const std::string& theirName)
+std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& ours, const TrackRows& theirs, const ComparisonSettings& settings, const std::string& ourName, const std::string& theirName)
 {
   const auto particles = particlesOf(rows, truth, settings);
   std::vector<std::string> report;
@@ -811,8 +759,7 @@ std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const 
   report.push_back(
     std::format("  {}'s {} tracks against ours, by clusters: identical {:.2f} %, inside one of ours {:.2f} %, containing one of ours "
                 "{:.2f} %, overlapping {:.2f} %, sharing none {:.2f} %",
-                theirName, theirs.size(), percent(relations[kIdentical], theirs.size()), percent(relations[kTheirsInside], theirs.size()),
-                percent(relations[kOursInside], theirs.size()), percent(relations[kOverlap], theirs.size()), percent(relations[kDisjoint], theirs.size())));
+                theirName, theirs.size(), percent(relations[kIdentical], theirs.size()), percent(relations[kTheirsInside], theirs.size()), percent(relations[kOursInside], theirs.size()), percent(relations[kOverlap], theirs.size()), percent(relations[kDisjoint], theirs.size())));
 
   std::array<std::uint64_t, 4> who{}; // both, ours only, theirs only, neither
   for (const auto& [id, particle] : particles) {
@@ -831,8 +778,7 @@ std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const 
     }
     ++who[slot];
   }
-  report.push_back(
-    std::format("  the all-layer findable: found by both {}, by {} only {}, by {} only {}, by neither {}", who[0], ourName, who[1], theirName, who[2], who[3]));
+  report.push_back(std::format("  the all-layer findable: found by both {}, by {} only {}, by {} only {}, by neither {}", who[0], ourName, who[1], theirName, who[2], who[3]));
   return report;
 }
 

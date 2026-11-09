@@ -53,8 +53,7 @@ struct Closure {
 
 /// Re-evaluate the helix in double at the path length the propagation
 /// reported; its float rounding is 1e-7 relative, 30 nm over 3 m.
-inline Closure closure(const Propagator& prop, const BoundTrackState& before, const BoundTrackState& after, const TrackingSurface& from,
-                       const TrackingSurface& to, Scalar reportedPath)
+inline Closure closure(const Propagator& prop, const BoundTrackState& before, const BoundTrackState& after, const TrackingSurface& from, const TrackingSurface& to, Scalar reportedPath)
 {
   const auto path = static_cast<double>(reportedPath);
   const auto phi = static_cast<double>(before.phi());
@@ -70,9 +69,7 @@ inline Closure closure(const Propagator& prop, const BoundTrackState& before, co
   double local[2] = {0., 0.};
   double residual = 0.;
   for (int i = 0; i < 3; ++i) {
-    const double delta = (static_cast<double>(from.origin[i]) - static_cast<double>(to.origin[i])) +
-                         static_cast<double>(before.loc0()) * static_cast<double>(from.axis0[i]) +
-                         static_cast<double>(before.loc1()) * static_cast<double>(from.axis1[i]) + step[i];
+    const double delta = (static_cast<double>(from.origin[i]) - static_cast<double>(to.origin[i])) + static_cast<double>(before.loc0()) * static_cast<double>(from.axis0[i]) + static_cast<double>(before.loc1()) * static_cast<double>(from.axis1[i]) + step[i];
     local[0] += delta * static_cast<double>(to.axis0[i]);
     local[1] += delta * static_cast<double>(to.axis1[i]);
     residual += delta * static_cast<double>(to.normal[i]);
@@ -97,11 +94,7 @@ struct Worst {
     ++checked;
   }
 
-  void report(const char* label) const
-  {
-    std::cout << label << ": checked=" << checked << " position um=" << value.position / kMicron << " plane um=" << value.plane / kMicron
-              << " azimuth urad=" << value.azimuth * 1.e6 << '\n';
-  }
+  void report(const char* label) const { std::cout << label << ": checked=" << checked << " position um=" << value.position / kMicron << " plane um=" << value.plane / kMicron << " azimuth urad=" << value.azimuth * 1.e6 << '\n'; }
 };
 
 } // namespace o2::gtrk::propagation_precision

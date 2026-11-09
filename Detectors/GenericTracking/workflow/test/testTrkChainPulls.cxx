@@ -93,8 +93,7 @@ constexpr std::size_t kMinForwardMeasurements = 6;
 /// track crosses it, found by moving the plane to where the propagated track
 /// meets it. Each round halves the angle's error many times over (the plane
 /// and the cylinder part by the sagitta), so a few rounds reach float.
-std::optional<std::pair<BoundTrackState, Scalar>> toCylinder(const Propagator& propagator, const BoundTrackState& state, const TrackingSurface& from,
-                                                             const TrackingSurface& cylinder, Scalar angle)
+std::optional<std::pair<BoundTrackState, Scalar>> toCylinder(const Propagator& propagator, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& cylinder, Scalar angle)
 {
   BoundTrackState probe = state;
   for (int round = 0; round < 6; ++round) {
@@ -369,15 +368,17 @@ struct BarrelChain {
     for (std::size_t i = 0; i < truth.size(); ++i) {
       const auto& spec = Geometry<TRKFT3>::layerSpec(tracking->surface(truth[i].surface).layer);
       const auto var = static_cast<Scalar>(spec.pitchX * spec.pitchX / 12.);
-      measurements.push_back(Measurement{.loc0 = truth[i].loc0(),
-                                         .loc1 = truth[i].loc1(),
-                                         .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
-                                         .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
-                                         .varLoc0 = var,
-                                         .covLoc01 = 0.F,
-                                         .varLoc1 = var,
-                                         .clusterIndex = static_cast<std::uint32_t>(i),
-                                         .surface = truth[i].surface});
+      measurements.push_back(Measurement{
+        .loc0 = truth[i].loc0(),
+        .loc1 = truth[i].loc1(),
+        .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
+        .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
+        .varLoc0 = var,
+        .covLoc01 = 0.F,
+        .varLoc1 = var,
+        .clusterIndex = static_cast<std::uint32_t>(i),
+        .surface = truth[i].surface,
+      });
     }
     return true;
   }
@@ -404,9 +405,7 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
     // Gaps between petals and chips lose some lines; draw again. At |eta| 3
     // most lines fall through the discs' inner holes, hence the many draws.
     for (int attempt = 0; attempt < 1000 && !built; ++attempt) {
-      built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p),
-                          static_cast<Scalar>(uniformZ(rng))) &&
-              chain.generate(withMaterial, rng, layers, forward ? kMinForwardMeasurements : kMinMeasurements);
+      built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p), static_cast<Scalar>(uniformZ(rng))) && chain.generate(withMaterial, rng, layers, forward ? kMinForwardMeasurements : kMinMeasurements);
     }
     BOOST_REQUIRE_MESSAGE(built, "no chain in 1000 draws at pT " << ptGeV << " eta " << eta << (withMaterial ? "" : ", no material"));
     auto smeared = chain.measurements;
@@ -612,10 +611,7 @@ BOOST_AUTO_TEST_CASE(LutHoldsTheGeometrysMaterial)
       for (int sample = 0; sample < kSamples; ++sample) {
         const double phi = uniformPhi(rng);
         const double z = uniformZ(rng);
-        const auto x =
-          static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{low * std::cos(phi), low * std::sin(phi), z},
-                                                                            o2::math_utils::Point3D<double>{high * std::cos(phi), high * std::sin(phi), z})
-                                .meanX2X0);
+        const auto x = static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{low * std::cos(phi), low * std::sin(phi), z}, o2::math_utils::Point3D<double>{high * std::cos(phi), high * std::sin(phi), z}).meanX2X0);
         sum += x;
         sum2 += x * x;
       }
@@ -649,11 +645,7 @@ BOOST_AUTO_TEST_CASE(LutHoldsTheGeometrysMaterial)
       const double rLow = r * low / position;
       const double rHigh = r * high / position;
       const double length = std::hypot(rHigh - rLow, high - low);
-      const auto x =
-        static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{rLow * std::cos(phi), rLow * std::sin(phi), low},
-                                                                          o2::math_utils::Point3D<double>{rHigh * std::cos(phi), rHigh * std::sin(phi), high})
-                              .meanX2X0) *
-        std::abs(high - low) / length;
+      const auto x = static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{rLow * std::cos(phi), rLow * std::sin(phi), low}, o2::math_utils::Point3D<double>{rHigh * std::cos(phi), rHigh * std::sin(phi), high}).meanX2X0) * std::abs(high - low) / length;
       sum += x;
       sum2 += x * x;
     }
@@ -675,9 +667,7 @@ BOOST_AUTO_TEST_CASE(LutHoldsTheGeometrysMaterial)
       geo = fromGeometry(low, high, e.zMin, e.zMax);
     } else {
       // The neighbours of the same side, as layerMaterial takes them.
-      const auto sameSide = [&](std::size_t other) {
-        return other >= kBarrel && other < layers.size() && PlacedEnvelopes<TRKFT3>::all()[other].position * e.position > 0.;
-      };
+      const auto sameSide = [&](std::size_t other) { return other >= kBarrel && other < layers.size() && PlacedEnvelopes<TRKFT3>::all()[other].position * e.position > 0.; };
       const bool hasBelow = sameSide(i - 1);
       const bool hasAbove = sameSide(i + 1);
       const double below = hasBelow ? PlacedEnvelopes<TRKFT3>::all()[i - 1].position : 0.;

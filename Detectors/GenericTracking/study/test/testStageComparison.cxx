@@ -48,13 +48,8 @@ constexpr std::size_t kPhiColumn = 4U;
 /// Four elements, the second empty, the others with one to three records.
 Elements sample()
 {
-  const auto tracklet = [](std::uint32_t source, std::uint32_t target, Scalar lambda) {
-    return Tracklet{.source = source, .target = target, .link = 1U, .lambda = lambda, .phi = 0.5F};
-  };
-  return {{tracklet(0U, 10U, 0.1F), tracklet(0U, 11U, 0.2F)},
-          {},
-          {tracklet(2U, 12U, -0.3F)},
-          {tracklet(3U, 13U, 0.4F), tracklet(3U, 14U, 0.5F), tracklet(3U, 15U, 0.6F)}};
+  const auto tracklet = [](std::uint32_t source, std::uint32_t target, Scalar lambda) { return Tracklet{.source = source, .target = target, .link = 1U, .lambda = lambda, .phi = 0.5F}; };
+  return {{tracklet(0U, 10U, 0.1F), tracklet(0U, 11U, 0.2F)}, {}, {tracklet(2U, 12U, -0.3F)}, {tracklet(3U, 13U, 0.4F), tracklet(3U, 14U, 0.5F), tracklet(3U, 15U, 0.6F)}};
 }
 
 std::unique_ptr<Output> output(const Elements& elements)

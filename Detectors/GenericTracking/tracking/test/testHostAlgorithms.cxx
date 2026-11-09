@@ -74,10 +74,7 @@ void checkCompaction(const ForEach& forEach)
         BoundedVector<Index> out{std::pmr::new_delete_resource()};
         out.assign(7U, 99U); // stale contents and size are replaced
         host_algorithms::compactIndices(forEach, n, chunkSize, keep, out);
-        BOOST_TEST_CONTEXT("n " << n << ", chunks of " << chunkSize)
-        {
-          BOOST_TEST(std::vector<Index>(out.begin(), out.end()) == expected, boost::test_tools::per_element());
-        }
+        BOOST_TEST_CONTEXT("n " << n << ", chunks of " << chunkSize) { BOOST_TEST(std::vector<Index>(out.begin(), out.end()) == expected, boost::test_tools::per_element()); }
       }
     }
   }

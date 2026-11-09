@@ -140,10 +140,7 @@ GPUhdi() GPUAlwaysInline() void surfaceToLocal(const TrackingSurface& s, const S
 
 /// \a n dot \a d, the cosine of incidence on a surface.  Its magnitude is what
 /// the grazing check thresholds on.
-GPUhdi() GPUAlwaysInline() Scalar cosIncidence(const TrackingSurface& s, const Scalar d[3])
-{
-  return s.normal[0] * d[0] + s.normal[1] * d[1] + s.normal[2] * d[2];
-}
+GPUhdi() GPUAlwaysInline() Scalar cosIncidence(const TrackingSurface& s, const Scalar d[3]) { return s.normal[0] * d[0] + s.normal[1] * d[1] + s.normal[2] * d[2]; }
 
 /// Every sensor plane of one detector, as the tracking sees them.
 ///

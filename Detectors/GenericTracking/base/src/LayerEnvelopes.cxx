@@ -196,11 +196,13 @@ std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std
     const auto& e = extents[layer];
     const double centre = position[layer] / static_cast<double>(count[layer]);
     if (resolution > 0.) {
-      result.push_back({.position = nearest(centre, resolution),
-                        .rMin = down(e.rMin, resolution),
-                        .rMax = up(e.rMax, resolution),
-                        .zMin = down(e.zMin, resolution),
-                        .zMax = up(e.zMax, resolution)});
+      result.push_back({
+        .position = nearest(centre, resolution),
+        .rMin = down(e.rMin, resolution),
+        .rMax = up(e.rMax, resolution),
+        .zMin = down(e.zMin, resolution),
+        .zMax = up(e.zMax, resolution),
+      });
     } else {
       result.push_back({.position = centre, .rMin = e.rMin, .rMax = e.rMax, .zMin = e.zMin, .zMax = e.zMax});
     }
@@ -214,8 +216,7 @@ std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBar
   for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
     const auto& e = envelopes[layer];
     const bool barrel = std::cmp_less(layer, nBarrelLayers);
-    result += std::format("layer {}: {} {:.4f}, r [{:.4f}, {:.4f}], z [{:.4f}, {:.4f}]\n", layer, barrel ? "mean radius" : "mean z", e.position, e.rMin, e.rMax,
-                          e.zMin, e.zMax);
+    result += std::format("layer {}: {} {:.4f}, r [{:.4f}, {:.4f}], z [{:.4f}, {:.4f}]\n", layer, barrel ? "mean radius" : "mean z", e.position, e.rMin, e.rMax, e.zMin, e.zMax);
   }
   return result;
 }

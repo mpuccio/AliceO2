@@ -168,8 +168,7 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
   for (int i = 0; i < kBoundCovSize; ++i) {
     o2Cov[i] = static_cast<float>(cov[i]);
   }
-  const o2::track::TrackParCov::params_t par{static_cast<float>((-sa * s.r[0]) + (ca * s.r[1])), static_cast<float>(s.r[2]), static_cast<float>(std::sin(phi - alpha)),
-                                             static_cast<float>(std::cos(theta) / sinTheta), static_cast<float>(qOverP / sinTheta)};
+  const o2::track::TrackParCov::params_t par{static_cast<float>((-sa * s.r[0]) + (ca * s.r[1])), static_cast<float>(s.r[2]), static_cast<float>(std::sin(phi - alpha)), static_cast<float>(std::cos(theta) / sinTheta), static_cast<float>(qOverP / sinTheta)};
   return {static_cast<float>((ca * s.r[0]) + (sa * s.r[1])), static_cast<float>(alpha), par, o2Cov};
 }
 

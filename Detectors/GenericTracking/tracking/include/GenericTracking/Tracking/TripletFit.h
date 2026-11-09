@@ -126,10 +126,7 @@ struct KinkAdjoint {
   Scalar phi = 0.F;
 };
 
-[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkAdjoint operator*(const KinkAdjoint& adjoint, Scalar factor)
-{
-  return {.theta = adjoint.theta * factor, .phi = adjoint.phi * factor};
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkAdjoint operator*(const KinkAdjoint& adjoint, Scalar factor) { return {.theta = adjoint.theta * factor, .phi = adjoint.phi * factor}; }
 
 GPUhdi() GPUAlwaysInline() KinkAdjoint& operator+=(KinkAdjoint& adjoint, const KinkAdjoint& other)
 {
@@ -214,8 +211,7 @@ struct SegmentAdjoint {
 };
 
 /// A segment's adjoints carried back to its curvature, chord and delta z.
-GPUhdi() void segmentBackward(const SegmentForward& s, SegmentAdjoint adjoint, Scalar curvature, KinkAdjoint& curvatureAdjoint, KinkAdjoint& chordAdjoint,
-                              KinkAdjoint& deltaZAdjoint)
+GPUhdi() void segmentBackward(const SegmentForward& s, SegmentAdjoint adjoint, Scalar curvature, KinkAdjoint& curvatureAdjoint, KinkAdjoint& chordAdjoint, KinkAdjoint& deltaZAdjoint)
 {
   // theta = atan2(arc, deltaZ)
   const Scalar radius2 = s.arc * s.arc + s.deltaZ * s.deltaZ;
@@ -247,8 +243,7 @@ GPUhdi() void segmentBackward(const SegmentForward& s, SegmentAdjoint adjoint, S
 }
 
 /// A chord's adjoint carried to its two coordinate differences.
-GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, Scalar dx, Scalar dy, Scalar chord, KinkAdjoint& dxAdjoint,
-                                              KinkAdjoint& dyAdjoint)
+GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, Scalar dx, Scalar dy, Scalar chord, KinkAdjoint& dxAdjoint, KinkAdjoint& dyAdjoint)
 {
   dxAdjoint += chordAdjoint * (dx / chord);
   dyAdjoint += chordAdjoint * (dy / chord);
@@ -262,8 +257,7 @@ GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, S
 /// cosine and index to the three points, and projects them on each point's
 /// radial, r-phi and z axes. Invalid where the kinks are not defined.
 /// \a chords are the points' (`tripletChords`).
-[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkGradient kinkGradient(const TripletChords& chords, const PairPoint& first, const PairPoint& middle,
-                                                                   const PairPoint& third)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkGradient kinkGradient(const TripletChords& chords, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
 {
   KinkGradient result;
   const Scalar dx01 = middle.x - first.x;
@@ -420,10 +414,7 @@ GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, S
 }
 
 /// The same, the chords made here.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkGradient kinkGradient(const PairPoint& first, const PairPoint& middle, const PairPoint& third)
-{
-  return kinkGradient(tripletChords(first, middle, third), first, middle, third);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() KinkGradient kinkGradient(const PairPoint& first, const PairPoint& middle, const PairPoint& third) { return kinkGradient(tripletChords(first, middle, third), first, middle, third); }
 
 namespace detail
 {
@@ -524,8 +515,7 @@ template <DetectorLayout Det>
 /// default. The table's `into` and `outOf` of the segment's layers hold every
 /// passive it can cross: the same visits.
 template <DetectorLayout Det, typename Visit>
-GPUhdi() GPUAlwaysInline() void visitPassivesBetween(const ScatteringTable<Det>& table, const PairCut& cut, const PairPoint& from, const PairPoint& to,
-                                                     Scalar sineTheta, Visit visit, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
+GPUhdi() GPUAlwaysInline() void visitPassivesBetween(const ScatteringTable<Det>& table, const PairCut& cut, const PairPoint& from, const PairPoint& to, Scalar sineTheta, Visit visit, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
 {
   if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
     for (std::uint64_t left = passives & ScatteringTable<Det>::kAllPassives; left != 0U; left &= left - 1U) {
@@ -556,21 +546,17 @@ GPUhdi() GPUAlwaysInline() void visitPassivesBetween(const ScatteringTable<Det>&
 /// one from `b` to `c` by `theta_p (1 - t)`. \a middleScale multiplies the
 /// middle layer's variance alone: the kink allowance of a kinked triplet.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer,
-                                                                  const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar sineTheta,
-                                                                  Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar sineTheta, Scalar middleScale = 1.F)
 {
   Scalar variance = middleScattering(table, cut, middleLayer, sineTheta) * middleScale;
   visitPassivesBetween(table, cut, first, middle, sineTheta, [&](Scalar passive, Scalar t) { variance += passive * t * t; }, table.into(middleLayer));
-  visitPassivesBetween(
-    table, cut, middle, third, sineTheta, [&](Scalar passive, Scalar t) { variance += passive * (1.F - t) * (1.F - t); }, table.outOf(middleLayer));
+  visitPassivesBetween(table, cut, middle, third, sineTheta, [&](Scalar passive, Scalar t) { variance += passive * (1.F - t) * (1.F - t); }, table.outOf(middleLayer));
   return variance;
 }
 
 /// A triplet's kink terms from its \a chords (`tripletChords`); false where
 /// its kinks are not defined.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeKinkTerms(const TripletChords& chords, const PairPoint& first, const PairPoint& middle,
-                                                            const PairPoint& third, KinkTerms& terms)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeKinkTerms(const TripletChords& chords, const PairPoint& first, const PairPoint& middle, const PairPoint& third, KinkTerms& terms)
 {
   const auto gradient = kinkGradient(chords, first, middle, third);
   const Scalar sineTheta = detail::referenceSinTheta(chords.length02, first, third);
@@ -588,18 +574,17 @@ template <DetectorLayout Det>
 }
 
 /// The same, the chords made here.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeKinkTerms(const PairPoint& first, const PairPoint& middle, const PairPoint& third, KinkTerms& terms)
-{
-  return makeKinkTerms(tripletChords(first, middle, third), first, middle, third, terms);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeKinkTerms(const PairPoint& first, const PairPoint& middle, const PairPoint& third, KinkTerms& terms) { return makeKinkTerms(tripletChords(first, middle, third), first, middle, third, terms); }
 
 /// The fit factor of a triplet from its kink terms and its points' errors.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeTripletFitFactor(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle,
-                                                                   const PairPoint& third, Scalar angularVariance, TripletFitFactor& result)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool makeTripletFitFactor(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar angularVariance, TripletFitFactor& result)
 {
   const Scalar sineTheta = terms.sineTheta;
   TripletFitFactor scratch{
-    .psi = terms.psi, .rho = terms.rho, .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / (sineTheta * sineTheta)}};
+    .psi = terms.psi,
+    .rho = terms.rho,
+    .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / (sineTheta * sineTheta)},
+  };
   for (int hit = 0; hit < 3; ++hit) {
     const PairPoint* point = &third;
     if (hit == 0) {
@@ -642,21 +627,15 @@ template <DetectorLayout Det>
 /// scattering at the middle layer at pT_min from the pair cut's table, times
 /// \a middleScale.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle, const PairPoint& third,
-                                                         LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result,
-                                                         Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, Scalar middleScale = 1.F)
 {
   TripletFitFactor factor;
-  return makeTripletFitFactor(terms, first, middle, third, tripletScattering(table, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale),
-                              factor) &&
-         fitTriplet(factor, result);
+  return makeTripletFitFactor(terms, first, middle, third, tripletScattering(table, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale), factor) && fitTriplet(factor, result);
 }
 
 /// The same with the kink terms made here; \a terms receives them.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer,
-                                                         const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, KinkTerms& terms,
-                                                         Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, KinkTerms& terms, Scalar middleScale = 1.F)
 {
   return makeKinkTerms(first, middle, third, terms) && fitTriplet(terms, first, middle, third, middleLayer, table, cut, result, middleScale);
 }
@@ -691,8 +670,7 @@ constexpr int kAdjacentKinks = 4;
 
 /// Whiten a vector with L^-1. The curvature fit needs only contractions with
 /// C^-1 = L^-T L^-1, so backward substitution is unnecessary.
-GPUhdi() GPUAlwaysInline() void choleskyWhiten(const Scalar (&lower)[kAdjacentKinks][kAdjacentKinks], const Scalar (&right)[kAdjacentKinks],
-                                               Scalar (&whitened)[kAdjacentKinks])
+GPUhdi() GPUAlwaysInline() void choleskyWhiten(const Scalar (&lower)[kAdjacentKinks][kAdjacentKinks], const Scalar (&right)[kAdjacentKinks], Scalar (&whitened)[kAdjacentKinks])
 {
   for (int row = 0; row < kAdjacentKinks; ++row) {
     Scalar value = right[row];
@@ -725,9 +703,7 @@ GPUhdi() GPUAlwaysInline() void choleskyWhiten(const Scalar (&lower)[kAdjacentKi
 /// and `b c d`. \a covarianceSecondThird is the space-angle covariance of
 /// the kinks at `b` and `c` that one scattering between them gives both
 /// (`adjacentScattering`).
-[[nodiscard]] GPUhdi() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b, const PairPoint& c,
-                                                const PairPoint& d, Scalar varianceSecond, Scalar varianceThird, TripletFitResult& result,
-                                                Scalar covarianceSecondThird = 0.F)
+[[nodiscard]] GPUhdi() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, Scalar varianceSecond, Scalar varianceThird, TripletFitResult& result, Scalar covarianceSecondThird = 0.F)
 {
   const Scalar sineFirst = first.sineTheta;
   const Scalar sineSecond = second.sineTheta;
@@ -795,13 +771,12 @@ struct AdjacentScattering {
 /// \a secondScale and \a thirdScale multiply the layers' own scattering at `b`
 /// and `c`: the kink allowance of a kinked triplet (1 otherwise).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() AdjacentScattering adjacentScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID secondLayer,
-                                                                               LayerID thirdLayer, const PairPoint& a, const PairPoint& b, const PairPoint& c,
-                                                                               const PairPoint& d, Scalar sineFirst, Scalar sineSecond,
-                                                                               Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() AdjacentScattering adjacentScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID secondLayer, LayerID thirdLayer, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, Scalar sineFirst, Scalar sineSecond, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
 {
-  AdjacentScattering result{.second = middleScattering(table, cut, secondLayer, sineFirst) * secondScale,
-                            .third = middleScattering(table, cut, thirdLayer, sineSecond) * thirdScale};
+  AdjacentScattering result{
+    .second = middleScattering(table, cut, secondLayer, sineFirst) * secondScale,
+    .third = middleScattering(table, cut, thirdLayer, sineSecond) * thirdScale,
+  };
   visitPassivesBetween(table, cut, a, b, sineFirst, [&](Scalar passive, Scalar t) { result.second += passive * t * t; }, table.into(secondLayer));
   visitPassivesBetween(
     table, cut, b, c, sineFirst,
@@ -814,18 +789,14 @@ template <DetectorLayout Det>
       result.covariance += passive * o2::gpu::GPUCommonMath::Sqrt(scale) * t * (1.F - t);
     },
     table.outOf(secondLayer) & table.into(thirdLayer));
-  visitPassivesBetween(
-    table, cut, c, d, sineSecond, [&](Scalar passive, Scalar t) { result.third += passive * (1.F - t) * (1.F - t); }, table.outOf(thirdLayer));
+  visitPassivesBetween(table, cut, c, d, sineSecond, [&](Scalar passive, Scalar t) { result.third += passive * (1.F - t) * (1.F - t); }, table.outOf(thirdLayer));
   return result;
 }
 
 /// The same, with the scattering at `b` and `c` at pT_min from the pair
 /// cut's table, each at the polar angle of its own triplet.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b,
-                                                                  const PairPoint& c, const PairPoint& d, LayerID secondLayer, LayerID thirdLayer,
-                                                                  const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result,
-                                                                  Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, LayerID secondLayer, LayerID thirdLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
 {
   const auto scattering = adjacentScattering(table, cut, secondLayer, thirdLayer, a, b, c, d, first.sineTheta, second.sineTheta, secondScale, thirdScale);
   return fitAdjacentTriplets(first, second, a, b, c, d, scattering.second, scattering.third, result, scattering.covariance);

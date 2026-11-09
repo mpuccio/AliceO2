@@ -36,9 +36,7 @@ namespace o2::gtrk
 /// minClusters (\a paths). The one predicate of
 /// TripletPermutation::build and of the device's permutation (SliceGlue.cuh).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool firstTrackletEligible(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources,
-                                                                    TrackletConstView tracklets, const std::uint32_t* offsets, TrackletPathBounds paths,
-                                                                    std::uint32_t first)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool firstTrackletEligible(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets, TrackletPathBounds paths, std::uint32_t first)
 {
   const auto link = tracklets.link[first];
   const auto layer = parameters.linkTargets[link];
@@ -81,8 +79,7 @@ class TripletPermutation
   /// in parallel, over chunks of \a chunkSize tracklets (HostAlgorithms.h):
   /// the same order either way.
   template <typename ForEach>
-  [[nodiscard]] StageStatus build(const IterationParameters<Det>& parameters, const Sources& sources, const Tracklets& tracklets, TrackletPathBounds paths,
-                                  const ForEach& forEach, Index chunkSize)
+  [[nodiscard]] StageStatus build(const IterationParameters<Det>& parameters, const Sources& sources, const Tracklets& tracklets, TrackletPathBounds paths, const ForEach& forEach, Index chunkSize)
   {
     return guardOutOfMemory([&] {
       const auto view = tracklets.view();
@@ -90,8 +87,7 @@ class TripletPermutation
       // The compaction reads its predicate twice (count, place): one byte per
       // tracklet, evaluated once, instead of the gathers twice.
       resizeBoundedVector(mEligible, tracklets.size());
-      forEach(tracklets.size(),
-              [&](Index first) { mEligible[first] = firstTrackletEligible(parameters, sources, view, offsets.data(), paths, first) ? 1U : 0U; });
+      forEach(tracklets.size(), [&](Index first) { mEligible[first] = firstTrackletEligible(parameters, sources, view, offsets.data(), paths, first) ? 1U : 0U; });
       host_algorithms::compactIndices(forEach, tracklets.size(), chunkSize, [&](Index first) { return mEligible[first] != 0U; }, mIndices);
       return StageStatus::kComplete;
     });

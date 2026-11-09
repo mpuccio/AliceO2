@@ -46,8 +46,7 @@ namespace o2::gtrk
 /// The key is therefore unique within a range: the sorted order does not
 /// depend on the algorithm or the backend, and equal lambdas -- -0 and +0
 /// among them -- are ordered by the target.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool trackletBefore(std::uint16_t link, Scalar lambda, std::uint32_t target, std::uint16_t otherLink,
-                                                             Scalar otherLambda, std::uint32_t otherTarget)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool trackletBefore(std::uint16_t link, Scalar lambda, std::uint32_t target, std::uint16_t otherLink, Scalar otherLambda, std::uint32_t otherTarget)
 {
   if (link != otherLink) {
     return link < otherLink;
@@ -104,10 +103,7 @@ GPUhdi() GPUAlwaysInline() void countSortSegment(std::uint32_t length)
 
 /// The link and lambda of a tracklet as one key in `trackletBefore`'s order,
 /// the target aside: the device sorts on it after a stable pass by target.
-[[nodiscard]] GPUdi() std::uint64_t trackletLinkLambdaKey(std::uint16_t link, Scalar lambda)
-{
-  return (std::uint64_t{link} << 32U) | std::uint64_t{trackletLambdaKey(lambda)};
-}
+[[nodiscard]] GPUdi() std::uint64_t trackletLinkLambdaKey(std::uint16_t link, Scalar lambda) { return (std::uint64_t{link} << 32U) | std::uint64_t{trackletLambdaKey(lambda)}; }
 
 /// Sort the tracklets in [\a begin, \a end) of \a tracklets in place, on the
 /// host: `std::ranges::sort` over the
@@ -135,7 +131,12 @@ inline void sortTrackletSegmentOnHost(const TrackletView& tracklets, std::uint32
   for (std::uint32_t i = 0; i < count; ++i) {
     const auto at = begin + i;
     records[i] = Tracklet{
-      .source = tracklets.source[at], .target = tracklets.target[at], .link = tracklets.link[at], .lambda = tracklets.lambda[at], .phi = tracklets.phi[at]};
+      .source = tracklets.source[at],
+      .target = tracklets.target[at],
+      .link = tracklets.link[at],
+      .lambda = tracklets.lambda[at],
+      .phi = tracklets.phi[at],
+    };
   }
   std::ranges::sort(records, [](const Tracklet& a, const Tracklet& b) { return trackletBefore(a.link, a.lambda, a.target, b.link, b.lambda, b.target); });
   for (std::uint32_t i = 0; i < count; ++i) {

@@ -122,8 +122,7 @@ GPUhdi() GPUAlwaysInline() TrackingSurface beamLinePlane(Scalar x, Scalar y, Sca
 /// not positive. \a scatteringScale multiplies the scattering term: 1 but
 /// for the kink allowance.
 template <DetectorLayout Det>
-GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, LayerID layer,
-                                          const PairPoint& innermost, BoundTrackState& state, Scalar scatteringScale = 1.F)
+GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, LayerID layer, const PairPoint& innermost, BoundTrackState& state, Scalar scatteringScale = 1.F)
 {
   using Math = o2::gpu::GPUCommonMath;
   BeamLineUpdate result;

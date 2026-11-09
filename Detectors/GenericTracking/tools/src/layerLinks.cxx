@@ -168,9 +168,7 @@ void forEachTransition(std::vector<Crossing>& crossings, std::vector<bool>& seen
 /// \a from's and \a to's between them.
 bool overAnotherLayer(std::span<const Crossing> envelopes, const Crossing& from, const Crossing& to)
 {
-  return std::ranges::any_of(envelopes, [&](const Crossing& envelope) {
-    return envelope.layer != from.layer && envelope.layer != to.layer && envelope.path > from.path && envelope.path < to.path;
-  });
+  return std::ranges::any_of(envelopes, [&](const Crossing& envelope) { return envelope.layer != from.layer && envelope.layer != to.layer && envelope.path > from.path && envelope.path < to.path; });
 }
 
 /// Which points of a placed disc layer's plane are on active silicon, as a
@@ -387,22 +385,18 @@ void printTable(const LinkMap& links, const Options& options)
 {
   const auto weight = weights(links);
   const auto kept = pruned(links, options.minShare);
-  std::cout << std::defaultfloat << "  // Traced by o2-gtrk-layer-links for " << Det::name << ": pT >= " << options.minPtGeV
-            << " GeV at Bz = " << options.bzKiloGauss << " kG,\n"
-            << "  // beam spot z in [" << options.beamSpotZ - options.beamSpotHalfRange << ", " << options.beamSpotZ + options.beamSpotHalfRange
-            << "] cm, |eta| <= " << options.etaMax << ", source intervals padded by " << options.margin << " cm.\n"
+  std::cout << std::defaultfloat << "  // Traced by o2-gtrk-layer-links for " << Det::name << ": pT >= " << options.minPtGeV << " GeV at Bz = " << options.bzKiloGauss << " kG,\n"
+            << "  // beam spot z in [" << options.beamSpotZ - options.beamSpotHalfRange << ", " << options.beamSpotZ + options.beamSpotHalfRange << "] cm, |eta| <= " << options.etaMax << ", source intervals padded by " << options.margin << " cm.\n"
             << "  // The comment on each link is the fraction of its source layer's crossings that take it.\n";
   if (options.minShare > 0.) {
-    std::cout << "  // Links below " << options.minShare << " of their source layer's crossings are left out (" << links.size() - kept.size() << " of "
-              << links.size() << ").\n";
+    std::cout << "  // Links below " << options.minShare << " of their source layer's crossings are left out (" << links.size() - kept.size() << " of " << links.size() << ").\n";
   }
   std::cout << "  static constexpr std::array<LayerLink, " << kept.size() << "> layerLinks{{\n";
   for (const auto& [link, stats] : kept) {
     const double low = std::floor((stats.low - options.margin) * 100.) / 100.;
     const double high = std::ceil((stats.high + options.margin) * 100.) / 100.;
     const bool skips = stats.direct == 0U;
-    std::cout << "    {.from = " << link.first << ", .to = " << link.second << std::fixed << std::setprecision(2) << ", .sourceMin = " << low
-              << ", .sourceMax = " << high << ", .skipsLayer = " << (skips ? "true" : "false") << "}, // " << std::setprecision(4) << weight.at(link) << '\n';
+    std::cout << "    {.from = " << link.first << ", .to = " << link.second << std::fixed << std::setprecision(2) << ", .sourceMin = " << low << ", .sourceMax = " << high << ", .skipsLayer = " << (skips ? "true" : "false") << "}, // " << std::setprecision(4) << weight.at(link) << '\n';
   }
   std::cout << "  }};\n";
 }
@@ -420,8 +414,7 @@ void printSummary(const LinkMap& links)
     twoLinkPaths += outDegree.contains(link.second) ? outDegree[link.second] : 0U;
     maxOut = std::max(maxOut, outDegree[link.first]);
   }
-  std::cerr << Det::name << ": " << Detector<Det>::nLayers << " layers, " << links.size() << " links, " << twoLinkPaths << " two-link paths, at most " << maxOut
-            << " links leaving a layer\n";
+  std::cerr << Det::name << ": " << Detector<Det>::nLayers << " layers, " << links.size() << " links, " << twoLinkPaths << " two-link paths, at most " << maxOut << " links leaving a layer\n";
 }
 
 template <DetectorLayout Det>

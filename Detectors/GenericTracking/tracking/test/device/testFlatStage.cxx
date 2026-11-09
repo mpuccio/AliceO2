@@ -63,8 +63,7 @@ struct DeviceRun {
   Output output;
 };
 
-std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false,
-                                    std::size_t maxChunkPairs = 0U)
+std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false, std::size_t maxChunkPairs = 0U)
 {
   auto stream = device.createStream();
   auto run = std::make_unique<DeviceRun>();
@@ -113,8 +112,7 @@ BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
   BOOST_REQUIRE((run->status == StageStatus::kComplete));
   BOOST_TEST(run->output.size() == reference->size());
   BOOST_TEST(sameStageOutput(run->output, *reference));
-  BOOST_TEST_MESSAGE(device->backend() << ": " << kLarge << " elements, " << run->info.report.candidates << " candidates, " << run->output.size()
-                                       << " records, " << run->info.report.chunks << " chunk(s), " << run->info.report.readbacks << " readbacks");
+  BOOST_TEST_MESSAGE(device->backend() << ": " << kLarge << " elements, " << run->info.report.candidates << " candidates, " << run->output.size() << " records, " << run->info.report.chunks << " chunk(s), " << run->info.report.readbacks << " readbacks");
 }
 
 /// Chunks of one, seven and a thousand pairs cut the list inside elements;

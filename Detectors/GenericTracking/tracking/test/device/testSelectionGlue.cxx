@@ -137,15 +137,15 @@ HostOutcome host(const std::vector<Record>& records, std::vector<std::uint8_t> m
   output.prepare(static_cast<std::uint32_t>(records.size()));
   BOOST_REQUIRE(runSerial(output, [&](std::uint32_t element, auto& emitter) { emitter.emit(records[element]); }) == StageStatus::kComplete);
   BOOST_REQUIRE(selection.append(output, SerialForEach{}) == StageStatus::kComplete);
-  BOOST_REQUIRE(selection.select(
-                  kSerial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, sharedInnermost, mask) ==
-                StageStatus::kComplete);
-  return {.ranked = {selection.ranked().begin(), selection.ranked().end()},
-          .selected = {selection.selected().begin(), selection.selected().end()},
-          .mask = mask,
-          .duplicates = selection.duplicates(),
-          .mismatches = selection.mismatches(),
-          .rounds = selection.rounds()};
+  BOOST_REQUIRE(selection.select(kSerial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, sharedInnermost, mask) == StageStatus::kComplete);
+  return {
+    .ranked = {selection.ranked().begin(), selection.ranked().end()},
+    .selected = {selection.selected().begin(), selection.selected().end()},
+    .mask = mask,
+    .duplicates = selection.duplicates(),
+    .mismatches = selection.mismatches(),
+    .rounds = selection.rounds(),
+  };
 }
 
 /// \a rows rows, every eleventh shared and every seventeenth exclusive: an
@@ -182,9 +182,7 @@ void compare(const std::vector<Record>& records, const std::vector<std::uint8_t>
   std::vector<std::uint8_t> walked = mask;
   const auto sequential = selectSequentially<kK>(std::as_const(*columns).view(), expected.ranked, sharedInnermost, walked);
   BOOST_TEST(result.selected == sequential, boost::test_tools::per_element());
-  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << records.size() << " records, " << result.ranked.size() << " unique, " << result.duplicates
-                                          << " duplicates, " << result.mismatches << " mismatches, " << result.rounds << " rounds, " << result.selected.size()
-                                          << " selected, " << result.readbacks << " readbacks");
+  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << records.size() << " records, " << result.ranked.size() << " unique, " << result.duplicates << " duplicates, " << result.mismatches << " mismatches, " << result.rounds << " rounds, " << result.selected.size() << " selected, " << result.readbacks << " readbacks");
 }
 
 } // namespace

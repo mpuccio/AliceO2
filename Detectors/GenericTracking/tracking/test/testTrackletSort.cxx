@@ -59,11 +59,13 @@ struct Generator {
     for (Index k = 0; k < count; ++k) {
       // k -> 7k + e is one-to-one modulo the prime 11, and k < count <= 10.
       const Index scrambled = ((k * 7U) + element) % 11U;
-      emitter.emit(Tracklet{.source = element,
-                            .target = (element * 1000U) + scrambled,
-                            .link = static_cast<std::uint16_t>((k * 3U + element) % 3U),
-                            .lambda = kLambdas[(k + element) % kLambdas.size()],
-                            .phi = static_cast<Scalar>(k) - static_cast<Scalar>(element)});
+      emitter.emit(Tracklet{
+        .source = element,
+        .target = (element * 1000U) + scrambled,
+        .link = static_cast<std::uint16_t>((k * 3U + element) % 3U),
+        .lambda = kLambdas[(k + element) % kLambdas.size()],
+        .phi = static_cast<Scalar>(k) - static_cast<Scalar>(element),
+      });
     }
   }
 };
@@ -72,11 +74,7 @@ std::shared_ptr<BoundedMemoryResource> pool() { return std::make_shared<BoundedM
 
 bool before(const Tracklet& a, const Tracklet& b) { return trackletBefore(a.link, a.lambda, a.target, b.link, b.lambda, b.target); }
 
-bool sameTracklet(const Tracklet& a, const Tracklet& b)
-{
-  return a.source == b.source && a.target == b.target && a.link == b.link && std::bit_cast<std::uint32_t>(a.lambda) == std::bit_cast<std::uint32_t>(b.lambda) &&
-         std::bit_cast<std::uint32_t>(a.phi) == std::bit_cast<std::uint32_t>(b.phi);
-}
+bool sameTracklet(const Tracklet& a, const Tracklet& b) { return a.source == b.source && a.target == b.target && a.link == b.link && std::bit_cast<std::uint32_t>(a.lambda) == std::bit_cast<std::uint32_t>(b.lambda) && std::bit_cast<std::uint32_t>(a.phi) == std::bit_cast<std::uint32_t>(b.phi); }
 
 std::vector<Tracklet> segment(const Output& output, Index element)
 {
@@ -148,11 +146,13 @@ struct VariedGenerator {
       } else if (pattern == 2U) {
         lambda = static_cast<Scalar>(static_cast<int>((k * 7919U) % 4001U) - 2000) * 1.e-3F;
       }
-      emitter.emit(Tracklet{.source = element,
-                            .target = (k * 7919U) % 100003U,
-                            .link = static_cast<std::uint16_t>((k * 5U + element) % 12U),
-                            .lambda = lambda,
-                            .phi = static_cast<Scalar>(k)});
+      emitter.emit(Tracklet{
+        .source = element,
+        .target = (k * 7919U) % 100003U,
+        .link = static_cast<std::uint16_t>((k * 5U + element) % 12U),
+        .lambda = lambda,
+        .phi = static_cast<Scalar>(k),
+      });
     }
   }
 };
@@ -192,9 +192,7 @@ BOOST_AUTO_TEST_CASE(TheHostSortGivesTheReferenceOrderForAnyLengthAndTies)
       BOOST_REQUIRE((cpu.run(parallel, chunk, VariedGenerator{}) == StageStatus::kComplete));
       const auto view = parallel.view();
       const auto offsets = parallel.offsets();
-      const auto sort = [&] {
-        cpu.forEachElement(parallel.elementCount(), chunk, [&](Index element) { sortTrackletSegmentOnHost(view, offsets[element], offsets[element + 1U]); });
-      };
+      const auto sort = [&] { cpu.forEachElement(parallel.elementCount(), chunk, [&](Index element) { sortTrackletSegmentOnHost(view, offsets[element], offsets[element + 1U]); }); };
       sort();
       BOOST_TEST(sameStageOutput(parallel, serial), "threads " << threads << ", chunk " << chunk);
       // Sorting a sorted output changes nothing.

@@ -148,9 +148,11 @@ template <AnalyticToy Toy>
       const double cosA = std::cos(phi + spec.tilt);
       const double sinA = std::sin(phi + spec.tilt);
       for (int iMod = 0; iMod < spec.nModulesPerStave; ++iMod) {
-        sensors.push_back({.rot = {-sinA, 0., cosA, cosA, 0., sinA, 0., 1., 0.},
-                           .trans = {spec.r * std::cos(phi), spec.r * std::sin(phi), z0 + pitchZ * static_cast<double>(iMod)},
-                           .layer = layer});
+        sensors.push_back({
+          .rot = {-sinA, 0., cosA, cosA, 0., sinA, 0., 1., 0.},
+          .trans = {spec.r * std::cos(phi), spec.r * std::sin(phi), z0 + pitchZ * static_cast<double>(iMod)},
+          .layer = layer,
+        });
       }
     }
     ++layer;
@@ -163,9 +165,11 @@ template <AnalyticToy Toy>
         const double phi = ring.phi0 + dPhi * static_cast<double>(iMod);
         const double cosP = std::cos(phi);
         const double sinP = std::sin(phi);
-        sensors.push_back({.rot = {sinP, cosP, 0., -cosP, sinP, 0., 0., 0., 1.},
-                           .trans = {ring.r * cosP, ring.r * sinP, spec.z + ring.zOffset + (iMod % 2 == 0 ? 0.5 * ring.gap : -0.5 * ring.gap)},
-                           .layer = layer});
+        sensors.push_back({
+          .rot = {sinP, cosP, 0., -cosP, sinP, 0., 0., 0., 1.},
+          .trans = {ring.r * cosP, ring.r * sinP, spec.z + ring.zOffset + (iMod % 2 == 0 ? 0.5 * ring.gap : -0.5 * ring.gap)},
+          .layer = layer,
+        });
       }
     }
     ++layer;

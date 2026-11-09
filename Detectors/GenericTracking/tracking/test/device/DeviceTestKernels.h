@@ -220,10 +220,7 @@ struct Payload {
 GPUhdi() std::uint32_t trips(std::uint32_t item) { return item % 5U; }
 GPUhdi() bool vote(std::uint32_t lane, std::uint32_t trip, std::uint32_t item) { return ((lane * 7U) + (trip * 13U) + item) % 3U == 0U; }
 GPUhdi() std::uint32_t source(std::uint32_t trip, std::uint32_t item, std::uint32_t lanes) { return (trip + item) % lanes; }
-GPUhdi() Payload payload(std::uint32_t lane, std::uint32_t trip, std::uint32_t item)
-{
-  return {.a = (lane * 1000U) + trip, .b = item, .c = (trip * 3U) + lane};
-}
+GPUhdi() Payload payload(std::uint32_t lane, std::uint32_t trip, std::uint32_t item) { return {.a = (lane * 1000U) + trip, .b = item, .c = (trip * 3U) + lane}; }
 GPUhdi() std::uint32_t innerTrips(std::uint32_t trip, std::uint32_t item) { return item % 2U == 1U ? (item + trip) % 3U : 0U; }
 GPUhdi() bool innerVote(std::uint32_t lane, std::uint32_t inner) { return lane % (inner + 2U) == 0U; }
 GPUhdi() std::uint32_t innerValue(std::uint32_t lane, std::uint32_t inner) { return (lane * 31U) + inner; }
@@ -254,31 +251,23 @@ struct DeviceTestEntry {
   void (*trig)(DeviceRuntime&, DeviceStream&, const double* ys, const double* xs, TrigRow* rows, std::uint32_t count) = nullptr;
   /// GpuStage<TrackletT> over the synthetic generator, its output prepared in
   /// the caller's scope of \a arena and, if complete, downloaded to \a result.
-  StageStatus (*runSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity,
-                              StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
+  StageStatus (*runSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
   /// The same over a list: every element that emits and every third of the
   /// rest (`GpuStage::run` with a list).
-  StageStatus (*runSyntheticListed)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity,
-                                    StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
+  StageStatus (*runSyntheticListed)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
   /// The flat form (`flat::runFlat`) over the
   /// synthetic candidates of \a kind with `synthetic::Accept{divisor}`: all
   /// the elements, or the listed ones (as `runSyntheticListed` lists them);
   /// chunks of at most \a maxChunkPairs pairs (0: the arena decides).
-  StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun,
-                                  std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
+  StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
   /// The device tracker for the ToyBarrel8 fixtures.
   std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> (*makeToyBarrel8Tracker)(DeviceRuntime&, DeviceBlock arena) = nullptr;
   /// The slice's glue passes on host inputs copied to the device, their
   /// results copied back.
-  StageStatus (*permutation)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const LayerRowMap<ToyBarrel8Det>&,
-                             const StageOutput<TrackletT>& tracklets, std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> suffix,
-                             std::vector<std::uint32_t>& result) = nullptr;
-  StageStatus (*pathBounds)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const LayerRowMap<ToyBarrel8Det>&,
-                            const StageOutput<TrackletT>&, const StageOutput<TripletT>&, std::span<const std::uint32_t>, PathBoundsResult&) = nullptr;
-  StageStatus (*endIndex)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TripletT>& triplets, std::uint32_t trackletCount,
-                          std::vector<std::uint32_t>& offsets, std::vector<std::uint32_t>& indices) = nullptr;
-  StageStatus (*chained)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::span<const std::uint32_t> neighbourOffsets,
-                         std::vector<std::uint32_t>& result) = nullptr;
+  StageStatus (*permutation)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const LayerRowMap<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets, std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> suffix, std::vector<std::uint32_t>& result) = nullptr;
+  StageStatus (*pathBounds)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const LayerRowMap<ToyBarrel8Det>&, const StageOutput<TrackletT>&, const StageOutput<TripletT>&, std::span<const std::uint32_t>, PathBoundsResult&) = nullptr;
+  StageStatus (*endIndex)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TripletT>& triplets, std::uint32_t trackletCount, std::vector<std::uint32_t>& offsets, std::vector<std::uint32_t>& indices) = nullptr;
+  StageStatus (*chained)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::span<const std::uint32_t> neighbourOffsets, std::vector<std::uint32_t>& result) = nullptr;
   /// The shared device algorithms and storage on host inputs copied to the
   /// device.
   StageStatus (*selectIndices)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::span<const std::uint8_t> mask, std::vector<std::uint32_t>& result) = nullptr;
@@ -287,32 +276,26 @@ struct DeviceTestEntry {
   /// A chain of \a length values, the first 1: each pass raises value i to
   /// value i-1 plus one, raising the change flag; a value above \a threshold
   /// raises the second, sticky flag.
-  StageStatus (*sweepChain)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::uint32_t length, std::uint32_t threshold, std::uint32_t maxChangingSweeps,
-                            std::vector<std::uint32_t>& values, std::array<std::uint32_t, 2>& flags, std::uint32_t& changingSweeps) = nullptr;
+  StageStatus (*sweepChain)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::uint32_t length, std::uint32_t threshold, std::uint32_t maxChangingSweeps, std::vector<std::uint32_t>& values, std::array<std::uint32_t, 2>& flags, std::uint32_t& changingSweeps) = nullptr;
   /// \a rows tracklets of \a source from \a sourceOffset copied into a device
   /// destination of \a destinationRows rows, all bits set, at
   /// \a destinationOffset; the destination read back.
-  StageStatus (*copyColumns)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::size_t sourceOffset,
-                             std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination) = nullptr;
+  StageStatus (*copyColumns)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::size_t sourceOffset, std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination) = nullptr;
   /// \a source cut into chunks of \a chunkRows rows, appended on the scratch
   /// end in one scope, gathered on the base end and read back; false if the
   /// arena refused a chunk or the gather.
-  bool (*gatherChunks)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows,
-                       std::vector<Tracklet>& gathered) = nullptr;
+  bool (*gatherChunks)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered) = nullptr;
   /// \a object ported to the device and its values read there; false if the
   /// arena refused it.
   /// \a object uploaded, read back; uploaded again elsewhere from the kept image, read back into \a moved.
-  bool (*flatObject)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyFlatObject& object, std::vector<std::int32_t>& readBack,
-                     std::vector<std::int32_t>& moved) = nullptr;
+  bool (*flatObject)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyFlatObject& object, std::vector<std::int32_t>& readBack, std::vector<std::int32_t>& moved) = nullptr;
   /// O2's material LUT ported with DeviceFlatObject, and getMatBudget of each
   /// segment (x0, y0, z0, x1, y1, z1) evaluated on the device: its mean
   /// density, mean X/X0 and length.
-  StageStatus (*matBudgets)(DeviceRuntime&, DeviceStream&, DeviceArena&, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments,
-                            std::vector<std::array<float, 3>>& result) = nullptr;
+  StageStatus (*matBudgets)(DeviceRuntime&, DeviceStream&, DeviceArena&, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 3>>& result) = nullptr;
   /// The selection glue over \a records into a copy of \a mask, in an arena
   /// scope closed on return.
-  StageStatus (*selectionGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask,
-                               std::uint32_t sharedInnermost, SelectionGlueResult& result) = nullptr;
+  StageStatus (*selectionGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result) = nullptr;
   /// Exact helix propagation on the device for independent closure validation.
   StageStatus (*propagation)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::span<const PropagationProbe>, std::vector<PropagationAnswer>&) = nullptr;
   /// `lane_group_script::run` for \a items items in groups of \a lanes lanes
@@ -321,9 +304,7 @@ struct DeviceTestEntry {
   /// A slice's road counts, independently scheduled ordered counts, then its
   /// starts and offsets, on host inputs copied to the device: the triplets
   /// with their final levels, the neighbours and the core rows per layer.
-  StageStatus (*orderedRoadGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets,
-                                 const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours,
-                                 const std::array<MeasurementRange, kToyBarrel8Layers>& core, RoadGlueResult& result) = nullptr;
+  StageStatus (*orderedRoadGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours, const std::array<MeasurementRange, kToyBarrel8Layers>& core, RoadGlueResult& result) = nullptr;
 };
 
 const DeviceTestEntry* testKernelsCUDA();

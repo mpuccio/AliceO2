@@ -129,8 +129,7 @@ BOOST_AUTO_TEST_CASE(Atan2WithinTwoUlpInEveryQuadrant)
   const auto sines = uniform(-1., 1., 1'000'000U, 8U);
   const auto cosines = uniform(-0.2, 1., 1'000'000U, 9U);
   for (std::size_t i = 0; i < sines.size(); ++i) {
-    worst =
-      std::max(worst, ulpError(portable::atan2(sines[i], cosines[i]), std::atan2(static_cast<long double>(sines[i]), static_cast<long double>(cosines[i]))));
+    worst = std::max(worst, ulpError(portable::atan2(sines[i], cosines[i]), std::atan2(static_cast<long double>(sines[i]), static_cast<long double>(cosines[i]))));
   }
   BOOST_TEST_MESSAGE("atan2 " << worst << " ulp");
   BOOST_TEST(worst < 2.);

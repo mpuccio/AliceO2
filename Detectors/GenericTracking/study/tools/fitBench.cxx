@@ -80,8 +80,7 @@ double shortest(unsigned repeat, const Body& body)
 {
   KinkTerms first;
   KinkTerms second;
-  return makeKinkTerms(input.a, input.b, input.c, first) && makeKinkTerms(input.b, input.c, input.d, second) &&
-         fitAdjacentTriplets(first, second, input.a, input.b, input.c, input.d, input.varianceSecond, input.varianceThird, result, input.covariance);
+  return makeKinkTerms(input.a, input.b, input.c, first) && makeKinkTerms(input.b, input.c, input.d, second) && fitAdjacentTriplets(first, second, input.a, input.b, input.c, input.d, input.varianceSecond, input.varianceThird, result, input.covariance);
 }
 
 void addResult(Digest& digest, bool fitted, const TripletFitResult& result)
@@ -103,8 +102,7 @@ void benchTriplets(const std::vector<TripletFitInput>& inputs, unsigned repeat)
     TripletFitResult result;
     const bool fitted = fitTripletInput(input, result);
     addResult(digest, fitted, result);
-    same += static_cast<std::size_t>(fitted && std::bit_cast<std::uint32_t>(result.curvature) == std::bit_cast<std::uint32_t>(input.curvature) &&
-                                     std::bit_cast<std::uint32_t>(result.varCurvature) == std::bit_cast<std::uint32_t>(input.varCurvature));
+    same += static_cast<std::size_t>(fitted && std::bit_cast<std::uint32_t>(result.curvature) == std::bit_cast<std::uint32_t>(input.curvature) && std::bit_cast<std::uint32_t>(result.varCurvature) == std::bit_cast<std::uint32_t>(input.varCurvature));
     passed += static_cast<std::size_t>(fitted && result.chi2 <= input.chi2Max);
   }
 
@@ -128,10 +126,8 @@ void benchTriplets(const std::vector<TripletFitInput>& inputs, unsigned repeat)
 
   const double fitNS = perCall(fit, inputs.size());
   const double gradientNS = perCall(gradient, inputs.size());
-  std::cout << std::format("triplets: {} records; fit {:.1f} ns/call: the kinks and their gradient {:.1f} ns ({:.0f} %), the rest {:.1f} ns\n", inputs.size(),
-                           fitNS, gradientNS, fitNS > 0. ? 100. * gradientNS / fitNS : 0., fitNS - gradientNS);
-  std::cout << std::format("  digest {:016x}; the stage's curvature and variance {}/{}, within the chi2 bound {}/{}\n", digest.result(), same, inputs.size(),
-                           passed, inputs.size());
+  std::cout << std::format("triplets: {} records; fit {:.1f} ns/call: the kinks and their gradient {:.1f} ns ({:.0f} %), the rest {:.1f} ns\n", inputs.size(), fitNS, gradientNS, fitNS > 0. ? 100. * gradientNS / fitNS : 0., fitNS - gradientNS);
+  std::cout << std::format("  digest {:016x}; the stage's curvature and variance {}/{}, within the chi2 bound {}/{}\n", digest.result(), same, inputs.size(), passed, inputs.size());
 }
 
 void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, unsigned repeat)
@@ -168,8 +164,7 @@ void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, unsigned repe
   }
   const auto fromTerms = [&](std::size_t record, TripletFitResult& result) {
     const auto& input = inputs[record];
-    return made[record] != 0U && fitAdjacentTriplets(terms[record][0], terms[record][1], input.a, input.b, input.c, input.d, input.varianceSecond,
-                                                     input.varianceThird, result, input.covariance);
+    return made[record] != 0U && fitAdjacentTriplets(terms[record][0], terms[record][1], input.a, input.b, input.c, input.d, input.varianceSecond, input.varianceThird, result, input.covariance);
   };
   Digest storedDigest;
   for (std::size_t record = 0; record < inputs.size(); ++record) {
@@ -187,10 +182,8 @@ void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, unsigned repe
     }
     return sum;
   });
-  std::cout << std::format("neighbours: {} records; fit {:.1f} ns/call, from the triplets' stored terms {:.1f} ns/call\n", inputs.size(),
-                           perCall(fit, inputs.size()), perCall(stored, inputs.size()));
-  std::cout << std::format("  digest {:016x}, from the stored terms {:016x}; within the chi2 bound {}/{}\n", digest.result(), storedDigest.result(), passed,
-                           inputs.size());
+  std::cout << std::format("neighbours: {} records; fit {:.1f} ns/call, from the triplets' stored terms {:.1f} ns/call\n", inputs.size(), perCall(fit, inputs.size()), perCall(stored, inputs.size()));
+  std::cout << std::format("  digest {:016x}, from the stored terms {:016x}; within the chi2 bound {}/{}\n", digest.result(), storedDigest.result(), passed, inputs.size());
 }
 
 int run(int argc, char** argv)

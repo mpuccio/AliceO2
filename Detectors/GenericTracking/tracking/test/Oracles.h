@@ -108,8 +108,7 @@ GPUhdi() GPUAlwaysInline() void transportCovarianceDense(const Scalar jac[kJacob
 /// A step's predicted covariance, F (P + Q_before) F^T + Q_after, formed in
 /// double from the float inputs: the oracle `transportFactors` is held to.
 /// \a predicted is packed as `cov`.
-GPUhdi() GPUAlwaysInline() void predictCovarianceExact(const SolenoidJacobian& jac, const StepNoise& noise, const Scalar (&cov)[kBoundCovSize],
-                                                       ExactScalar (&predicted)[kBoundCovSize])
+GPUhdi() GPUAlwaysInline() void predictCovarianceExact(const SolenoidJacobian& jac, const StepNoise& noise, const Scalar (&cov)[kBoundCovSize], ExactScalar (&predicted)[kBoundCovSize])
 {
   Scalar dense[kJacobianSize];
   expandJacobian(jac, dense);
@@ -177,8 +176,7 @@ GPUhdi() GPUAlwaysInline() void defaultDifferenceSteps(Scalar step[kNBoundParams
 /// and insisting it did would make the reference unusable near a sensor edge.
 /// \a Rule as `propagate`'s.
 template <CrossingRule Rule = CrossingRule::kFirstAhead>
-GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to,
-                                                   PropagationDirection dir, const Scalar step[kNBoundParams], Scalar jac[kJacobianSize])
+GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, const Scalar step[kNBoundParams], Scalar jac[kJacobianSize])
 {
   for (int j = 0; j < kNBoundParams; ++j) {
     BoundTrackState plus = state;
@@ -354,10 +352,7 @@ GPUhdi() GPUAlwaysInline() void spatialChi2(T a, T b, T d, T residualLoc0, T res
 // ---- the three-point seed ----
 
 /// The prior on a three-point seed, whose q/p is known to a factor of a few.
-GPUhdi() GPUAlwaysInline() void setDiffuseSeedCovariance(BoundTrackState& seed)
-{
-  setDiffuseCovariance(seed, 3.F * o2::gpu::GPUCommonMath::Abs(seed.qOverP()));
-}
+GPUhdi() GPUAlwaysInline() void setDiffuseSeedCovariance(BoundTrackState& seed) { setDiffuseCovariance(seed, 3.F * o2::gpu::GPUCommonMath::Abs(seed.qOverP())); }
 
 /// Construct a state on the first of three ordered measurement surfaces.
 ///
@@ -370,9 +365,7 @@ GPUhdi() GPUAlwaysInline() void setDiffuseSeedCovariance(BoundTrackState& seed)
 /// state remains Scalar; ExactScalar is useful as a host-side validation
 /// oracle while the default keeps the device path in Scalar.
 template <typename T = Scalar, typename Prop>
-GPUdi() BoundTrackState
-  makeThreePointSeed(const Prop& prop, const Measurement& first, const Measurement& second, const Measurement& third, const TrackingSurface& firstSurface,
-                     const TrackingSurface& secondSurface, const TrackingSurface& thirdSurface)
+GPUdi() BoundTrackState makeThreePointSeed(const Prop& prop, const Measurement& first, const Measurement& second, const Measurement& third, const TrackingSurface& firstSurface, const TrackingSurface& secondSurface, const TrackingSurface& thirdSurface)
 {
   Scalar firstGlobalScalar[3]{};
   Scalar secondGlobalScalar[3]{};
@@ -432,8 +425,7 @@ GPUdi() BoundTrackState
 
 /// The triplet fit from the points, the kink terms discarded.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer,
-                                                         const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result)
 {
   KinkTerms terms;
   return fitTriplet(first, middle, third, middleLayer, table, cut, result, terms);
@@ -441,8 +433,7 @@ template <DetectorLayout Det>
 
 /// The adjacent fit from the four points and given variances at `b` and `c`,
 /// the kink terms computed here.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d,
-                                                                  Scalar varianceSecond, Scalar varianceThird, TripletFitResult& result)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, Scalar varianceSecond, Scalar varianceThird, TripletFitResult& result)
 {
   KinkTerms first;
   KinkTerms second;
@@ -456,9 +447,7 @@ template <DetectorLayout Det>
 /// at pT_min from the pair cut's table, each at the polar angle of its own
 /// triplet; the kink terms computed here.
 template <DetectorLayout Det>
-[[nodiscard]] inline bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d,
-                                              LayerID secondLayer, LayerID thirdLayer, const ScatteringTable<Det>& table,
-                                              const PairCut& cut, TripletFitResult& result)
+[[nodiscard]] inline bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, LayerID secondLayer, LayerID thirdLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result)
 {
   KinkTerms first;
   KinkTerms second;
@@ -471,8 +460,7 @@ template <DetectorLayout Det>
 /// The triplet cuts after the dip angle, the kink terms and the kink flag
 /// discarded.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first,
-                                                                const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit)
 {
   KinkTerms terms;
   bool kinked = false;
@@ -483,9 +471,7 @@ template <DetectorLayout Det>
 /// (NeighbourCut.h), the two triplets' kink terms made there from the points,
 /// no kink allowance.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer,
-                                                                  const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d,
-                                                                  TripletFitResult& fit)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, TripletFitResult& fit)
 {
   KinkTerms bcd;
   bool made = false;

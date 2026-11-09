@@ -61,10 +61,7 @@ struct LayerRowMap {
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Index size() const { return offsets[kLayerCount]; }
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool contains(LayerID layer, Index row) const
-  {
-    return static_cast<std::size_t>(layer) < kLayerCount && row >= ranges[layer].begin && row < ranges[layer].end;
-  }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool contains(LayerID layer, Index row) const { return static_cast<std::size_t>(layer) < kLayerCount && row >= ranges[layer].begin && row < ranges[layer].end; }
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Index element(LayerID layer, Index row) const
   {
@@ -75,8 +72,7 @@ struct LayerRowMap {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Row row(Index element) const
   {
     assert(element < size());
-    const std::size_t low =
-      o2::gpu::CAAlgo::partitionPoint(std::size_t{1}, kLayerCount - 1U, [&](std::size_t layer) { return offsets[layer] <= element; }) - 1U;
+    const std::size_t low = o2::gpu::CAAlgo::partitionPoint(std::size_t{1}, kLayerCount - 1U, [&](std::size_t layer) { return offsets[layer] <= element; }) - 1U;
     return {.layer = static_cast<LayerID>(low), .row = ranges[low].begin + (element - offsets[low])};
   }
 

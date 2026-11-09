@@ -58,8 +58,7 @@ inline constexpr Scalar kSlopeUnbounded = FLT_MAX;
 /// \a slopeAdmits for measurement \a row of \a columns, the line from
 /// (\a fromX, \a fromY, \a fromZ) to (\a toX, \a toY, \a toZ).
 template <typename Columns, typename Row>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool shapeAdmits(const Columns& columns, Row row, Scalar fromX, Scalar fromY, Scalar fromZ, Scalar toX, Scalar toY,
-                                                          Scalar toZ)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool shapeAdmits(const Columns& columns, Row row, Scalar fromX, Scalar fromY, Scalar fromZ, Scalar toX, Scalar toY, Scalar toZ)
 {
   return slopeAdmits(columns.slopeLow[row], columns.slopeHigh[row], columns.x[row], columns.y[row], columns.r[row], toX - fromX, toY - fromY, toZ - fromZ);
 }

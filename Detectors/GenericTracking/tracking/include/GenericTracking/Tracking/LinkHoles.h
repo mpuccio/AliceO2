@@ -56,11 +56,13 @@ template <DetectorLayout Det>
 [[nodiscard]] inline LayerSpan layerSpan(LayerID layer)
 {
   const bool barrel = Detector<Det>::isBarrelLayer(layer);
-  return {.position = static_cast<Scalar>(barrel ? layerDistance<Det>(layer) : discZ<Det>(layer)),
-          .low = static_cast<Scalar>(secondMin<Det>(layer)),
-          .high = static_cast<Scalar>(secondMax<Det>(layer)),
-          .positionMin = static_cast<Scalar>(barrel ? radiusMin<Det>(layer) : zMin<Det>(layer)),
-          .positionMax = static_cast<Scalar>(barrel ? radiusMax<Det>(layer) : zMax<Det>(layer))};
+  return {
+    .position = static_cast<Scalar>(barrel ? layerDistance<Det>(layer) : discZ<Det>(layer)),
+    .low = static_cast<Scalar>(secondMin<Det>(layer)),
+    .high = static_cast<Scalar>(secondMax<Det>(layer)),
+    .positionMin = static_cast<Scalar>(barrel ? radiusMin<Det>(layer) : zMin<Det>(layer)),
+    .positionMax = static_cast<Scalar>(barrel ? radiusMax<Det>(layer) : zMax<Det>(layer)),
+  };
 }
 
 /// Whether the segment from (\a ra, \a za) to (\a rb, \a zb) crosses
@@ -81,8 +83,7 @@ template <DetectorLayout Det>
 
 /// Whether the segment crosses any layer of \a holes, a bit per layer, with
 /// \a barrels the barrel layers' bits and \a spans each layer's span.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool segmentLeavesHole(std::uint64_t holes, std::uint64_t barrels, const LayerSpan* spans, Scalar ra, Scalar za,
-                                                                Scalar rb, Scalar zb)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool segmentLeavesHole(std::uint64_t holes, std::uint64_t barrels, const LayerSpan* spans, Scalar ra, Scalar za, Scalar rb, Scalar zb)
 {
   for (; holes != 0U; holes &= holes - 1U) {
     const std::uint32_t layer = o2::gpu::CAMath::Ctz64(holes);
@@ -154,8 +155,7 @@ struct Shadow {
 /// hull: a shadow inside it stays, and `segmentLeavesHole` decides per pair.
 /// It spares the query of a source no direct pair can leave, and the cells
 /// of the others beyond it, and changes no tracklet.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerSpan directPairRange(std::uint64_t holes, std::uint64_t barrels, const LayerSpan* spans, LayerID target,
-                                                                   Scalar ra, Scalar za, Scalar low, Scalar high)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerSpan directPairRange(std::uint64_t holes, std::uint64_t barrels, const LayerSpan* spans, LayerID target, Scalar ra, Scalar za, Scalar low, Scalar high)
 {
   const bool targetBarrel = ((barrels >> target) & 1U) != 0U;
   const Scalar aP = targetBarrel ? ra : za;

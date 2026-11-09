@@ -55,9 +55,10 @@ class VertexingPass
 
   /// \a pass the pass's iteration (GridConfig.h, `vertexingPassSettings`),
   /// \a vertexer the vertexer's settings; the rest as for a Tracker.
-  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering,
-                std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, int maxConcurrency = 0)
-    : mPass(pass, beamSpot, scattering, memoryPool, chunkSize, maxConcurrency), mVertexer(vertexer, beamSpot), mMemoryPool(std::move(memoryPool))
+  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, int maxConcurrency = 0)
+    : mPass(pass, beamSpot, scattering, memoryPool, chunkSize, maxConcurrency),
+      mVertexer(vertexer, beamSpot),
+      mMemoryPool(std::move(memoryPool))
   {
   }
 
@@ -84,7 +85,10 @@ class VertexingPass
     // Each candidate's z0 error from the pass's material at its own momentum
     // and the beam's transverse spread.
     const ScatteringErrors<Det> errors{
-      .table = &mPass.iteration(0U).scattering, .cut = mPass.iteration(0U).pairCut, .varTransverse = mPass.beamLine().varTransverse};
+      .table = &mPass.iteration(0U).scattering,
+      .cut = mPass.iteration(0U).pairCut,
+      .varTransverse = mPass.beamLine().varTransverse,
+    };
     for (const auto& planned : plan.slices) {
       const auto slice = mPass.runSlice(0U, frame, plan, planned, {}, plan.vertexWindows[0]);
       result.status = slice.status;
@@ -93,8 +97,7 @@ class VertexingPass
       }
       const auto tracklets = slice.tracklets->view();
       const auto triplets = slice.triplets->view();
-      const auto found = mVertexer.find(frame.measurements(), tracklets, triplets, slice.triplets->size(), &mPass.arena(), keepClaims,
-                                        errors, mMemoryPool.get(), ownedFrames(frame.grid().geometry(), planned.slice.coreBlocks));
+      const auto found = mVertexer.find(frame.measurements(), tracklets, triplets, slice.triplets->size(), &mPass.arena(), keepClaims, errors, mMemoryPool.get(), ownedFrames(frame.grid().geometry(), planned.slice.coreBlocks));
       const auto offset = static_cast<std::int32_t>(result.found.vertices.size());
       for (std::size_t t = 0; t < found.tripletVertex.size(); ++t) {
         if (const auto vertex = found.tripletVertex[t]; vertex != VertexerResult::kNotOwned) {

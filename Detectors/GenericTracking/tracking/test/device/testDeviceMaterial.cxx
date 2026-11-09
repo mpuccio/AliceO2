@@ -69,21 +69,16 @@ BOOST_AUTO_TEST_CASE(TheLutGivesTheHostsBudgetsOnTheDevice)
   std::size_t differing = 0U;
   std::size_t nonZero = 0U;
   double worst = 0.;
-  const auto relative = [](float host, float device) {
-    return host == device ? 0. : std::abs(static_cast<double>(device) - static_cast<double>(host)) / std::abs(static_cast<double>(host));
-  };
+  const auto relative = [](float host, float device) { return host == device ? 0. : std::abs(static_cast<double>(device) - static_cast<double>(host)) / std::abs(static_cast<double>(host)); };
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& s = segments[i];
     const auto host = lut->getMatBudget(s[0], s[1], s[2], s[3], s[4], s[5]);
     nonZero += host.meanX2X0 > 0.F ? 1U : 0U;
-    const bool same = std::bit_cast<std::uint32_t>(host.meanRho) == std::bit_cast<std::uint32_t>(onDevice[i][0]) &&
-                      std::bit_cast<std::uint32_t>(host.meanX2X0) == std::bit_cast<std::uint32_t>(onDevice[i][1]) &&
-                      std::bit_cast<std::uint32_t>(host.length) == std::bit_cast<std::uint32_t>(onDevice[i][2]);
+    const bool same = std::bit_cast<std::uint32_t>(host.meanRho) == std::bit_cast<std::uint32_t>(onDevice[i][0]) && std::bit_cast<std::uint32_t>(host.meanX2X0) == std::bit_cast<std::uint32_t>(onDevice[i][1]) && std::bit_cast<std::uint32_t>(host.length) == std::bit_cast<std::uint32_t>(onDevice[i][2]);
     differing += same ? 0U : 1U;
     worst = std::max({worst, relative(host.meanX2X0, onDevice[i][1]), relative(host.length, onDevice[i][2])});
   }
-  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << segments.size() << " segments, " << nonZero << " through material, " << differing
-                                          << " differing, worst relative difference " << worst);
+  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << segments.size() << " segments, " << nonZero << " through material, " << differing << " differing, worst relative difference " << worst);
   BOOST_TEST(nonZero > 0U);
 #ifdef GPUCA_DETERMINISTIC_MODE
   BOOST_TEST(differing == 0U);

@@ -44,8 +44,7 @@ namespace o2::gtrk
 /// reverse -- so the variances' sum is not a bound; `(sigma_1 + sigma_2)^2`,
 /// correlation -1, is. The adjacent fit then takes the correlation exactly.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCurvatureCompatible(const IterationParameters<Det>& parameters, Scalar firstCurvature,
-                                                                           Scalar firstVariance, Scalar secondCurvature, Scalar secondVariance)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCurvatureCompatible(const IterationParameters<Det>& parameters, Scalar firstCurvature, Scalar firstVariance, Scalar secondCurvature, Scalar secondVariance)
 {
   const Scalar difference = firstCurvature - secondCurvature;
   const Scalar nSigma = parameters.pairCut.nSigma;
@@ -55,10 +54,7 @@ template <DetectorLayout Det>
 
 /// The first and the fourth measurement's boxes overlap: with the triplets'
 /// pairs, the four boxes share a time.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourTimeCompatible(const TimedPoint& first, const TimedPoint& fourth)
-{
-  return first.time.isCompatible(fourth.time);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourTimeCompatible(const TimedPoint& first, const TimedPoint& fourth) { return first.time.isCompatible(fourth.time); }
 
 namespace detail
 {
@@ -66,8 +62,7 @@ namespace detail
 /// The adjacent fit's outcome against its chi2 cut; \a fit receives it when it
 /// passes.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourChi2Compatible(const IterationParameters<Det>& parameters, bool fitted, const TripletFitResult& result,
-                                                                      TripletFitResult& fit)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourChi2Compatible(const IterationParameters<Det>& parameters, bool fitted, const TripletFitResult& result, TripletFitResult& fit)
 {
   if (!fitted) {
     countWork(WorkCounter::kNeighbourFitFailed);
@@ -94,10 +89,7 @@ template <DetectorLayout Det>
 /// keeps for the others of the same triplet. The terms are the triplet fit's
 /// own: the same function of the same points.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer,
-                                                                  const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d,
-                                                                  KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale,
-                                                                  Scalar thirdScale)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale, Scalar thirdScale)
 {
   if (!neighbourTimeCompatible(a, d)) {
     countWork(WorkCounter::kNeighbourTime);
@@ -113,9 +105,7 @@ template <DetectorLayout Det>
       made = true;
     }
     KinkTerms abc;
-    fitted = valid && makeKinkTerms(a.point, b.point, c.point, abc) &&
-             fitAdjacentTriplets(abc, bcd, a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, result,
-                                 secondScale, thirdScale);
+    fitted = valid && makeKinkTerms(a.point, b.point, c.point, abc) && fitAdjacentTriplets(abc, bcd, a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, result, secondScale, thirdScale);
   }
   return detail::neighbourChi2Compatible(parameters, fitted, result, fit);
 }

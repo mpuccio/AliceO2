@@ -60,8 +60,7 @@ class TripletPaths
   /// element's tracklet is final when its group runs; the suffix in reverse,
   /// one writer per element.
   template <typename ForEachTriplet, typename ForEach>
-  void build(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, const StageOutput<TrackletT>& tracklets,
-             const TripletPermutation<Det>& permutation, const ForEachTriplet& forEachTriplet, const ForEach& forEach)
+  void build(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, const StageOutput<TrackletT>& tracklets, const TripletPermutation<Det>& permutation, const ForEachTriplet& forEachTriplet, const ForEach& forEach)
   {
     mMinClusters = parameters.minClusters;
     // Kept from slice to slice and filled in parallel, not reallocated:

@@ -35,9 +35,8 @@ struct TripletT {
   C<std::uint32_t> first, second; ///< indices of tracklets a -> b and b -> c
   C<Scalar> curvature;            ///< fitted signed 3D curvature, prop. to q/p [1/cm]; transverse is curvature / sin(theta)
   C<Scalar> varCurvature;         ///< curvature variance [1/cm^2]
-  C<std::uint32_t>
-    level;                ///< CA level: 1 from the triplet stage, set by the neighbour stage stratum by stratum; 32 bits for the tests' fixed-point sweep, an atomic max
-  C<std::uint8_t> kinked; ///< 1 if it passed only with the iteration's kink allowance
+  C<std::uint32_t> level;         ///< CA level: 1 from the triplet stage, set by the neighbour stage stratum by stratum; 32 bits for the tests' fixed-point sweep, an atomic max
+  C<std::uint8_t> kinked;         ///< 1 if it passed only with the iteration's kink allowance
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 

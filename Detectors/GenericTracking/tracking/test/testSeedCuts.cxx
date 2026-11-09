@@ -69,7 +69,10 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, double zShift = 0., do
   const double curvature = 1. / curvatureRadius(ptGeV, 20.);
   const auto secondLink = linkOf<ToyBarrel4Disc8>(c.layers[1], c.layers[2]);
   const TripletTargetBounds target{
-    .varZ = static_cast<Scalar>(c.errors.varZ), .varR = static_cast<Scalar>(c.errors.varR), .varRPhi = static_cast<Scalar>(c.errors.varRPhi)};
+    .varZ = static_cast<Scalar>(c.errors.varZ),
+    .varR = static_cast<Scalar>(c.errors.varR),
+    .varRPhi = static_cast<Scalar>(c.errors.varRPhi),
+  };
 
   // A fixed seed: the rates are compared against fixed thresholds.
   std::mt19937_64 generator(20260926U); // NOLINT(cert-msc51-cpp)
@@ -261,17 +264,14 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, const Departure& depar
     State fourth = Helix::toLayer(Helix::scatter(third, c.layers[2], ptGeV, parameters, generator), lastCurvature, c.layers[3]);
     fourth.z += departure.zShift;
 
-    const std::array<TimedPoint, 4> m{Helix::measure(a, c.errors, 0., generator), Helix::measure(b, c.errors, 0., generator),
-                                      Helix::measure(third, c.errors, 0., generator), Helix::measure(fourth, c.errors, departure.timeShift, generator)};
+    const std::array<TimedPoint, 4> m{Helix::measure(a, c.errors, 0., generator), Helix::measure(b, c.errors, 0., generator), Helix::measure(third, c.errors, 0., generator), Helix::measure(fourth, c.errors, departure.timeShift, generator)};
     TripletFitResult first;
     TripletFitResult second;
-    const bool fitted = fitTriplet(m[0].point, m[1].point, m[2].point, c.layers[1], parameters.scattering, parameters.pairCut, first) &&
-                        fitTriplet(m[1].point, m[2].point, m[3].point, c.layers[2], parameters.scattering, parameters.pairCut, second);
+    const bool fitted = fitTriplet(m[0].point, m[1].point, m[2].point, c.layers[1], parameters.scattering, parameters.pairCut, first) && fitTriplet(m[1].point, m[2].point, m[3].point, c.layers[2], parameters.scattering, parameters.pairCut, second);
     const bool curvaturePasses = fitted && neighbourCurvatureCompatible(parameters, first.curvature, first.varCurvature, second.curvature, second.varCurvature);
     const bool timePasses = neighbourTimeCompatible(m[0], m[3]);
     TripletFitResult adjacent;
-    const bool adjacentFitted =
-      fitAdjacentTriplets(m[0].point, m[1].point, m[2].point, m[3].point, c.layers[1], c.layers[2], parameters.scattering, parameters.pairCut, adjacent);
+    const bool adjacentFitted = fitAdjacentTriplets(m[0].point, m[1].point, m[2].point, m[3].point, c.layers[1], c.layers[2], parameters.scattering, parameters.pairCut, adjacent);
     TripletFitResult fit;
     const bool allPass = curvaturePasses && neighbourCompatible(parameters, c.layers[1], c.layers[2], m[0], m[1], m[2], m[3], fit);
     result.curvature += curvaturePasses ? 1 : 0;
@@ -301,8 +301,7 @@ BOOST_AUTO_TEST_CASE(TrueNeighboursPassEveryCut)
   for (const auto& c : kCases) {
     for (const auto& [pt, minPt] : std::array<std::array<double, 2>, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
       const auto kept = rates(c, pt, minPt);
-      BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " " << int(c.layers[3]) << " slope " << c.slope
-                                   << " pT " << pt << " min " << minPt)
+      BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " " << int(c.layers[3]) << " slope " << c.slope << " pT " << pt << " min " << minPt)
       {
         BOOST_TEST(kept.curvature >= kKept * kDraws);
         BOOST_TEST(kept.time == kDraws);

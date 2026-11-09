@@ -56,10 +56,7 @@ struct ClusterShapeBand {
 
   /// Whether it is a band of a layout of \a barrelLayers barrel layers: of
   /// its first layers at most, every layer's spans there.
-  [[nodiscard]] bool fits(std::size_t barrelLayers) const
-  {
-    return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans;
-  }
+  [[nodiscard]] bool fits(std::size_t barrelLayers) const { return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans; }
 
   /// The slope interval of a cluster of \a rowSpan rows and \a colSpan
   /// columns on layer \a layer.

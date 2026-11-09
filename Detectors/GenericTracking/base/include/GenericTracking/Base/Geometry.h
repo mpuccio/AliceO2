@@ -94,10 +94,7 @@ class Geometry
   }
 
   /// The shape of a layer's sensors.
-  [[nodiscard]] static constexpr const SensorSpec& layerSpec(LayerID layer)
-  {
-    return Detector<Det>::isBarrelLayer(layer) ? Det::barrelLayers[layer].sensor : Det::discLayers[Detector<Det>::discIndex(layer)].sensor;
-  }
+  [[nodiscard]] static constexpr const SensorSpec& layerSpec(LayerID layer) { return Detector<Det>::isBarrelLayer(layer) ? Det::barrelLayers[layer].sensor : Det::discLayers[Detector<Det>::discIndex(layer)].sensor; }
 
   /// The shape of the sensor a chip carries.
   [[nodiscard]] const SensorSpec& specOf(SensorID id) const { return layerSpec(mSensors[id].layer); }

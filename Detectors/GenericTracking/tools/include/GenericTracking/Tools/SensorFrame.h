@@ -53,10 +53,7 @@ inline void frameToUnrolled(const SensorSpec& spec, const double frame[3], doubl
 
 /// Whether a point's unrolled \a x, \a y (a flat sensor's frame; a curved
 /// sensor's frame point goes through `frameToUnrolled` first) are on silicon.
-[[nodiscard]] constexpr bool contains(const SensorSpec& spec, double x, double y)
-{
-  return y >= -spec.halfY && y <= spec.halfY && x >= -spec.halfX && x <= spec.halfX;
-}
+[[nodiscard]] constexpr bool contains(const SensorSpec& spec, double x, double y) { return y >= -spec.halfY && y <= spec.halfY && x >= -spec.halfX && x <= spec.halfX; }
 
 } // namespace o2::gtrk::tools
 

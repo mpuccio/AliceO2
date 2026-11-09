@@ -69,16 +69,7 @@ struct Branch {
   double dz = 0.;
   double dRPhi = 0.;
 };
-constexpr std::array<Branch, 10> kBranches{{{.track = 0, .dz = 0.008, .dRPhi = 0.003},
-                                            {.track = 0, .dz = 0.012, .dRPhi = 0.005},
-                                            {.track = 1, .dz = 0.010, .dRPhi = 0.004},
-                                            {.track = 1, .dz = 0.016, .dRPhi = 0.002},
-                                            {.track = 2, .dz = 0.006, .dRPhi = 0.006},
-                                            {.track = 2, .dz = 0.004, .dRPhi = 0.008},
-                                            {.track = 3, .dz = 0.012, .dRPhi = 0.004},
-                                            {.track = 3, .dz = 0.008, .dRPhi = 0.007},
-                                            {.track = 2, .dRPhi = 0.012},
-                                            {.track = 3, .dRPhi = 0.016}}};
+constexpr std::array<Branch, 10> kBranches{{{.track = 0, .dz = 0.008, .dRPhi = 0.003}, {.track = 0, .dz = 0.012, .dRPhi = 0.005}, {.track = 1, .dz = 0.010, .dRPhi = 0.004}, {.track = 1, .dz = 0.016, .dRPhi = 0.002}, {.track = 2, .dz = 0.006, .dRPhi = 0.006}, {.track = 2, .dz = 0.004, .dRPhi = 0.008}, {.track = 3, .dz = 0.012, .dRPhi = 0.004}, {.track = 3, .dz = 0.008, .dRPhi = 0.007}, {.track = 2, .dRPhi = 0.012}, {.track = 3, .dRPhi = 0.016}}};
 constexpr LayerID kBranchLayer = 4;
 
 /// The neighbour fixture: kTracks through all eight layers, the last one
@@ -96,12 +87,17 @@ std::vector<Hit> neighbourHits()
     const double radius = layerDistance<Det>(static_cast<LayerID>(layer));
     for (std::size_t noise = 0; noise < kNoisePerLayer; ++noise) {
       const double phi = 0.55 + (1.85 * static_cast<double>(noise)) + (0.23 * static_cast<double>(layer));
-      hits.push_back({.point = {.layer = static_cast<LayerID>(layer),
-                                .x = static_cast<Scalar>(radius * std::cos(phi)),
-                                .y = static_cast<Scalar>(radius * std::sin(phi)),
-                                .z = static_cast<Scalar>((noise % 2U == 0U ? 0.65 : -0.55) + (0.03 * static_cast<double>(layer))),
-                                .r = static_cast<Scalar>(radius),
-                                .phi = static_cast<Scalar>(phi)}});
+      hits.push_back({
+        .point =
+          {
+            .layer = static_cast<LayerID>(layer),
+            .x = static_cast<Scalar>(radius * std::cos(phi)),
+            .y = static_cast<Scalar>(radius * std::sin(phi)),
+            .z = static_cast<Scalar>((noise % 2U == 0U ? 0.65 : -0.55) + (0.03 * static_cast<double>(layer))),
+            .r = static_cast<Scalar>(radius),
+            .phi = static_cast<Scalar>(phi),
+          },
+      });
     }
   }
   for (const auto& branch : kBranches) {
@@ -119,12 +115,14 @@ void copyTriplets(const Triplets& triplets, Triplets& copy)
   copy.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   copy.prepare(triplets.size());
   const auto status = runSerial(copy, [&](Triplets::Index element, auto& emitter) {
-    emitter.emit(Triplet{.first = view.first[element],
-                         .second = view.second[element],
-                         .curvature = view.curvature[element],
-                         .varCurvature = view.varCurvature[element],
-                         .level = 1U,
-                         .kinked = view.kinked[element]});
+    emitter.emit(Triplet{
+      .first = view.first[element],
+      .second = view.second[element],
+      .curvature = view.curvature[element],
+      .varCurvature = view.varCurvature[element],
+      .level = 1U,
+      .kinked = view.kinked[element],
+    });
   });
   BOOST_REQUIRE(status == StageStatus::kComplete);
 }
@@ -217,8 +215,7 @@ struct PathBounds {
   TripletPermutation<Det> permutation;
   TripletPaths<Det> tripletPaths;
 
-  TrackletPathBounds build(IterationParameters<Det> parameters, std::uint32_t minClusters, const LayerRowMap<Det>& sources, const TrackletOutput& tracklets,
-                           const Triplets& triplets)
+  TrackletPathBounds build(IterationParameters<Det> parameters, std::uint32_t minClusters, const LayerRowMap<Det>& sources, const TrackletOutput& tracklets, const Triplets& triplets)
   {
     parameters.minClusters = minClusters;
     const auto pool = std::make_shared<BoundedMemoryResource>();
@@ -235,8 +232,7 @@ struct PathBounds {
 /// Tracklets, triplets, the end index and the neighbours of \a fixture's
 /// whole timeframe, with the tracker's path bounds; \a tracker owns the
 /// tracklets and triplets.
-void buildNeighbours(const Fixture& fixture, const IterationParameters<Det>& parameters, Controller& tracker, TripletEndIndex& ending,
-                     NeighbourOutput& neighbours, const TrackletOutput*& tracklets, const Triplets*& triplets)
+void buildNeighbours(const Fixture& fixture, const IterationParameters<Det>& parameters, Controller& tracker, TripletEndIndex& ending, NeighbourOutput& neighbours, const TrackletOutput*& tracklets, const Triplets*& triplets)
 {
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
@@ -308,8 +304,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
       const auto d = timedPointAt(fixture.frame->measurements(), trackletView.target[last]);
       const LayerID secondLayer = parameters.linkSources[trackletView.link[shared]];
       const LayerID thirdLayer = parameters.linkTargets[trackletView.link[shared]];
-      if (!neighbourCurvatureCompatible(parameters, tripletView.curvature[from], tripletView.varCurvature[from], tripletView.curvature[to],
-                                        tripletView.varCurvature[to])) {
+      if (!neighbourCurvatureCompatible(parameters, tripletView.curvature[from], tripletView.varCurvature[from], tripletView.curvature[to], tripletView.varCurvature[to])) {
         ++curvatureRejected;
         continue;
       }
@@ -318,8 +313,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
         continue;
       }
       TripletFitResult fit;
-      if (!fitAdjacentTriplets(a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, fit) ||
-          !(fit.chi2 <= parameters.neighbourChi2Max)) {
+      if (!fitAdjacentTriplets(a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, fit) || !(fit.chi2 <= parameters.neighbourChi2Max)) {
         ++fitRejected;
         continue;
       }
@@ -329,8 +323,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
     std::vector<std::uint32_t> emitted(neighbourView.from + serial.offsets()[to], neighbourView.from + serial.offsets()[to + 1U]);
     BOOST_TEST_CONTEXT("triplet " << to) { BOOST_TEST(emitted == expected, boost::test_tools::per_element()); }
   }
-  BOOST_TEST_MESSAGE("triplets " << triplets.size() << ", candidates " << candidates << ", neighbours " << serial.size() << ", rejected by curvature "
-                                 << curvatureRejected << ", time " << timeRejected << ", fit " << fitRejected);
+  BOOST_TEST_MESSAGE("triplets " << triplets.size() << ", candidates " << candidates << ", neighbours " << serial.size() << ", rejected by curvature " << curvatureRejected << ", time " << timeRejected << ", fit " << fitRejected);
   BOOST_TEST(curvatureRejected > 0U);
   BOOST_TEST(timeRejected > 0U);
   BOOST_TEST(fitRejected > 0U);
@@ -341,8 +334,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
   for (std::size_t track = 0; track < kTracks; ++track) {
     std::array<std::uint32_t, kLayers - 2U> chain{};
     for (std::size_t layer = 0; layer + 2U < kLayers; ++layer) {
-      chain[layer] = findTriplet(tracklets, triplets, fixture.row(Fixture::logicalIndex(track, layer)), fixture.row(Fixture::logicalIndex(track, layer + 1U)),
-                                 fixture.row(Fixture::logicalIndex(track, layer + 2U)));
+      chain[layer] = findTriplet(tracklets, triplets, fixture.row(Fixture::logicalIndex(track, layer)), fixture.row(Fixture::logicalIndex(track, layer + 1U)), fixture.row(Fixture::logicalIndex(track, layer + 2U)));
       BOOST_REQUIRE_MESSAGE(chain[layer] < triplets.size(), "track " << track << " misses the triplet from layer " << layer);
     }
     for (std::size_t link = 1; link < chain.size(); ++link) {

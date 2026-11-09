@@ -26,10 +26,7 @@ namespace o2::gtrk
 /// beta p [GeV] at momentum \a momentumGeV for the mass hypothesis
 /// \a massGeV (`Propagator::massGeV`, positive): what Highland's formula
 /// divides by.
-GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGeV)
-{
-  return momentumGeV * momentumGeV / o2::gpu::GPUCommonMath::Sqrt((momentumGeV * momentumGeV) + (massGeV * massGeV));
-}
+GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGeV) { return momentumGeV * momentumGeV / o2::gpu::GPUCommonMath::Sqrt((momentumGeV * momentumGeV) + (massGeV * massGeV)); }
 
 /// Highland's scattering angle for a step, in radians.
 ///

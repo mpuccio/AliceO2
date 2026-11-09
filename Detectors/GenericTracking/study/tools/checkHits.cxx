@@ -78,8 +78,7 @@ int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::stri
         tools::toLocal(sensor, end.data(), frame);
         double unrolled[3];
         tools::frameToUnrolled(spec, frame, unrolled);
-        const double beyond = std::max(
-          {std::abs(unrolled[0]) - spec.halfX, std::abs(unrolled[1]) - spec.halfY, spec.surfaceMin() - unrolled[2], unrolled[2] - spec.surfaceMax(), 0.});
+        const double beyond = std::max({std::abs(unrolled[0]) - spec.halfX, std::abs(unrolled[1]) - spec.halfY, spec.surfaceMin() - unrolled[2], unrolled[2] - spec.surfaceMax(), 0.});
         const double precision = static_cast<double>(std::numeric_limits<float>::epsilon()) * std::max({std::abs(end[0]), std::abs(end[1]), std::abs(end[2])});
         ++total[sensor.layer];
         across[sensor.layer].push_back(static_cast<float>(std::abs(unrolled[0]) / spec.halfX));

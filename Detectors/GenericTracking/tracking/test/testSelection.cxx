@@ -223,8 +223,7 @@ BOOST_AUTO_TEST_CASE(TheRoundsAreTheSequentialGreedyWalk)
       const std::vector<std::uint32_t> selected(selection.selected().begin(), selection.selected().end());
       BOOST_TEST(selected == oracle, boost::test_tools::per_element());
       BOOST_TEST(mask == oracleMask, boost::test_tools::per_element());
-      BOOST_TEST_MESSAGE("k " << sharedInnermost << ": " << selected.size() << " of " << selection.ranked().size() << " in " << selection.rounds()
-                              << " rounds");
+      BOOST_TEST_MESSAGE("k " << sharedInnermost << ": " << selected.size() << " of " << selection.ranked().size() << " in " << selection.rounds() << " rounds");
       BOOST_TEST(selection.rounds() > 1U);
 
       for (const int threads : {1, 2, 4}) {
@@ -233,9 +232,7 @@ BOOST_AUTO_TEST_CASE(TheRoundsAreTheSequentialGreedyWalk)
           CpuStage<SelectionRecordOf<kCapacity>::template RecordT> cpu{cpuArena};
           cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
           auto parallelMask = initial;
-          BOOST_REQUIRE(selection.select([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, chunk, body); },
-                                         [&](std::span<std::uint32_t> indices, const auto& less) { cpu.sortIndices(indices, less); }, sharedInnermost,
-                                         parallelMask) == StageStatus::kComplete);
+          BOOST_REQUIRE(selection.select([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, chunk, body); }, [&](std::span<std::uint32_t> indices, const auto& less) { cpu.sortIndices(indices, less); }, sharedInnermost, parallelMask) == StageStatus::kComplete);
           const std::vector<std::uint32_t> parallel(selection.selected().begin(), selection.selected().end());
           BOOST_TEST_CONTEXT("threads " << threads << ", chunk " << chunk)
           {

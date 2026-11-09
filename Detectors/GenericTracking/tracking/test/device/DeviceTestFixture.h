@@ -130,7 +130,9 @@ class SliceScope
 /// An arena on the device and a stream.
 struct Device {
   explicit Device(std::size_t arenaBytes = kArenaBytes)
-    : runtime(device_test::runtime()), arena(std::make_unique<DeviceArena>(*runtime, block(arenaBytes))), stream(runtime->createStream())
+    : runtime(device_test::runtime()),
+      arena(std::make_unique<DeviceArena>(*runtime, block(arenaBytes))),
+      stream(runtime->createStream())
   {
   }
 

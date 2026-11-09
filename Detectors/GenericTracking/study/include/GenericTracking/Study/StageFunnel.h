@@ -99,28 +99,23 @@ inline constexpr std::array<const char*, kFunnelStages> kFunnelStageNames{"track
 /// The curvature test is split by the particle's pT: below the iteration's
 /// pT_min the loss is the iteration's choice; above it, the pair's circle
 /// through the beam line is not the particle's.
-enum class PairLoss : std::uint8_t {
-  kLinkNotTaken,
-  kUsed,
-  kSourceInterval,
-  kTime,
-  kTurning,
-  kCurvatureBelowPtMin,
-  kCurvature,
-  kLongitudinal,
-  kWindow,
-  kHole,
-  kElsewhere,
-  kCount
-};
+enum class PairLoss : std::uint8_t { kLinkNotTaken,
+                                     kUsed,
+                                     kSourceInterval,
+                                     kTime,
+                                     kTurning,
+                                     kCurvatureBelowPtMin,
+                                     kCurvature,
+                                     kLongitudinal,
+                                     kWindow,
+                                     kHole,
+                                     kElsewhere,
+                                     kCount };
 inline constexpr std::size_t kPairLosses = static_cast<std::size_t>(PairLoss::kCount);
-inline constexpr std::array<const char*, kPairLosses> kPairLossNames{
-  "link not taken", "used", "source interval", "time", "turning point", "curvature below pT_min",
-  "curvature above pT_min", "longitudinal", "outside the query's cells", "crosses another layer", "window or slicing"};
+inline constexpr std::array<const char*, kPairLosses> kPairLossNames{"link not taken", "used", "source interval", "time", "turning point", "curvature below pT_min", "curvature above pT_min", "longitudinal", "outside the query's cells", "crosses another layer", "window or slicing"};
 
 /// The losses the pair cut itself gives (pairCutLoss), in its order.
-inline constexpr std::array<PairLoss, 8> kPairCutLosses{PairLoss::kSourceInterval, PairLoss::kTime, PairLoss::kTurning,
-                                                        PairLoss::kCurvature, PairLoss::kLongitudinal, PairLoss::kWindow, PairLoss::kHole, PairLoss::kElsewhere};
+inline constexpr std::array<PairLoss, 8> kPairCutLosses{PairLoss::kSourceInterval, PairLoss::kTime, PairLoss::kTurning, PairLoss::kCurvature, PairLoss::kLongitudinal, PairLoss::kWindow, PairLoss::kHole, PairLoss::kElsewhere};
 
 /// The pair cut on a pair of rows on \a link from \a vertex: the first test the
 /// tracklet stage applies that it fails -- the source interval, time, the
@@ -137,8 +132,7 @@ struct PairCutVerdict {
 };
 
 template <DetectorLayout Det>
-[[nodiscard]] PairCutVerdict pairCutLoss(const TimeFrame<Det>& frame, const IterationParameters<Det>& parameters, const VertexSeed& vertex, std::size_t link,
-                                         std::uint32_t sourceRow, std::uint32_t targetRow)
+[[nodiscard]] PairCutVerdict pairCutLoss(const TimeFrame<Det>& frame, const IterationParameters<Det>& parameters, const VertexSeed& vertex, std::size_t link, std::uint32_t sourceRow, std::uint32_t targetRow)
 {
   PairCutVerdict verdict;
   const auto sourceMeasurement = frame.measurement(sourceRow);
@@ -158,8 +152,7 @@ template <DetectorLayout Det>
   const auto to = Det::layerLinks[link].to;
   // Only this target's membership matters: its width gives the same spatial
   // cells and suffices for the temporal extent of a compatible pair.
-  auto window = candidateWindow(parameters.windows[link], timeBox(sourceMeasurement), sourceMeasurement.phi, source.r, source.z,
-                                timeBox(targetMeasurement).width);
+  auto window = candidateWindow(parameters.windows[link], timeBox(sourceMeasurement), sourceMeasurement.phi, source.r, source.z, timeBox(targetMeasurement).width);
   const auto holes = parameters.holeLayers[link];
   if (holes != 0U) {
     const auto& span = parameters.layerSpans[to];
@@ -186,16 +179,13 @@ template <DetectorLayout Det>
     return verdict;
   }
   const auto directPair = [&] {
-    if (verdict.loss == PairLoss::kElsewhere && holes != 0U &&
-        segmentLeavesHole(holes, parameters.barrelLayers, parameters.layerSpans, source.r, source.z, target.r, target.z)) {
+    if (verdict.loss == PairLoss::kElsewhere && holes != 0U && segmentLeavesHole(holes, parameters.barrelLayers, parameters.layerSpans, source.r, source.z, target.r, target.z)) {
       verdict.loss = PairLoss::kHole;
     }
     return verdict;
   };
   const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, vertex, from, source);
-  const Scalar between = parameters.passiveBetween[link]
-                           ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target, parameters.betweenPassives[link])
-                           : 0.F;
+  const Scalar between = parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target, parameters.betweenPassives[link]) : 0.F;
   if (parameters.impactMax > 0.F) {
     // A displaced iteration's test (TrackletStage.h, `displacedPairOf`): its
     // transverse part as the curvature, its z as the longitudinal test.
@@ -241,14 +231,7 @@ enum class RoadLoss : std::uint8_t { kNoChain,
                                      kOther,
                                      kCount };
 inline constexpr std::size_t kRoadLosses = static_cast<std::size_t>(RoadLoss::kCount);
-inline constexpr std::array<const char*, kRoadLosses> kRoadLossNames{"no chain this iteration",
-                                                                     "below the start level",
-                                                                     "raised inside its chain",
-                                                                     "raised below its chain",
-                                                                     "raised, own predecessor not linked",
-                                                                     "continued by another's successor",
-                                                                     "off the end layers",
-                                                                     "other"};
+inline constexpr std::array<const char*, kRoadLosses> kRoadLossNames{"no chain this iteration", "below the start level", "raised inside its chain", "raised below its chain", "raised, own predecessor not linked", "continued by another's successor", "off the end layers", "other"};
 
 /// Why a particle's longest road of its own was no record: its boxes share
 /// no time, the fit's chi2, its propagation, the iteration's pT floor for the
@@ -263,8 +246,7 @@ enum class FitLoss : std::uint8_t { kNoRoad,
                                     kTime,
                                     kCount };
 inline constexpr std::size_t kFitLosses = static_cast<std::size_t>(FitLoss::kCount);
-inline constexpr std::array<const char*, kFitLosses> kFitLossNames{"no road this iteration", "chi2", "propagation", "pT floor by length",
-                                                                   "beam line", "other", "time"};
+inline constexpr std::array<const char*, kFitLosses> kFitLossNames{"no road this iteration", "chi2", "propagation", "pT floor by length", "beam line", "other", "time"};
 
 /// What a missed particle's fake -- a track it labels, with a measurement not
 /// its own -- got wrong: one measurement, the innermost; one elsewhere; more.
@@ -319,10 +301,7 @@ template <typename LayerOf>
 }
 
 /// A pair of rows as one key, the source's in the upper half.
-[[nodiscard]] inline std::uint64_t pairKey(std::uint32_t source, std::uint32_t target)
-{
-  return (static_cast<std::uint64_t>(source) << 32U) | static_cast<std::uint64_t>(target);
-}
+[[nodiscard]] inline std::uint64_t pairKey(std::uint32_t source, std::uint32_t target) { return (static_cast<std::uint64_t>(source) << 32U) | static_cast<std::uint64_t>(target); }
 
 template <DetectorLayout Det, typename Controller>
 class StageFunnel
@@ -334,13 +313,15 @@ class StageFunnel
 
   /// \a minPtGeV: each iteration's pT_min. Throws std::invalid_argument for
   /// more iterations than a seeded mask holds.
-  StageFunnel(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& truth, const ComparisonSettings& settings, const VertexSeed& beamLine,
-              std::vector<double> minPtGeV)
-    : mRows{rows}, mSettings{settings}, mBeamLine{beamLine}, mFrame{&frame}, mMinPtGeV{std::move(minPtGeV)}
+  StageFunnel(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& truth, const ComparisonSettings& settings, const VertexSeed& beamLine, std::vector<double> minPtGeV)
+    : mRows{rows},
+      mSettings{settings},
+      mBeamLine{beamLine},
+      mFrame{&frame},
+      mMinPtGeV{std::move(minPtGeV)}
   {
     if (mMinPtGeV.size() > static_cast<std::size_t>(std::numeric_limits<std::uint64_t>::digits)) {
-      throw std::invalid_argument(
-        std::format("stage funnel: {} iterations, a seeded mask holds {}", mMinPtGeV.size(), std::numeric_limits<std::uint64_t>::digits));
+      throw std::invalid_argument(std::format("stage funnel: {} iterations, a seeded mask holds {}", mMinPtGeV.size(), std::numeric_limits<std::uint64_t>::digits));
     }
     for (const auto& [id, bits] : particleLayers(rows, settings)) {
       const auto found = truth.find(id);
@@ -348,21 +329,23 @@ class StageFunnel
         continue;
       }
       mIndex[id] = static_cast<std::uint32_t>(mParticles.size());
-      mParticles.push_back({.id = id,
-                            .pt = found->second.pt,
-                            .species = std::abs(found->second.pdg),
-                            .group = groupOf(found->second),
-                            .bin = productionBin(found->second, settings),
-                            .rows = {},
-                            .longestBy = {},
-                            .reasons = {},
-                            .roadLosses = {},
-                            .fitLosses = {},
-                            .recordChi2 = {},
-                            .pairsKept = 0U,
-                            .lostPairs = {},
-                            .fitRoadLayers = {},
-                            .raisedFits = {}});
+      mParticles.push_back({
+        .id = id,
+        .pt = found->second.pt,
+        .species = std::abs(found->second.pdg),
+        .group = groupOf(found->second),
+        .bin = productionBin(found->second, settings),
+        .rows = {},
+        .longestBy = {},
+        .reasons = {},
+        .roadLosses = {},
+        .fitLosses = {},
+        .recordChi2 = {},
+        .pairsKept = 0U,
+        .lostPairs = {},
+        .fitRoadLayers = {},
+        .raisedFits = {},
+      });
     }
     // Each row's findable particles, and each particle's rows.
     mRowOffsets.assign(rows.size() + 1U, 0U);
@@ -402,9 +385,11 @@ class StageFunnel
       forEachOwner(rows, [&](std::uint32_t particle) {
         mTriplets[particle].emplace_back(pairKey(rows[0], rows[1]), pairKey(rows[1], rows[2]));
         if (owned) {
-          mTripletInfo[particle][{pairKey(rows[0], rows[1]), rows[2]}] = {.level = triplets.level[i],
-                                                                          .successorAbove = slice.roads->successorAbove()[i] != 0U,
-                                                                          .endLayer = parameters.linkTargets[tracklets.link[triplets.second[i]]]};
+          mTripletInfo[particle][{pairKey(rows[0], rows[1]), rows[2]}] = {
+            .level = triplets.level[i],
+            .successorAbove = slice.roads->successorAbove()[i] != 0U,
+            .endLayer = parameters.linkTargets[tracklets.link[triplets.second[i]]],
+          };
         }
       });
     }
@@ -631,20 +616,21 @@ class StageFunnel
     const auto& particle = mParticles[found->second];
     std::array<std::uint32_t, kPairLosses> lost{};
     for (const auto& pair : particle.lostPairs) {
-      if (((particle.pairsKept >> pair.from) & 1U) != 0U ||
-          (pair.iteration < mMinPtGeV.size() && static_cast<double>(particle.pt) < mMinPtGeV[pair.iteration])) {
+      if (((particle.pairsKept >> pair.from) & 1U) != 0U || (pair.iteration < mMinPtGeV.size() && static_cast<double>(particle.pt) < mMinPtGeV[pair.iteration])) {
         continue;
       }
       ++lost[static_cast<std::size_t>(pair.loss)];
     }
-    ParticleVerdict result{.lostAt = firstLoss(particle.longest, static_cast<std::uint32_t>(mSettings.minLayers), false),
-                           .pairLoss = std::nullopt,
-                           .roadLoss = std::nullopt,
-                           .fitLoss = std::nullopt,
-                           .fitRoadLayers = 0U,
-                           .roadLosses = 0U,
-                           .fitLosses = 0U,
-                           .raisedFit = std::nullopt};
+    ParticleVerdict result{
+      .lostAt = firstLoss(particle.longest, static_cast<std::uint32_t>(mSettings.minLayers), false),
+      .pairLoss = std::nullopt,
+      .roadLoss = std::nullopt,
+      .fitLoss = std::nullopt,
+      .fitRoadLayers = 0U,
+      .roadLosses = 0U,
+      .fitLosses = 0U,
+      .raisedFit = std::nullopt,
+    };
     if (const auto* const most = std::ranges::max_element(lost); *most > 0U) {
       result.pairLoss = static_cast<PairLoss>(most - lost.begin());
     }
@@ -835,8 +821,7 @@ class StageFunnel
       if (row.findable == 0U) {
         continue;
       }
-      std::string line = std::format("  {:<28} {:>6} findable, found {:5.1f} %; lost at", name, row.findable,
-                                     percent(row.byStage[static_cast<std::size_t>(FunnelStage::kFound)], row.findable));
+      std::string line = std::format("  {:<28} {:>6} findable, found {:5.1f} %; lost at", name, row.findable, percent(row.byStage[static_cast<std::size_t>(FunnelStage::kFound)], row.findable));
       for (std::size_t stage = 0; stage + 1U < kFunnelStages; ++stage) {
         line += std::format(" {} {:.1f}", kFunnelStageNames[stage], percent(row.byStage[stage], row.findable));
       }
@@ -1003,8 +988,7 @@ class StageFunnel
                 continue;
               }
               const auto link = linkOf<Det>(mRows[a].layer, mRows[b].layer);
-              auto loss =
-                link == kNoLink || !linkTaken(parameters, link) ? PairLoss::kLinkNotTaken : pairCutLoss(*mFrame, parameters, mBeamLine, link, a, b).loss;
+              auto loss = link == kNoLink || !linkTaken(parameters, link) ? PairLoss::kLinkNotTaken : pairCutLoss(*mFrame, parameters, mBeamLine, link, a, b).loss;
               if (loss == PairLoss::kCurvature && foundIn[index] < mMinPtGeV.size() && static_cast<double>(particle.pt) < mMinPtGeV[foundIn[index]]) {
                 loss = PairLoss::kCurvatureBelowPtMin;
               }
@@ -1027,8 +1011,7 @@ class StageFunnel
     constexpr std::array<const char*, 2> kNames{"physical primaries", "all"};
     for (std::size_t group = 0; group < counts.size(); ++group) {
       const auto& count = counts[group];
-      std::string line = std::format("  {:<18} {} found, complete {:.1f} %, ceiling below their layers {:.1f} %; shorter at", kNames[group], count.found,
-                                     percent(count.complete, count.found), percent(count.belowLayers, count.found));
+      std::string line = std::format("  {:<18} {} found, complete {:.1f} %, ceiling below their layers {:.1f} %; shorter at", kNames[group], count.found, percent(count.complete, count.found), percent(count.belowLayers, count.found));
       for (std::size_t stage = 0; stage < count.shortAt.size(); ++stage) {
         line += std::format(" {} {} ({}, {})", kFunnelStageNames[stage], count.shortAt[stage], count.missingAt[stage], count.stageShortfall[stage]);
       }
@@ -1210,8 +1193,7 @@ class StageFunnel
 
   /// Why \a particle's chain of \a length triplets ending at \a end is no road
   /// of its own in \a iteration; \a chains, its neighbours.
-  void roadLoss(std::uint32_t particle, std::size_t iteration, const IterationParameters<Det>& parameters, std::uint32_t length,
-                const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains)
+  void roadLoss(std::uint32_t particle, std::size_t iteration, const IterationParameters<Det>& parameters, std::uint32_t length, const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains)
   {
     auto& losses = mParticles[particle].roadLosses;
     losses.resize(std::max(losses.size(), iteration + 1U), RoadLoss::kNoChain);
@@ -1244,9 +1226,7 @@ class StageFunnel
   /// tracklets) or with one -- or never does: it leaves the chain. In the
   /// first two, \a own is the walked part of the chain, its rows innermost
   /// first: the road the walk would give without the other's triplets below.
-  [[nodiscard]] static RoadLoss raisedHow(const std::map<std::pair<std::uint64_t, std::uint32_t>, TripletInfo>& infos,
-                                          const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains,
-                                          const std::vector<std::pair<std::uint64_t, std::uint64_t>>& triplets, std::vector<std::uint32_t>& own)
+  [[nodiscard]] static RoadLoss raisedHow(const std::map<std::pair<std::uint64_t, std::uint32_t>, TripletInfo>& infos, const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains, const std::vector<std::pair<std::uint64_t, std::uint64_t>>& triplets, std::vector<std::uint32_t>& own)
   {
     using Key = std::pair<std::uint64_t, std::uint32_t>;
     std::vector<Key> stack{end};
@@ -1377,8 +1357,7 @@ class StageFunnel
       const auto toLayer = static_cast<LayerID>(fromLayer + 1U);
       const auto link = linkOf<Det>(fromLayer, toLayer);
       // The layer pair once, from its first measurement on the inner layer.
-      if (std::any_of(particle.rows.begin(), particle.rows.begin() + static_cast<std::ptrdiff_t>(first),
-                      [&](std::uint32_t row) { return mRows[row].layer == fromLayer; })) {
+      if (std::any_of(particle.rows.begin(), particle.rows.begin() + static_cast<std::ptrdiff_t>(first), [&](std::uint32_t row) { return mRows[row].layer == fromLayer; })) {
         continue;
       }
       bool any = false;

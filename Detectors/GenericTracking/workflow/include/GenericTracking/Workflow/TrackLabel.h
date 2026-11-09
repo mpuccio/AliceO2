@@ -46,10 +46,7 @@ struct RowParticles {
   /// reads only that one.
   bool firstLabelCounts = false;
 
-  [[nodiscard]] bool carries(std::uint64_t particle) const
-  {
-    return std::find(particles.begin(), particles.begin() + count, particle) != particles.begin() + count;
-  }
+  [[nodiscard]] bool carries(std::uint64_t particle) const { return std::find(particles.begin(), particles.begin() + count, particle) != particles.begin() + count; }
 };
 
 /// The particles of a cluster with the labels \a labels, in their order: those
@@ -76,8 +73,7 @@ struct RowParticles {
 [[nodiscard]] inline o2::MCCompLabel labelOfParticle(std::uint64_t particle, bool fake = false)
 {
   using L = o2::MCCompLabel;
-  return {static_cast<int>(particle & L::maskTrackID), static_cast<int>((particle >> L::nbitsTrackID) & L::maskEvID),
-          static_cast<int>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), fake};
+  return {static_cast<int>(particle & L::maskTrackID), static_cast<int>((particle >> L::nbitsTrackID) & L::maskEvID), static_cast<int>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), fake};
 }
 
 /// No particle: a fake's good particle, or noise only.

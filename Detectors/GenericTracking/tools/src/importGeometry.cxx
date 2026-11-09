@@ -135,11 +135,7 @@ void printPassives(const Geometry<Det>& geometry)
   constexpr int kSamples = 65536;
   constexpr double kStep = 0.01; // [cm]
   constexpr int kStepSamples = 2048;
-  const auto budget = [](double r0, double r1, double phi, double z) {
-    return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r0 * std::cos(phi), r0 * std::sin(phi), z},
-                                                                             o2::math_utils::Point3D<double>{r1 * std::cos(phi), r1 * std::sin(phi), z})
-                                 .meanX2X0);
-  };
+  const auto budget = [](double r0, double r1, double phi, double z) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r0 * std::cos(phi), r0 * std::sin(phi), z}, o2::math_utils::Point3D<double>{r1 * std::cos(phi), r1 * std::sin(phi), z}).meanX2X0); };
   std::mt19937 rng(20261007);
   std::uniform_real_distribution<double> uniformPhi(0., 2. * std::numbers::pi);
   const auto envelopes = PlacedEnvelopes<Det>::all();
@@ -198,11 +194,7 @@ void printForwardMaterial(int side)
 {
   constexpr int kSamples = 1024;
   constexpr double kStep = 0.05; // [cm]
-  const auto budget = [](double r, double phi, double z0, double z1) {
-    return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z0},
-                                                                             o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z1})
-                                 .meanX2X0);
-  };
+  const auto budget = [](double r, double phi, double z0, double z1) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z0}, o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z1}).meanX2X0); };
   std::mt19937 rng(20261022);
   std::uniform_real_distribution<double> uniformPhi(0., 2. * std::numbers::pi);
   const auto envelopes = PlacedEnvelopes<Det>::all();
@@ -293,8 +285,7 @@ Arc arcBetween(const std::array<double, 2>& a, const std::array<double, 2>& b)
 /// A flat sensor's active area in its mid-plane, its corners in order around it, global.
 std::array<std::array<double, 3>, 4> midPlane(const Sensor& sensor, const SensorSpec& spec)
 {
-  const std::array<std::array<double, 2>, 4> local{
-    {{-spec.halfX, -spec.halfY}, {spec.halfX, -spec.halfY}, {spec.halfX, spec.halfY}, {-spec.halfX, spec.halfY}}};
+  const std::array<std::array<double, 2>, 4> local{{{-spec.halfX, -spec.halfY}, {spec.halfX, -spec.halfY}, {spec.halfX, spec.halfY}, {-spec.halfX, spec.halfY}}};
   std::array<std::array<double, 3>, 4> result{};
   for (std::size_t i = 0; i < local.size(); ++i) {
     const double point[3] = {local[i][0], local[i][1], 0.};
@@ -388,8 +379,7 @@ void discArcs(const std::array<std::array<double, 3>, 4>& quad, double r, std::v
 }
 
 /// Where segments p0-p1 and q0-q1 of the transverse plane cross, if they do.
-std::optional<std::array<double, 2>> crossing(const std::array<double, 3>& p0, const std::array<double, 3>& p1, const std::array<double, 3>& q0,
-                                              const std::array<double, 3>& q1)
+std::optional<std::array<double, 2>> crossing(const std::array<double, 3>& p0, const std::array<double, 3>& p1, const std::array<double, 3>& q0, const std::array<double, 3>& q1)
 {
   const double rx = p1[0] - p0[0];
   const double ry = p1[1] - p0[1];
@@ -499,8 +489,7 @@ std::vector<std::vector<std::array<double, 2>>> measureCoverage(std::span<const 
     }
     if (!barrel) {
       const auto box = [&](std::size_t i) {
-        std::array<double, 4> b{std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(),
-                                -std::numeric_limits<double>::infinity()};
+        std::array<double, 4> b{std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
         for (const auto& corner : quads[i]) {
           b[0] = std::min(b[0], corner[0]);
           b[1] = std::max(b[1], corner[0]);
@@ -591,9 +580,7 @@ int runFor(const std::string& file, bool passives)
   printLayers("barrelLayers", 0, kBarrel);
   printLayers("discLayers", kBarrel, measured.size());
   std::cout << "\n"
-            << std::format("Envelopes of the active silicon, rounded outwards to {} um, which the tracking measures at load and nothing compiled holds:\n",
-                           kEnvelopeResolution * 1e4)
-            << describeEnvelopes(measured, Detector<Det>::nBarrelLayers);
+            << std::format("Envelopes of the active silicon, rounded outwards to {} um, which the tracking measures at load and nothing compiled holds:\n", kEnvelopeResolution * 1e4) << describeEnvelopes(measured, Detector<Det>::nBarrelLayers);
   // Where each layer covers every azimuth: z on a barrel layer, r on a disc.
   const auto start = std::chrono::steady_clock::now();
   const auto coverage = measureCoverage(sensors, specs, Detector<Det>::nBarrelLayers);

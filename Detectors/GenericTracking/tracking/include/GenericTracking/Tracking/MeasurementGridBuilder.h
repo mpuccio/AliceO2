@@ -105,8 +105,7 @@ struct PointVariances {
 /// The directions are those of the corrected beam line: r and r-phi are
 /// calibrated quantities, like the radius and azimuth they accompany.
 template <DetectorLayout Det>
-[[nodiscard]] inline PointVariances pointVariances(const Geometry<Det>& geometry, SensorID chip, double loc0, const GridPoint& point, Scalar varLoc0,
-                                                   Scalar covLoc01, Scalar varLoc1)
+[[nodiscard]] inline PointVariances pointVariances(const Geometry<Det>& geometry, SensorID chip, double loc0, const GridPoint& point, Scalar varLoc0, Scalar covLoc01, Scalar varLoc1)
 {
   const auto& rot = geometry.sensor(chip).rot;
   double u[3] = {rot[0], rot[3], rot[6]}; // local axis 0, in global coordinates

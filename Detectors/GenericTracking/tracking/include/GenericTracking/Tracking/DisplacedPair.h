@@ -88,20 +88,22 @@ template <typename T>
   const T uy = dy * inverse;
   const T midX = T(0.5) * (x1 + x2);
   const T midY = T(0.5) * (y1 + y2);
-  return {.sourceX = x1,
-          .sourceY = y1,
-          .targetX = x2,
-          .targetY = y2,
-          .midX = midX,
-          .midY = midY,
-          .ux = ux,
-          .uy = uy,
-          .nx = -uy,
-          .ny = ux,
-          .half = T(0.5) * chord,
-          .midSquare = (midX * midX) + (midY * midY),
-          .midAlong = (ux * midX) + (uy * midY),
-          .midNormal = (-uy * midX) + (ux * midY)};
+  return {
+    .sourceX = x1,
+    .sourceY = y1,
+    .targetX = x2,
+    .targetY = y2,
+    .midX = midX,
+    .midY = midY,
+    .ux = ux,
+    .uy = uy,
+    .nx = -uy,
+    .ny = ux,
+    .half = T(0.5) * chord,
+    .midSquare = (midX * midX) + (midY * midY),
+    .midAlong = (ux * midX) + (uy * midY),
+    .midNormal = (-uy * midX) + (ux * midY),
+  };
 }
 
 /// `sqrt(1 - (k h)^2)`: the cosine of half the turn between the two.
@@ -222,8 +224,7 @@ inline constexpr int kGoldenSteps = 40;
 
 /// The two diameter circles one by one (`outwardAt`'s \a diameterOnly).
 template <typename T>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() DisplacedPairResult diameterCircles(const CircleFamily<T>& family, const CurvatureInterval<T>& outward, T z1, T z2,
-                                                                             T maxImpact, T zLow, T zHigh)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() DisplacedPairResult diameterCircles(const CircleFamily<T>& family, const CurvatureInterval<T>& outward, T z1, T z2, T maxImpact, T zLow, T zHigh)
 {
   DisplacedPairResult result;
   const T edge = T(1) / family.half;
@@ -380,8 +381,7 @@ struct PairSigmas {
 /// kink inside the source moves the closest approach by `sourceScatter`'s
 /// lever, along the track's 3D path in z.
 template <typename T>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PairSigmas<T> displacedPairSigmas(T x1, T y1, T z1, T x2, T y2, T z2, const PairErrors<T>& errors, T maxCurvature,
-                                                                           T maxImpact)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairSigmas<T> displacedPairSigmas(T x1, T y1, T z1, T x2, T y2, T z2, const PairErrors<T>& errors, T maxCurvature, T maxImpact)
 {
   const T dx = x2 - x1;
   const T dy = y2 - y1;
@@ -403,15 +403,16 @@ template <typename T>
   const T dz = z2 - z1;
   const T dip2 = dz * dz / chord2;
   const T longitudinal = ((lever1 * lever1 * errors.sourceVarZ) + (lever2 * lever2 * errors.targetVarZ)) / chord2;
-  return {.impact = o2::math_utils::detail::sqrt<T>(position + errors.sourceScatter + errors.beamVarTransverse),
-          .z = o2::math_utils::detail::sqrt<T>(longitudinal + (dip2 * position) + ((T(1) + dip2) * errors.sourceScatter))};
+  return {
+    .impact = o2::math_utils::detail::sqrt<T>(position + errors.sourceScatter + errors.beamVarTransverse),
+    .z = o2::math_utils::detail::sqrt<T>(longitudinal + (dip2 * position) + ((T(1) + dip2) * errors.sourceScatter)),
+  };
 }
 
 /// `displacedPair` with its impact and z bounds widened by \a nSigma of
 /// `displacedPairSigmas`.
 template <typename T>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() DisplacedPairResult displacedPairWithin(T x1, T y1, T z1, T x2, T y2, T z2, const PairErrors<T>& errors, T nSigma,
-                                                                                 T maxCurvature, T maxImpact, T zLow, T zHigh)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() DisplacedPairResult displacedPairWithin(T x1, T y1, T z1, T x2, T y2, T z2, const PairErrors<T>& errors, T nSigma, T maxCurvature, T maxImpact, T zLow, T zHigh)
 {
   const auto sigmas = displacedPairSigmas(x1, y1, z1, x2, y2, z2, errors, maxCurvature, maxImpact);
   const T impact = maxImpact + (nSigma * sigmas.impact);

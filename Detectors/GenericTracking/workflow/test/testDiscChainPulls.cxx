@@ -90,10 +90,7 @@ struct DiscSetup {
 
 /// The MFT's ten faces, -45 to -77 cm, at an ALICE run's field, with the
 /// topology dictionary's median error.
-DiscSetup mftFaces()
-{
-  return {.layers = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, .bzKiloGauss = -5.0066791F, .sigmaLoc = 5.5e-4, .x2X0PerCm = 1e-3, .minMeasurements = 5};
-}
+DiscSetup mftFaces() { return {.layers = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, .bzKiloGauss = -5.0066791F, .sigmaLoc = 5.5e-4, .x2X0PerCm = 1e-3, .minMeasurements = 5}; }
 
 template <DetectorLayout Det>
 struct DiscChain {
@@ -208,15 +205,17 @@ struct DiscChain {
     const auto var = static_cast<Scalar>(setup.sigmaLoc * setup.sigmaLoc);
     measurements.clear();
     for (std::size_t i = 0; i < truth.size(); ++i) {
-      measurements.push_back(Measurement{.loc0 = truth[i].loc0(),
-                                         .loc1 = truth[i].loc1(),
-                                         .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
-                                         .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
-                                         .varLoc0 = var,
-                                         .covLoc01 = 0.F,
-                                         .varLoc1 = var,
-                                         .clusterIndex = static_cast<std::uint32_t>(i),
-                                         .surface = truth[i].surface});
+      measurements.push_back(Measurement{
+        .loc0 = truth[i].loc0(),
+        .loc1 = truth[i].loc1(),
+        .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
+        .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
+        .varLoc0 = var,
+        .covLoc01 = 0.F,
+        .varLoc1 = var,
+        .clusterIndex = static_cast<std::uint32_t>(i),
+        .surface = truth[i].surface,
+      });
     }
     return true;
   }
@@ -241,8 +240,7 @@ PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMate
     bool built = false;
     // Gaps between sensors lose a good part of the lines; draw again.
     for (int attempt = 0; attempt < 100 && !built; ++attempt) {
-      built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p)) &&
-              chain.generate(withMaterial, rng);
+      built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p)) && chain.generate(withMaterial, rng);
     }
     BOOST_REQUIRE(built);
     auto smeared = chain.measurements;

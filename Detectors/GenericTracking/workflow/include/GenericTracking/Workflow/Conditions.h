@@ -94,9 +94,7 @@ class Conditions;
 /// The material LUT's condition a `Conditions` holds: the LUT's, GRPGeomHelper's
 /// for the ITS inside the GPU reconstruction, or none.
 template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder = ConditionsHolder::kOwnDevice>
-using MaterialConditionOf = std::conditional_t<!WithMaterial, NoMaterialCondition,
-                                               std::conditional_t<Holder == ConditionsHolder::kGPUReco && std::same_as<Det, detectors::ITS>,
-                                                                  GRPGeomMaterialCondition, MaterialCondition<Det>>>;
+using MaterialConditionOf = std::conditional_t<!WithMaterial, NoMaterialCondition, std::conditional_t<Holder == ConditionsHolder::kGPUReco && std::same_as<Det, detectors::ITS>, GRPGeomMaterialCondition, MaterialCondition<Det>>>;
 
 /// The ITS's and the MFT's.
 template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder>

@@ -70,8 +70,7 @@ struct RoadStartRule {
   std::uint64_t endLayers = 0U;         ///< a bit per layer; 0 for any
   const LayerID* linkTargets = nullptr; ///< per link; read only with a mask
 
-  GPUhdi() GPUAlwaysInline() bool operator()(TrackletConstView tracklets, TripletConstView triplets, const std::uint32_t* successorAbove,
-                                             const std::uint32_t* roads, StageOutput<TripletT>::Index triplet) const
+  GPUhdi() GPUAlwaysInline() bool operator()(TrackletConstView tracklets, TripletConstView triplets, const std::uint32_t* successorAbove, const std::uint32_t* roads, StageOutput<TripletT>::Index triplet) const
   {
     if (triplets.level[triplet] < minLevel || roads[triplet] == 0U) {
       return false;
@@ -103,9 +102,14 @@ class RoadWalk
  public:
   using Index = StageOutput<TripletT>::Index;
 
-  RoadWalk(const Index* starts, const Index* roadOffsets, Index startCount, const Index* neighbourOffsets, const Index* from, const std::uint32_t* level,
-           const std::uint32_t* roads)
-    : mStarts(starts), mRoadOffsets(roadOffsets), mStartCount(startCount), mNeighbourOffsets(neighbourOffsets), mFrom(from), mLevel(level), mRoads(roads)
+  RoadWalk(const Index* starts, const Index* roadOffsets, Index startCount, const Index* neighbourOffsets, const Index* from, const std::uint32_t* level, const std::uint32_t* roads)
+    : mStarts(starts),
+      mRoadOffsets(roadOffsets),
+      mStartCount(startCount),
+      mNeighbourOffsets(neighbourOffsets),
+      mFrom(from),
+      mLevel(level),
+      mRoads(roads)
   {
   }
 
@@ -179,17 +183,13 @@ class RoadCount
     forEach(count, [&](Index triplet) { mSuccessorAbove[triplet] = 0U; });
   }
 
-  [[nodiscard]] OrderedRoadCounts ordered(const LayerID* linkSources, const MeasurementRange* core)
-  {
-    return {.roads = mRoads.data(), .successorAbove = mSuccessorAbove.data(), .overflow = &mOrderedOverflow, .linkSources = linkSources, .core = core};
-  }
+  [[nodiscard]] OrderedRoadCounts ordered(const LayerID* linkSources, const MeasurementRange* core) { return {.roads = mRoads.data(), .successorAbove = mSuccessorAbove.data(), .overflow = &mOrderedOverflow, .linkSources = linkSources, .core = core}; }
 
   /// Counts and successor flags were finalized during neighbour generation.
   /// Select and number the starts from the counts the neighbour generation
   /// finalized.
   template <typename ForEach>
-  [[nodiscard]] StageStatus runPrepared(ForEach forEach, const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets,
-                                        const StageOutput<TripletT>& triplets, Index chunkSize)
+  [[nodiscard]] StageStatus runPrepared(ForEach forEach, const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, Index chunkSize)
   {
     return guardOutOfMemory([&] {
       if (mOrderedOverflow != 0U) {
@@ -213,23 +213,16 @@ class RoadCount
   [[nodiscard]] Index roadCount() const { return mRoadOffsets.empty() ? 0U : mRoadOffsets.back(); }
 
   /// The walk to any of them, over the triplets and neighbours counted.
-  [[nodiscard]] RoadWalk walk(const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours) const
-  {
-    return {mStarts.data(), mRoadOffsets.data(), static_cast<Index>(mStarts.size()), neighbours.offsets().data(), neighbours.view().from,
-            triplets.view().level, mRoads.data()};
-  }
+  [[nodiscard]] RoadWalk walk(const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours) const { return {mStarts.data(), mRoadOffsets.data(), static_cast<Index>(mStarts.size()), neighbours.offsets().data(), neighbours.view().from, triplets.view().level, mRoads.data()}; }
 
  private:
   template <typename ForEach>
-  [[nodiscard]] StageStatus number(ForEach forEach, const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets,
-                                   const StageOutput<TripletT>& triplets, Index chunkSize)
+  [[nodiscard]] StageStatus number(ForEach forEach, const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, Index chunkSize)
   {
     const profile::Zone zone{profile::Phase::kRoadStarts};
     const auto view = triplets.view();
     const auto trackletView = tracklets.view();
-    host_algorithms::compactIndices(
-      forEach, triplets.size(), chunkSize, [&](Index triplet) { return startRule(trackletView, view, mSuccessorAbove.data(), mRoads.data(), triplet); },
-      mStarts);
+    host_algorithms::compactIndices(forEach, triplets.size(), chunkSize, [&](Index triplet) { return startRule(trackletView, view, mSuccessorAbove.data(), mRoads.data(), triplet); }, mStarts);
     const auto starts = static_cast<Index>(mStarts.size());
     resizeBoundedVector(mRoadOffsets, std::size_t{starts} + 1U);
     if (!host_algorithms::exclusiveScan(forEach, starts, chunkSize, [&](Index start) { return mRoads[mStarts[start]]; }, mRoadOffsets, mMemoryPool.get())) {

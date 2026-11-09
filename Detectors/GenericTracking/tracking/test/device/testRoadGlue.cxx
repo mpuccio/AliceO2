@@ -79,8 +79,7 @@ struct Graph {
   std::vector<std::uint32_t> chained;
 };
 
-Graph graph(const IterationParameters<Det>& iteration, const std::vector<Tracklet>& tracklets, const std::vector<std::uint32_t>& firstTracklet,
-            const std::vector<std::vector<std::uint32_t>>& predecessors)
+Graph graph(const IterationParameters<Det>& iteration, const std::vector<Tracklet>& tracklets, const std::vector<std::uint32_t>& firstTracklet, const std::vector<std::vector<std::uint32_t>>& predecessors)
 {
   Graph result;
   result.tracklets = recordsOf<TrackletT>(tracklets);
@@ -110,13 +109,11 @@ StageStatus compare(const IterationParameters<Det>& iteration, const Graph& inpu
   const auto cores = core();
   RoadCount host;
   host.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  const auto hostStatus =
-    fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets, *input.neighbours);
+  const auto hostStatus = fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets, *input.neighbours);
   BOOST_TEST_MESSAGE("host: " << host.starts().size() << " starts, " << host.roadCount() << " roads, status " << static_cast<int>(hostStatus));
   Device device;
   RoadGlueResult ordered;
-  const auto orderedStatus =
-    kernels().orderedRoadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets, *input.neighbours, cores, ordered);
+  const auto orderedStatus = kernels().orderedRoadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets, *input.neighbours, cores, ordered);
   BOOST_TEST((orderedStatus == hostStatus));
   BOOST_TEST(ordered.chained == input.chained.size());
   if (hostStatus == StageStatus::kComplete && orderedStatus == StageStatus::kComplete) {
@@ -206,8 +203,7 @@ BOOST_AUTO_TEST_CASE(NoStartsGiveOneOffset)
   RoadCount host;
   host.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   const auto cores = core();
-  BOOST_REQUIRE(fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets,
-                                *input.neighbours) == StageStatus::kComplete);
+  BOOST_REQUIRE(fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets, *input.neighbours) == StageStatus::kComplete);
   BOOST_TEST(host.starts().empty());
   BOOST_TEST(host.roadOffsets().size() == 1U);
 }

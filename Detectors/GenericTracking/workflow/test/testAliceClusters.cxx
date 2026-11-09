@@ -50,8 +50,7 @@ std::vector<ROFRecord> frames(int count, int lengthBC, int firstBC, std::uint32_
   std::vector<ROFRecord> result;
   for (int i = 0; i < count; ++i) {
     const int bc = firstBC + (i * lengthBC);
-    const o2::InteractionRecord ir{static_cast<std::uint16_t>(bc % o2::constants::lhc::LHCMaxBunches),
-                                   orbit + static_cast<std::uint32_t>(bc / o2::constants::lhc::LHCMaxBunches)};
+    const o2::InteractionRecord ir{static_cast<std::uint16_t>(bc % o2::constants::lhc::LHCMaxBunches), orbit + static_cast<std::uint32_t>(bc / o2::constants::lhc::LHCMaxBunches)};
     result.emplace_back(ir, i, i * perFrame, perFrame);
   }
   return result;

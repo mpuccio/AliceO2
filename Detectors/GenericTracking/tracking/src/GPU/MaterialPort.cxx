@@ -20,9 +20,6 @@ namespace o2::gtrk
 
 std::size_t FlatObjectPort<o2::base::MatLayerCylSet>::bufferBytes(const o2::base::MatLayerCylSet& source) { return flatObjectBufferBytes(source); }
 
-void FlatObjectPort<o2::base::MatLayerCylSet>::image(const o2::base::MatLayerCylSet& source, char* futureBuffer, FlatObjectImage& image)
-{
-  flatObjectImage(source, futureBuffer, image);
-}
+void FlatObjectPort<o2::base::MatLayerCylSet>::image(const o2::base::MatLayerCylSet& source, char* futureBuffer, FlatObjectImage& image) { flatObjectImage(source, futureBuffer, image); }
 
 } // namespace o2::gtrk

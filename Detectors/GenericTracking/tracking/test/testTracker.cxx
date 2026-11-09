@@ -96,10 +96,7 @@ class Fixture
     used.assign(frame->size(), kFree);
   }
 
-  [[nodiscard]] std::uint32_t row(std::uint32_t cluster) const
-  {
-    return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, cluster) - columns.clusterIndex.begin());
-  }
+  [[nodiscard]] std::uint32_t row(std::uint32_t cluster) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, cluster) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;
@@ -162,8 +159,7 @@ BOOST_AUTO_TEST_CASE(OneSliceMatchesSerialWithHaloSourcesInsideTheGate)
   BOOST_TEST(sources.contains(0, haloSource));
   BOOST_TEST(sources.contains(1, fixture.row(1U)));
   BOOST_TEST(sources.contains(1, fixture.row(3U)));
-  const TrackletStage<Det> stage{parameters, sources, *fixture.frame, slice.haloBlocks, fixture.beamLine, noVertices,
-                                 maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const TrackletStage<Det> stage{parameters, sources, *fixture.frame, slice.haloBlocks, fixture.beamLine, noVertices, maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   Output serial;
   serial.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   serial.prepare(sources.size());

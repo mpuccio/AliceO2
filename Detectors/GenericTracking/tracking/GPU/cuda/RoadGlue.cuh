@@ -146,10 +146,7 @@ struct OrderedCounts {
     return StageStatus::kComplete;
   }
 
-  [[nodiscard]] OrderedRoadCounts view(const LayerID* linkSources, const MeasurementRange* core)
-  {
-    return {.roads = roads.data(), .successorAbove = successorAbove.data(), .overflow = overflow.data(), .linkSources = linkSources, .core = core};
-  }
+  [[nodiscard]] OrderedRoadCounts view(const LayerID* linkSources, const MeasurementRange* core) { return {.roads = roads.data(), .successorAbove = successorAbove.data(), .overflow = overflow.data(), .linkSources = linkSources, .core = core}; }
 
   /// After the neighbour generation, its staging retries included, on its
   /// stream: the chained count and the sticky overflow flag in one read-back.
@@ -171,20 +168,12 @@ struct OrderedCounts {
 };
 
 /// The triplets roads start at, in arena order; \a startCount read back.
-[[nodiscard]] inline StageStatus roadStarts(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletConstView tracklets,
-                                            TripletConstView triplets, Index tripletCount, const std::uint32_t* successorAbove, const std::uint32_t* roads,
-                                            const RoadStartRule& rule, DeviceSpan<Index>& starts, Index& startCount)
-{
-  return algorithms::selectIndices(
-    runtime, arena, stream, tripletCount,
-    detail::IsStart{.tracklets = tracklets, .triplets = triplets, .successorAbove = successorAbove, .roads = roads, .rule = rule}, starts, startCount);
-}
+[[nodiscard]] inline StageStatus roadStarts(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletConstView tracklets, TripletConstView triplets, Index tripletCount, const std::uint32_t* successorAbove, const std::uint32_t* roads, const RoadStartRule& rule, DeviceSpan<Index>& starts, Index& startCount) { return algorithms::selectIndices(runtime, arena, stream, tripletCount, detail::IsStart{.tracklets = tracklets, .triplets = triplets, .successorAbove = successorAbove, .roads = roads, .rule = rule}, starts, startCount); }
 
 /// Per start, the index of its first road, and the total after the last
 /// (`startCount + 1` offsets); \a total read back. A total past 32 bits is
 /// kIndexOverflow, as on the host.
-[[nodiscard]] inline StageStatus roadOffsets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Index* starts, Index startCount,
-                                             const std::uint32_t* roads, DeviceSpan<Index>& offsets, Index& total)
+[[nodiscard]] inline StageStatus roadOffsets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Index* starts, Index startCount, const std::uint32_t* roads, DeviceSpan<Index>& offsets, Index& total)
 {
   total = 0U;
   const std::size_t items = std::size_t{startCount} + 1U;
@@ -197,8 +186,7 @@ struct OrderedCounts {
   if (!counts.allocate(arena, items, ArenaEnd::kScratch) || !wide.allocate(arena, items, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
-  algorithms::forEach(runtime, stream, static_cast<Index>(items),
-                      detail::WidenStartCounts{.starts = starts, .startCount = startCount, .roads = roads, .counts = counts.data()});
+  algorithms::forEach(runtime, stream, static_cast<Index>(items), detail::WidenStartCounts{.starts = starts, .startCount = startCount, .roads = roads, .counts = counts.data()});
   const StageStatus scanned = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(counts).data(), wide.data(), items);
   if (scanned != StageStatus::kComplete) {
     return scanned;

@@ -38,12 +38,14 @@ inline constexpr double kPitchRow = 26.88e-4;        ///< across the chip [cm]
 inline constexpr double kPitchColumn = 29.24e-4;     ///< along the chip [cm]
 inline constexpr double kEffectiveThickness = 28e-4; ///< [cm]
 
-inline constexpr SensorSpec kSensor{.shape = ShapeType::kRectangle,
-                                    .halfX = 0.5 * kRows * kPitchRow,
-                                    .halfY = 0.5 * kColumns * kPitchColumn,
-                                    .halfThickness = 0.5 * kEffectiveThickness,
-                                    .pitchX = kPitchRow,
-                                    .pitchY = kPitchColumn};
+inline constexpr SensorSpec kSensor{
+  .shape = ShapeType::kRectangle,
+  .halfX = 0.5 * kRows * kPitchRow,
+  .halfY = 0.5 * kColumns * kPitchColumn,
+  .halfThickness = 0.5 * kEffectiveThickness,
+  .pitchX = kPitchRow,
+  .pitchY = kPitchColumn,
+};
 
 } // namespace o2::gtrk::detectors::alpide
 

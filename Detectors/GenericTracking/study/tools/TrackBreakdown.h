@@ -113,8 +113,7 @@ class TrackBreakdown
   /// \a tracks of one run scored against \a rows and \a truth under \a comparison,
   /// the class's particles those of \a population; \a iterations, the
   /// iteration of each track, for the particles' records.
-  TrackBreakdown(std::span<const study::TruthRow> rows, const study::ParticleTable& truth, const study::TrackRows& tracks,
-                 const study::ComparisonSettings& comparison, study::Population population, std::span<const std::uint8_t> iterations)
+  TrackBreakdown(std::span<const study::TruthRow> rows, const study::ParticleTable& truth, const study::TrackRows& tracks, const study::ComparisonSettings& comparison, study::Population population, std::span<const std::uint8_t> iterations)
   {
     const auto length = [](std::size_t size) { return std::min(size, kLengths - 1U); };
     std::vector<std::uint64_t> good(tracks.size(), study::kNoTrackParticle);
@@ -158,21 +157,15 @@ class TrackBreakdown
     }
     for (const auto& [id, mine] : layers) {
       const auto found = truth.find(id);
-      if (found == truth.end() || !study::inPopulation(found->second, population) ||
-          !study::isFindable(found->second.pt, mine, comparison)) {
+      if (found == truth.end() || !study::inPopulation(found->second, population) || !study::isFindable(found->second.pt, mine, comparison)) {
         continue;
       }
       ++mFindable;
       const auto layerCount = static_cast<std::size_t>(std::popcount(mine.layers));
       const auto at = best.find(id);
-      auto& record =
-        mParticles.emplace_back(Particle{.id = id, .truth = found->second, .layers = mine.layers, .inbound = inbound(rows, rowsOf[id], found->second)});
+      auto& record = mParticles.emplace_back(Particle{.id = id, .truth = found->second, .layers = mine.layers, .inbound = inbound(rows, rowsOf[id], found->second)});
       if (at == best.end()) {
-        const bool withFake = std::ranges::any_of(rowsOf[id], [&](std::uint32_t row) {
-          return std::ranges::any_of(tracksOfRow[row], [&](std::uint32_t t) {
-            return good[t] == study::kNoTrackParticle && majority[t] == id;
-          });
-        });
+        const bool withFake = std::ranges::any_of(rowsOf[id], [&](std::uint32_t row) { return std::ranges::any_of(tracksOfRow[row], [&](std::uint32_t t) { return good[t] == study::kNoTrackParticle && majority[t] == id; }); });
         ++(withFake ? mFakeOnly : mNotFound);
         record.status = withFake ? kFakeOnly : kNotFound;
       } else {
@@ -193,9 +186,7 @@ class TrackBreakdown
       // distance from the beam axis at its production z.
       const auto missing = mine.layers & ~record.best;
       const bool placed = at != best.end();
-      const auto distance = [&](std::uint32_t row) {
-        return std::hypot(static_cast<double>(rows[row].r), static_cast<double>(rows[row].z) - static_cast<double>(found->second.vz));
-      };
+      const auto distance = [&](std::uint32_t row) { return std::hypot(static_cast<double>(rows[row].r), static_cast<double>(rows[row].z) - static_cast<double>(found->second.vz)); };
       double first = std::numeric_limits<double>::infinity();
       double last = 0.;
       if (placed) {
@@ -215,10 +206,9 @@ class TrackBreakdown
         }
         where[layer] = std::min(where[layer], distance(row));
         for (const auto t : tracksOfRow[row]) {
-          const auto kind = good[t] == id                        ? kSplit
-                            : good[t] != study::kNoTrackParticle ? kOtherGood
-                            : majority[t] == id                  ? kOwnFake
-                                                                 : kFake;
+          const auto kind = good[t] == id ? kSplit : good[t] != study::kNoTrackParticle ? kOtherGood
+                                                   : majority[t] == id                  ? kOwnFake
+                                                                                        : kFake;
           fate[layer] = std::min<std::uint8_t>(fate[layer], kind);
         }
       }
@@ -263,8 +253,7 @@ class TrackBreakdown
     missing += "]";
     out << std::format(R"({{"tracks":{},"fakes":{},"clones":{},"completeTracks":{},"findable":{},"notFound":{},"fakeOnly":{},"complete":{},"incomplete":{},)"
                        R"("missingCount":{},"missing":{}}})",
-                       list(mTracks), list(mFakes), list(mClones), list(mCompleteTracks), mFindable, mNotFound, mFakeOnly, list(mComplete), list(mIncomplete),
-                       list(mMissingCount), missing)
+                       list(mTracks), list(mFakes), list(mClones), list(mCompleteTracks), mFindable, mNotFound, mFakeOnly, list(mComplete), list(mIncomplete), list(mMissingCount), missing)
         << '\n';
   }
 
@@ -303,10 +292,7 @@ class TrackBreakdown
       out << "id,pdg,pt,eta,phi,vx,vy,vz,layers,status,best,iteration,goodTracks,split,ownFake,fake,otherGood,free,before,after,inbound\n";
     }
     for (const auto& p : mParticles) {
-      out << std::format("{},{},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:x},{},{:x},{},{},{:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x}\n", p.id, p.truth.pdg,
-                         p.truth.pt, p.truth.eta, p.truth.phi, p.truth.vx, p.truth.vy, p.truth.vz, p.layers, static_cast<int>(p.status), p.best,
-                         static_cast<int>(p.bestIteration), p.goodTracks, p.fates[kSplit], p.fates[kOwnFake], p.fates[kFake], p.fates[kOtherGood],
-                         p.fates[kFree], p.before, p.after, p.inbound);
+      out << std::format("{},{},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:x},{},{:x},{},{},{:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x}\n", p.id, p.truth.pdg, p.truth.pt, p.truth.eta, p.truth.phi, p.truth.vx, p.truth.vy, p.truth.vz, p.layers, static_cast<int>(p.status), p.best, static_cast<int>(p.bestIteration), p.goodTracks, p.fates[kSplit], p.fates[kOwnFake], p.fates[kFake], p.fates[kOtherGood], p.fates[kFree], p.before, p.after, p.inbound);
     }
   }
 

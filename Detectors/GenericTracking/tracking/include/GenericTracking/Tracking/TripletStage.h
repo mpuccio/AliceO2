@@ -60,8 +60,7 @@ class TripletStage
   using Sources = LayerRowMap<Det>;
   using Tracklets = StageOutput<TrackletT>;
 
-  TripletStage(const IterationParameters<Det>& parameters, const Sources& sources, const TimeFrame<Det>& frame, const Tracklets& tracklets,
-               const TripletTargetBounds* targetBounds, const Index* permutation, TrackletPathBounds paths)
+  TripletStage(const IterationParameters<Det>& parameters, const Sources& sources, const TimeFrame<Det>& frame, const Tracklets& tracklets, const TripletTargetBounds* targetBounds, const Index* permutation, TrackletPathBounds paths)
     : TripletStage(&parameters, &sources, &frame, tracklets.view(), tracklets.offsets().data(), targetBounds, permutation, paths)
   {
     if (Shape != parameters.shapeTest) {
@@ -71,8 +70,7 @@ class TripletStage
 
   /// The same stage over inputs wherever they are -- a device's copies:
   /// every argument is only stored.
-  TripletStage(const IterationParameters<Det>* parameters, const Sources* sources, const TimeFrame<Det>* frame, TrackletConstView tracklets,
-               const Index* trackletOffsets, const TripletTargetBounds* targetBounds, const Index* permutation, TrackletPathBounds paths)
+  TripletStage(const IterationParameters<Det>* parameters, const Sources* sources, const TimeFrame<Det>* frame, TrackletConstView tracklets, const Index* trackletOffsets, const TripletTargetBounds* targetBounds, const Index* permutation, TrackletPathBounds paths)
     : mParameters(parameters),
       mSources(sources),
       mFrame(frame),
@@ -156,8 +154,7 @@ class TripletStage
   {
     // The dip-angle window's first-tracklet part, once for every out-link.
     const auto firstTerms = tripletFirstTerms(*mParameters, context.middleLayer, context.first.point, context.middle.point);
-    for (auto out = mParameters->outLinkOffsets[context.middleLayer]; out < mParameters->outLinkOffsets[static_cast<std::size_t>(context.middleLayer) + 1U];
-         ++out) {
+    for (auto out = mParameters->outLinkOffsets[context.middleLayer]; out < mParameters->outLinkOffsets[static_cast<std::size_t>(context.middleLayer) + 1U]; ++out) {
       const std::size_t secondLink = mParameters->outLinkIndices[out];
       const Index linkBegin = lowerBoundLink(context.begin, context.end, secondLink);
       const Index linkEnd = upperBoundLink(linkBegin, context.end, secondLink);
@@ -167,8 +164,7 @@ class TripletStage
       const LayerID targetLayer = mParameters->linkTargets[secondLink];
       const Scalar halfWidth = tripletLambdaHalfWidth(*mParameters, secondLink, firstTerms, mTargetBounds[targetLayer]);
       const Scalar high = context.lambda + halfWidth;
-      for (Index candidateIndex = lowerBoundLambda(linkBegin, linkEnd, context.lambda - halfWidth);
-           candidateIndex < linkEnd && mTracklets.lambda[candidateIndex] <= high; ++candidateIndex) {
+      for (Index candidateIndex = lowerBoundLambda(linkBegin, linkEnd, context.lambda - halfWidth); candidateIndex < linkEnd && mTracklets.lambda[candidateIndex] <= high; ++candidateIndex) {
         body(candidateIndex);
       }
     }
@@ -204,9 +200,7 @@ class TripletStage
       const auto columns = mFrame->measurements();
       const auto& from = context.first.point;
       const auto& to = third.point;
-      if (!shapeAdmits(columns, mTracklets.source[context.firstIndex], from.x, from.y, from.z, to.x, to.y, to.z) ||
-          !shapeAdmits(columns, mTracklets.target[context.firstIndex], from.x, from.y, from.z, to.x, to.y, to.z) ||
-          !shapeAdmits(columns, mTracklets.target[candidateIndex], from.x, from.y, from.z, to.x, to.y, to.z)) {
+      if (!shapeAdmits(columns, mTracklets.source[context.firstIndex], from.x, from.y, from.z, to.x, to.y, to.z) || !shapeAdmits(columns, mTracklets.target[context.firstIndex], from.x, from.y, from.z, to.x, to.y, to.z) || !shapeAdmits(columns, mTracklets.target[candidateIndex], from.x, from.y, from.z, to.x, to.y, to.z)) {
         countWork(WorkCounter::kTripletShape);
         return false;
       }
@@ -219,12 +213,14 @@ class TripletStage
   /// The triplet of an accepted candidate.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Triplet record(const FirstContext& context, Index candidateIndex, const TripletFitResult& fit, bool kinked) const
   {
-    return Triplet{.first = context.firstIndex,
-                   .second = candidateIndex,
-                   .curvature = fit.curvature,
-                   .varCurvature = fit.varCurvature,
-                   .level = 1U,
-                   .kinked = kinked ? std::uint8_t{1} : std::uint8_t{0}};
+    return Triplet{
+      .first = context.firstIndex,
+      .second = candidateIndex,
+      .curvature = fit.curvature,
+      .varCurvature = fit.varCurvature,
+      .level = 1U,
+      .kinked = kinked ? std::uint8_t{1} : std::uint8_t{0},
+    };
   }
 
  private:

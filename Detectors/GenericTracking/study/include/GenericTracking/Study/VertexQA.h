@@ -64,7 +64,7 @@ struct VertexScore {
   std::vector<double> pulls;       ///< (z - z_true) / its sigma z, the same vertices
   /// A collision no vertex is the best of, and where its triplets went.
   struct Missed {
-    double z = 0.;              ///< the median production z of its primaries [cm]
+    double z = 0.; ///< the median production z of its primaries [cm]
     std::uint32_t findable = 0U;
     std::uint32_t triplets = 0U; ///< the pass's triplets of one of its primaries, in the slices owning their frames
     std::uint32_t cut = 0U;      ///< of those, none (kNone: cut, degenerate or deduplicated)
@@ -85,9 +85,7 @@ struct VertexClaimsScore {
   std::uint32_t merged = 0U;
 };
 
-[[nodiscard]] inline VertexClaimsScore scoreVertexClaims(std::span<const std::map<std::int64_t, std::uint32_t>> labels,
-                                                         std::span<const std::uint32_t> contributors,
-                                                         std::span<const std::map<std::int64_t, std::uint32_t>> wentTo)
+[[nodiscard]] inline VertexClaimsScore scoreVertexClaims(std::span<const std::map<std::int64_t, std::uint32_t>> labels, std::span<const std::uint32_t> contributors, std::span<const std::map<std::int64_t, std::uint32_t>> wentTo)
 {
   VertexClaimsScore result;
   result.best.assign(wentTo.size(), -1);
@@ -116,8 +114,7 @@ struct VertexClaimsScore {
 /// \a found's vertices against the collisions of \a rows (one per frame row)
 /// and \a particles, from the pass's \a claims (`VertexingPass::Result`).
 template <DetectorLayout Det>
-[[nodiscard]] VertexScore scoreVertices(std::span<const TruthRow> rows, const ParticleTable& particles, std::span<const TripletClaim> claims,
-                                        const VertexerResult& found)
+[[nodiscard]] VertexScore scoreVertices(std::span<const TruthRow> rows, const ParticleTable& particles, std::span<const TripletClaim> claims, const VertexerResult& found)
 {
   // Per particle, its layers and longest chain: the findable's rule.
   const auto settings = comparisonSettings<Det>();
@@ -182,7 +179,8 @@ template <DetectorLayout Det>
           continue; // a halo's copy, counted in the slice that owns its frame
         }
         miss.triplets += count;
-        (vertex == VertexerResult::kNone ? miss.cut : vertex == VertexerResult::kFree ? miss.free : miss.other) += count;
+        (vertex == VertexerResult::kNone ? miss.cut : vertex == VertexerResult::kFree ? miss.free
+                                                                                      : miss.other) += count;
       }
       score.missed.push_back(miss);
       continue;
@@ -204,15 +202,11 @@ template <DetectorLayout Det>
 {
   auto residuals = score.residualsUM;
   std::ranges::sort(residuals);
-  const auto at = [&](double q) {
-    return residuals.empty() ? 0. : residuals[std::min(residuals.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(residuals.size())))];
-  };
+  const auto at = [&](double q) { return residuals.empty() ? 0. : residuals[std::min(residuals.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(residuals.size())))]; };
   return std::format(
     "vertex QA: {} vertices; collisions found {}/{}, their findable primaries {}/{} ({:.2f} %); fakes {}, splits {}, merged {}; "
     "|dz| 68/95/99/max [um] {:.0f} {:.0f} {:.0f} {:.0f}",
-    score.vertices, score.found, score.collisions, score.covered, score.findable,
-    100. * static_cast<double>(score.covered) / std::max(1., static_cast<double>(score.findable)), score.fakes, score.splits, score.merged, at(0.68), at(0.95),
-    at(0.99), residuals.empty() ? 0. : residuals.back());
+    score.vertices, score.found, score.collisions, score.covered, score.findable, 100. * static_cast<double>(score.covered) / std::max(1., static_cast<double>(score.findable)), score.fakes, score.splits, score.merged, at(0.68), at(0.95), at(0.99), residuals.empty() ? 0. : residuals.back());
 }
 
 /// \a score's missed collisions by their findable primaries: per bin the
@@ -233,8 +227,7 @@ template <DetectorLayout Det>
         other += miss.other;
       }
     }
-    line += std::format(" [{}{}] {}, {}; {} / {} / {}", kLow[bin], high == std::numeric_limits<std::uint32_t>::max() ? "+" : std::format("-{}", high - 1U),
-                        collisions, findable, cut, free, other);
+    line += std::format(" [{}{}] {}, {}; {} / {} / {}", kLow[bin], high == std::numeric_limits<std::uint32_t>::max() ? "+" : std::format("-{}", high - 1U), collisions, findable, cut, free, other);
   }
   return line;
 }

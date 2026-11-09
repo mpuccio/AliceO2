@@ -190,8 +190,7 @@ class DeviceTracker
   /// refuses. A FlatObject material's host image is kept from one call to
   /// the next and made again only for another object: the same object is
   /// taken to be the same material.
-  [[nodiscard]] virtual StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry,
-                                                 const Material& material, const Propagator& propagator) = 0;
+  [[nodiscard]] virtual StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator) = 0;
 
   /// Upload \a frame -- its measurement columns and grid offsets -- the
   /// device part of \a plan and a used mask with every row free, replacing
@@ -239,8 +238,7 @@ class DeviceTracker
   /// `VertexingPass::find` gives them; its counts too, but no per-triplet
   /// claims and no beam estimate. Not with an
   /// iteration open; the used mask and the tracks stay as they are.
-  [[nodiscard]] virtual StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot,
-                                                 VertexerResult& result) = 0;
+  [[nodiscard]] virtual StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) = 0;
 
   /// Replace the open timeframe's plan with \a plan, of the same frame and
   /// the same run (std::invalid_argument before anything changes
@@ -271,8 +269,7 @@ class DeviceTracker
   /// the pass, iteration \a pass, into \a result (findVertices). The
   /// timeframe stays open for trackTimeframe; \a frame and \a plan must
   /// outlive it.
-  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t pass, const VertexerSettings& settings,
-                                                  const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report)
+  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report)
   {
     report = {};
     auto start = Clock::now();
@@ -294,8 +291,7 @@ class DeviceTracker
   /// the timeframe. Stops at the first failure and returns it, as
   /// Tracker::run does; tracks the host cannot hold are kOutOfMemory. \a
   /// frame and \a plan must outlive the timeframe.
-  [[nodiscard]] StageStatus trackTimeframe(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t iterations, bool replaced, Tracks& tracks,
-                                           TimeframeReport& report)
+  [[nodiscard]] StageStatus trackTimeframe(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t iterations, bool replaced, Tracks& tracks, TimeframeReport& report)
   {
     if (!replaced) {
       report = {};

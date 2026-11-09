@@ -85,8 +85,7 @@ void compactIndices(const ForEach& forEach, Index n, Index chunkSize, const Keep
 /// total does not fit an Index -- as the serial loop's running check, since the
 /// sums only grow. \a value(i) must not read \a offsets.
 template <typename ForEach, typename Value>
-[[nodiscard]] bool exclusiveScan(const ForEach& forEach, Index n, Index chunkSize, const Value& value, std::span<Index> offsets,
-                                 std::pmr::memory_resource* resource)
+[[nodiscard]] bool exclusiveScan(const ForEach& forEach, Index n, Index chunkSize, const Value& value, std::span<Index> offsets, std::pmr::memory_resource* resource)
 {
   const Chunking chunks{n, chunkSize};
   BoundedVector<std::uint64_t> totals(std::size_t{chunks.count()} + 1U, std::uint64_t{0}, std::pmr::polymorphic_allocator<std::uint64_t>{resource});

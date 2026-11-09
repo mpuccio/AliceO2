@@ -136,24 +136,25 @@ void readBlock(std::ifstream& in, T* data, std::size_t count, const char* what)
 
 } // namespace
 
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets,
-                        std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths)
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths)
 {
   std::ofstream out{path, std::ios::binary | std::ios::trunc};
   if (!out) {
     throw std::runtime_error("tracking input: cannot create " + path);
   }
-  const Header header{.rows = rows,
-                      .offsets = offsets.size(),
-                      .vertices = vertices.size(),
-                      .frameLayers = frames.size(),
-                      .depthLayers = depths.size(),
-                      .beamX = beamLine.x,
-                      .beamY = beamLine.y,
-                      .beamZ = beamLine.z,
-                      .beamSigmaX = beamLine.sigmaX,
-                      .beamSigmaY = beamLine.sigmaY,
-                      .beamSigmaZ = beamLine.sigmaZ};
+  const Header header{
+    .rows = rows,
+    .offsets = offsets.size(),
+    .vertices = vertices.size(),
+    .frameLayers = frames.size(),
+    .depthLayers = depths.size(),
+    .beamX = beamLine.x,
+    .beamY = beamLine.y,
+    .beamZ = beamLine.z,
+    .beamSigmaX = beamLine.sigmaX,
+    .beamSigmaY = beamLine.sigmaY,
+    .beamSigmaZ = beamLine.sigmaZ,
+  };
   out.write(bytesOf(&header), sizeof(header));
   writeBlock(out, frames.data(), frames.size());
   view.apply([&](const auto*... columns) { (writeBlock(out, columns, rows), ...); });
@@ -423,17 +424,19 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
   }
   truth.particles.reserve(particles);
   for (std::size_t index = 0; index < particles; ++index) {
-    truth.particles[ids[index]] = ParticleTruth{.pt = pt[index],
-                                                .primary = primary[index] != 0U,
-                                                .eta = eta[index],
-                                                .phi = phi[index],
-                                                .origin = static_cast<ParticleOrigin>(origin[index]),
-                                                .pdg = pdg[index],
-                                                .motherPdg = motherPdg[index],
-                                                .process = process[index],
-                                                .vx = vx[index],
-                                                .vy = vy[index],
-                                                .vz = vz[index]};
+    truth.particles[ids[index]] = ParticleTruth{
+      .pt = pt[index],
+      .primary = primary[index] != 0U,
+      .eta = eta[index],
+      .phi = phi[index],
+      .origin = static_cast<ParticleOrigin>(origin[index]),
+      .pdg = pdg[index],
+      .motherPdg = motherPdg[index],
+      .process = process[index],
+      .vx = vx[index],
+      .vy = vy[index],
+      .vz = vz[index],
+    };
   }
   return truth;
 }

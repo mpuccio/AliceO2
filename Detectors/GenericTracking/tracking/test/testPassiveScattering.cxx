@@ -79,8 +79,7 @@ struct ToyPipe {
   }};
 
   /// The pipe between layers 2 and 3, 4 cm short of layer 3.
-  static constexpr std::array<PassiveSpec, 1> passives{
-    {{.kind = PassiveSpec::Kind::kBarrel, .position = 3., .bandLow = 2.95, .bandHigh = 3.05, .low = -20., .high = 20., .x2X0 = 0.01}}};
+  static constexpr std::array<PassiveSpec, 1> passives{{{.kind = PassiveSpec::Kind::kBarrel, .position = 3., .bandLow = 2.95, .bandHigh = 3.05, .low = -20., .high = 20., .x2X0 = 0.01}}};
 
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };
@@ -124,8 +123,7 @@ struct Crossings {
 /// Follow a helix of transverse momentum \a pt from the beam line, kinking
 /// it at every radius in \a scatterers with its Highland theta0 at the
 /// crossing, and record where it crosses each layer.
-Crossings follow(double pt, double phi, double cotTheta, double charge, double vertexZ, std::span<const double> scatterers,
-                 std::span<const double> scattererX2X0, std::mt19937& rng)
+Crossings follow(double pt, double phi, double cotTheta, double charge, double vertexZ, std::span<const double> scatterers, std::span<const double> scattererX2X0, std::mt19937& rng)
 {
   std::normal_distribution<double> gauss(0., 1.);
   const double radius = curvatureRadius(pt, kBzKiloGauss);
@@ -192,7 +190,14 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
     if (stop.layer >= 0) {
       const auto r = static_cast<Scalar>(std::hypot(x, y));
       result.points[static_cast<std::size_t>(stop.layer)] = {
-        .x = static_cast<Scalar>(x), .y = static_cast<Scalar>(y), .z = static_cast<Scalar>(z), .r = r, .varZ = 2.5e-7F, .varR = 2.5e-7F, .varRPhi = 2.5e-7F};
+        .x = static_cast<Scalar>(x),
+        .y = static_cast<Scalar>(y),
+        .z = static_cast<Scalar>(z),
+        .r = r,
+        .varZ = 2.5e-7F,
+        .varR = 2.5e-7F,
+        .varRPhi = 2.5e-7F,
+      };
     }
     // The kink: Highland at normal incidence times the path factor, at the
     // track's momentum, in two projections.
@@ -245,8 +250,7 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
       const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, Det::layerLinks[link].from, source);
-      const Scalar between =
-        withBetween && parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
+      const Scalar between = withBetween && parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
       auto& count = counts[link];
       ++count.pairs;
       if (!pairCompatible(parameters.pairCut, beamLine, source, scatter, target, between)) {
@@ -301,8 +305,7 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
       const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, Det::layerLinks[link].from, source);
-      const Scalar between =
-        parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
+      const Scalar between = parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
       pairPasses[link] = pairCompatible(parameters.pairCut, beamLine, source, scatter, target, between);
     }
     std::array<bool, 4> tripletPasses{};
@@ -317,9 +320,7 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
       const auto c = timed(first + 2U);
       auto& count = counts.triplets[first];
       ++count.pairs;
-      const auto dip = [](const PairPoint& from, const PairPoint& to) {
-        return std::atan2(static_cast<double>(to.z - from.z), std::hypot(static_cast<double>(to.x - from.x), static_cast<double>(to.y - from.y)));
-      };
+      const auto dip = [](const PairPoint& from, const PairPoint& to) { return std::atan2(static_cast<double>(to.z - from.z), std::hypot(static_cast<double>(to.x - from.x), static_cast<double>(to.y - from.y))); };
       const auto middleLayer = static_cast<LayerID>(first + 1U);
       const auto halfWidth = static_cast<double>(tripletLambdaHalfWidth(parameters, first + 1U, middleLayer, a.point, b.point, bounds));
       if (std::abs(dip(b.point, c.point) - dip(a.point, b.point)) > halfWidth) {
@@ -343,16 +344,14 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
       }
       auto& count = counts.neighbours[first];
       ++count.pairs;
-      if (!neighbourCurvatureCompatible(parameters, fits[first].curvature, fits[first].varCurvature, fits[first + 1U].curvature,
-                                        fits[first + 1U].varCurvature)) {
+      if (!neighbourCurvatureCompatible(parameters, fits[first].curvature, fits[first].varCurvature, fits[first + 1U].curvature, fits[first + 1U].varCurvature)) {
         continue;
       }
       TripletFitResult fit;
       KinkTerms bcd;
       bool made = false;
       bool valid = false;
-      if (neighbourCompatible(parameters, static_cast<LayerID>(first + 1U), static_cast<LayerID>(first + 2U), timed(first), timed(first + 1U),
-                              timed(first + 2U), timed(first + 3U), bcd, made, valid, fit, 1.F, 1.F)) {
+      if (neighbourCompatible(parameters, static_cast<LayerID>(first + 1U), static_cast<LayerID>(first + 2U), timed(first), timed(first + 1U), timed(first + 2U), timed(first + 3U), bcd, made, valid, fit, 1.F, 1.F)) {
         ++count.accepted;
       }
     }
@@ -429,8 +428,7 @@ BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
   const auto full = countPairs(table(kPipeX2X0), true, kPipeX2X0, kTracks);
   for (std::size_t link = 0; link < full.size(); ++link) {
     const auto& count = full[link];
-    BOOST_TEST_MESSAGE("link " << link << ": " << count.accepted << "/" << count.pairs << " accepted, " << count.inPhiWindow << " and " << count.inSecondWindow
-                               << " of them in the phi and second windows");
+    BOOST_TEST_MESSAGE("link " << link << ": " << count.accepted << "/" << count.pairs << " accepted, " << count.inPhiWindow << " and " << count.inSecondWindow << " of them in the phi and second windows");
     BOOST_TEST_CONTEXT("link " << link)
     {
       BOOST_TEST(count.pairs > kTracks / 2);
@@ -461,13 +459,11 @@ BOOST_AUTO_TEST_CASE(TripletsAndNeighboursAcrossThePipe)
   const auto full = countChains(table(kPipeX2X0), kPipeX2X0, kTracks);
   const auto without = countChains(table(0.), kPipeX2X0, kTracks);
   for (std::size_t first = 0; first < full.triplets.size(); ++first) {
-    BOOST_TEST_MESSAGE("triplet " << first << "-" << first + 2U << ": " << full.triplets[first].accepted << "/" << full.triplets[first].pairs
-                                  << ", without the pipe " << without.triplets[first].accepted << "/" << without.triplets[first].pairs);
+    BOOST_TEST_MESSAGE("triplet " << first << "-" << first + 2U << ": " << full.triplets[first].accepted << "/" << full.triplets[first].pairs << ", without the pipe " << without.triplets[first].accepted << "/" << without.triplets[first].pairs);
     BOOST_TEST_CONTEXT("triplet from layer " << first) { BOOST_TEST(share(full.triplets[first].accepted, full.triplets[first].pairs) > 0.99); }
   }
   for (std::size_t first = 0; first < full.neighbours.size(); ++first) {
-    BOOST_TEST_MESSAGE("neighbour " << first << "-" << first + 3U << ": " << full.neighbours[first].accepted << "/" << full.neighbours[first].pairs
-                                    << ", without the pipe " << without.neighbours[first].accepted << "/" << without.neighbours[first].pairs);
+    BOOST_TEST_MESSAGE("neighbour " << first << "-" << first + 3U << ": " << full.neighbours[first].accepted << "/" << full.neighbours[first].pairs << ", without the pipe " << without.neighbours[first].accepted << "/" << without.neighbours[first].pairs);
     BOOST_TEST_CONTEXT("neighbour from layer " << first) { BOOST_TEST(share(full.neighbours[first].accepted, full.neighbours[first].pairs) > 0.99); }
   }
   // The pipe lies 0.5 cm beyond layer 2 of the 4.5 between layers 2 and 3.

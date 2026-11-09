@@ -57,8 +57,7 @@ namespace o2::gtrk
 // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 template <template <class> class C>
 struct MeasurementT {
-  MEMLAYOUT_APPLY(MeasurementT, loc0, loc1, timePS, widthPS, varLoc0, covLoc01, varLoc1, clusterIndex, surface, x, y, z, r, phi, varZ, varR, varRPhi, slopeLow,
-                  slopeHigh)
+  MEMLAYOUT_APPLY(MeasurementT, loc0, loc1, timePS, widthPS, varLoc0, covLoc01, varLoc1, clusterIndex, surface, x, y, z, r, phi, varZ, varR, varRPhi, slopeLow, slopeHigh)
   C<Scalar> loc0 = memlayout::default_value<C>(0.F); ///< sensor-local position [cm]
   C<Scalar> loc1 = memlayout::default_value<C>(0.F);
   /// The time box `[timePS, timePS + widthPS)` [ps from the timeframe's
@@ -132,10 +131,7 @@ template <template <class> class Container, class Factory>
 [[nodiscard]] auto makeMeasurementColumns(Factory factory)
 {
   std::size_t column = 0U;
-  return Measurement{}.apply([&]<class... T>(const T&...) {
-    return memlayout::Wrapper<MeasurementT, Container, memlayout::Layout::soa>{
-      MeasurementT<Container>{factory(std::type_identity<T>{}, static_cast<MeasurementColumn>(column++))...}};
-  });
+  return Measurement{}.apply([&]<class... T>(const T&...) { return memlayout::Wrapper<MeasurementT, Container, memlayout::Layout::soa>{MeasurementT<Container>{factory(std::type_identity<T>{}, static_cast<MeasurementColumn>(column++))...}}; });
 }
 
 /// Resize every owned column together.
@@ -183,10 +179,7 @@ template <typename Columns>
 /// Whether a measurement with time box \a row can come from a collision in
 /// \a vertex's box: the rule of ITSMFT's `isVertexCompatible`, the vertex's end inclusive so
 /// that a vertex of width 0 -- a point -- at the box's start belongs to it.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool vertexTimeCompatible(const TimeEstPS& row, const TimeEstPS& vertex)
-{
-  return vertex.upper() >= row.lower() && vertex.lower() < row.upper();
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool vertexTimeCompatible(const TimeEstPS& row, const TimeEstPS& vertex) { return vertex.upper() >= row.lower() && vertex.lower() < row.upper(); }
 
 } // namespace o2::gtrk
 

@@ -133,10 +133,7 @@ std::pair<std::size_t, std::size_t> checkEveryDirectPairIsPossible()
         for (int k = 0; k < 3 && !possible; ++k) {
           for (int l = 0; l < kSteps; ++l) {
             const auto [rb, zb] = point(link.to, k, l, 3);
-            BOOST_TEST_CONTEXT(Det::name << " link " << link.from << " -> " << link.to << " from (" << ra << ", " << za << ") to (" << rb << ", " << zb << ")")
-            {
-              BOOST_TEST(segmentLeavesHole(holes, barrels, spans.data(), ra, za, rb, zb));
-            }
+            BOOST_TEST_CONTEXT(Det::name << " link " << link.from << " -> " << link.to << " from (" << ra << ", " << za << ") to (" << rb << ", " << zb << ")") { BOOST_TEST(segmentLeavesHole(holes, barrels, spans.data(), ra, za, rb, zb)); }
           }
         }
       }

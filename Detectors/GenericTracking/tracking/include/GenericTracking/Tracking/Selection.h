@@ -56,8 +56,7 @@ namespace selection
 
 /// Whether a record conflicts with the tracks already in \a mask.
 template <std::size_t K>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool conflicts(const ClusterList<K>& clusters, std::uint32_t count, const std::uint8_t* mask,
-                                                        std::uint32_t sharedInnermost)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool conflicts(const ClusterList<K>& clusters, std::uint32_t count, const std::uint8_t* mask, std::uint32_t sharedInnermost)
 {
   for (std::uint32_t position = 0; position < count; ++position) {
     const std::uint8_t state = mask[clusters.index[position]];
@@ -105,8 +104,7 @@ inline constexpr int kQualityKeyBits = 48;
 /// chi2 bits and clusters in their order: a record found by more than one
 /// slice is the same record in each.
 template <std::size_t K>
-[[nodiscard]] GPUdi() bool sameRecord(const ClusterList<K>& clusters, std::uint8_t count, std::uint8_t kinks, Scalar chi2, const ClusterList<K>& otherClusters,
-                                      std::uint8_t otherCount, std::uint8_t otherKinks, Scalar otherChi2)
+[[nodiscard]] GPUdi() bool sameRecord(const ClusterList<K>& clusters, std::uint8_t count, std::uint8_t kinks, Scalar chi2, const ClusterList<K>& otherClusters, std::uint8_t otherCount, std::uint8_t otherKinks, Scalar otherChi2)
 {
   return count == otherCount && kinks == otherKinks && std::bit_cast<std::uint32_t>(chi2) == std::bit_cast<std::uint32_t>(otherChi2) && compareKeys(clusters, otherClusters) == 0;
 }
@@ -218,8 +216,7 @@ struct Decide {
     live[record] = 0U;
     // Two accepted records sharing an innermost row store the same byte.
     for (std::uint32_t position = 0; position < count[record]; ++position) {
-      o2::gpu::CAMath::AtomicStore(mask + clusters[record].index[position],
-                                   static_cast<std::uint8_t>(shareable(position, sharedInnermost) ? kShared : kExclusive));
+      o2::gpu::CAMath::AtomicStore(mask + clusters[record].index[position], static_cast<std::uint8_t>(shareable(position, sharedInnermost) ? kShared : kExclusive));
     }
   }
 };
@@ -350,8 +347,7 @@ class GlobalSelection
         if (i != 0U && selection::compareKeys(mKeys[record], mKeys[mOrder[i - 1U]]) == 0) {
           const Index kept = mUnique.back();
           ++mDuplicates;
-          const bool same = selection::sameRecord(records.clusters[record], records.count[record], records.kinks[record], records.chi2[record],
-                                                  records.clusters[kept], records.count[kept], records.kinks[kept], records.chi2[kept]);
+          const bool same = selection::sameRecord(records.clusters[record], records.count[record], records.kinks[record], records.chi2[record], records.clusters[kept], records.count[kept], records.kinks[kept], records.chi2[kept]);
           mMismatches += same ? 0U : 1U;
           continue;
         }
@@ -381,15 +377,17 @@ class GlobalSelection
       resizeBoundedVector(mPriority, unique, mMemoryPool.get());
       resizeBoundedVector(mLive, unique, mMemoryPool.get());
       resizeBoundedVector(mAccepted, unique, mMemoryPool.get());
-      forEach(unique, selection::RankFill<K>{.clusters = records.clusters,
-                                             .count = records.count,
-                                             .ranked = mUnique.data(),
-                                             .unique = unique,
-                                             .rankClusters = mClusters.data(),
-                                             .rankCount = mCount.data(),
-                                             .priority = mPriority.data(),
-                                             .live = mLive.data(),
-                                             .accepted = mAccepted.data()});
+      forEach(unique, selection::RankFill<K>{
+                        .clusters = records.clusters,
+                        .count = records.count,
+                        .ranked = mUnique.data(),
+                        .unique = unique,
+                        .rankClusters = mClusters.data(),
+                        .rankCount = mCount.data(),
+                        .priority = mPriority.data(),
+                        .live = mLive.data(),
+                        .accepted = mAccepted.data(),
+                      });
 
       // The rounds; a record conflicting with an earlier iteration's track is
       // out before the first.
@@ -408,8 +406,7 @@ class GlobalSelection
       const selection::Prune<K> prune{mClusters.data(), mCount.data(), mLive.data(), mask.data(), sharedInnermost, &stillLive};
       const selection::BidReset<K> reset{mClusters.data(), mCount.data(), mLive.data(), mSlotAll.data(), mSlotExclusive.data()};
       const selection::Bid<K> bid{mClusters.data(), mCount.data(), mLive.data(), mPriority.data(), mSlotAll.data(), mSlotExclusive.data(), sharedInnermost};
-      const selection::Decide<K> decide{mClusters.data(), mCount.data(), mLive.data(), mAccepted.data(), mPriority.data(),
-                                        mSlotAll.data(), mSlotExclusive.data(), mask.data(), sharedInnermost};
+      const selection::Decide<K> decide{mClusters.data(), mCount.data(), mLive.data(), mAccepted.data(), mPriority.data(), mSlotAll.data(), mSlotExclusive.data(), mask.data(), sharedInnermost};
       forEach(unique, prune);
       mRounds = 0U;
       while (stillLive != 0U) {
@@ -468,8 +465,7 @@ class GlobalSelection
   void copyRows(const View& from, std::size_t begin, std::size_t count, const ForEach& forEach)
   {
     const auto to = mRecords.view();
-    forEach(static_cast<Index>(count),
-            [&](Index row) { from.apply([&](const auto*... source) { to.apply([&](auto*... target) { ((target[begin + row] = source[row]), ...); }); }); });
+    forEach(static_cast<Index>(count), [&](Index row) { from.apply([&](const auto*... source) { to.apply([&](auto*... target) { ((target[begin + row] = source[row]), ...); }); }); });
   }
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;

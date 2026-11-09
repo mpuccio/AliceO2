@@ -29,8 +29,7 @@ namespace o2::gtrk
 
 /// Whether \a triplet's innermost row is the slice's own: in the core of its
 /// first tracklet's source layer.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool roadOwned(TrackletConstView tracklets, TripletConstView triplets, const LayerID* linkSources,
-                                                        const MeasurementRange* core, std::uint32_t triplet)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool roadOwned(TrackletConstView tracklets, TripletConstView triplets, const LayerID* linkSources, const MeasurementRange* core, std::uint32_t triplet)
 {
   const auto first = triplets.first[triplet];
   const auto row = tracklets.source[first];
@@ -61,10 +60,7 @@ struct OrderedRoadCounts {
   const LayerID* linkSources = nullptr;
   const MeasurementRange* core = nullptr;
 
-  GPUdi() void base(std::uint32_t element, TrackletConstView tracklets, TripletConstView triplets) const
-  {
-    roads[element] = roadOwned(tracklets, triplets, linkSources, core, element) ? 1U : 0U;
-  }
+  GPUdi() void base(std::uint32_t element, TrackletConstView tracklets, TripletConstView triplets) const { roads[element] = roadOwned(tracklets, triplets, linkSources, core, element) ? 1U : 0U; }
 
   GPUdi() void add(std::uint32_t predecessor, std::uint64_t& sum) const
   {

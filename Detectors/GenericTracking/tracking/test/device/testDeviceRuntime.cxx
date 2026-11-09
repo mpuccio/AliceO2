@@ -102,8 +102,7 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
   stream.synchronize();
 
   constexpr std::size_t kFunctions = 15U;
-  constexpr std::array<const char*, kFunctions> kNames{"sin", "cos", "sincos.sin", "sincos.cos", "asin", "atan", "atan2", "sinf",
-                                                       "cosf", "sincosf.sin", "sincosf.cos", "asinf", "atanf", "atan2f", "logf"};
+  constexpr std::array<const char*, kFunctions> kNames{"sin", "cos", "sincos.sin", "sincos.cos", "asin", "atan", "atan2", "sinf", "cosf", "sincosf.sin", "sincosf.cos", "asinf", "atanf", "atan2f", "logf"};
   std::array<std::size_t, kFunctions> differ{};
   const auto compare = [&](std::size_t function, auto host, auto onDevice) {
     using Bits = std::conditional_t<sizeof(host) == sizeof(std::uint64_t), std::uint64_t, std::uint32_t>;
@@ -201,8 +200,7 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
     const double radius = sample(0., 90.);
     const double azimuth = sample(-std::numbers::pi, std::numbers::pi);
     PropagationProbe probe;
-    probe.from =
-      plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
+    probe.from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
     auto& state = probe.before;
     state.surface = probe.from.id;
     state.par[kLoc0] = static_cast<Scalar>(sample(-1.5, 1.5));
@@ -231,8 +229,7 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
     probe.to = plane(endX, endY, endZ, sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 1, 2);
     const double offsets[2]{sample(-5., 5.), sample(-5., 5.)};
     for (int axis = 0; axis < 3; ++axis) {
-      probe.to.origin[axis] +=
-        static_cast<Scalar>(offsets[0] * static_cast<double>(probe.to.axis0[axis]) + offsets[1] * static_cast<double>(probe.to.axis1[axis]));
+      probe.to.origin[axis] += static_cast<Scalar>(offsets[0] * static_cast<double>(probe.to.axis0[axis]) + offsets[1] * static_cast<double>(probe.to.axis1[axis]));
     }
     probes.push_back(probe);
   }

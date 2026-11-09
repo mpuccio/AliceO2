@@ -241,8 +241,7 @@ inline auto placedTriplets(const StageOutput<TripletT>& triplets)
 /// records in the order \a ranked gives, best first: accept each that does
 /// not conflict with \a mask, and mark it.
 template <std::size_t K, typename View>
-[[nodiscard]] std::vector<std::uint32_t> selectSequentially(const View& records, std::span<const std::uint32_t> ranked, std::uint32_t sharedInnermost,
-                                                            std::span<std::uint8_t> mask)
+[[nodiscard]] std::vector<std::uint32_t> selectSequentially(const View& records, std::span<const std::uint32_t> ranked, std::uint32_t sharedInnermost, std::span<std::uint8_t> mask)
 {
   std::vector<std::uint32_t> selected;
   for (const auto record : ranked) {

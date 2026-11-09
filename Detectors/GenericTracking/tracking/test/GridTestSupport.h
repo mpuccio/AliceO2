@@ -86,8 +86,7 @@ template <DetectorLayout Det>
 /// The derived layout of one iteration with \a windows, each layer's counts
 /// at most \a maxPhi and \a maxSecond.
 template <DetectorLayout Det>
-[[nodiscard]] GridGeometry<Det> cappedGrid(double durationNS, GridParams params, const SearchWindowParams& windows, const VertexConstraint& beamSpot,
-                                           std::int32_t maxPhi, std::int32_t maxSecond)
+[[nodiscard]] GridGeometry<Det> cappedGrid(double durationNS, GridParams params, const SearchWindowParams& windows, const VertexConstraint& beamSpot, std::int32_t maxPhi, std::int32_t maxSecond)
 {
   const auto layers = oneIterationWindows<Det>(windows, beamSpot);
   // The toys' times are in ns; the grid's in ps.
@@ -141,30 +140,33 @@ struct NoLocalMeasurement {
 /// Build a frame in caller-owned columns and offsets. Logical input indices
 /// become cluster indices; optional local measurements follow the same placement.
 template <DetectorLayout Det, typename PointOf, typename BoxOf, typename VarianceOf, typename FillLocal = NoLocalMeasurement>
-std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::size_t size, const PointOf& pointOf, const BoxOf& boxOf,
-                                        const VarianceOf& varianceOf, MeasurementStore& columns, std::vector<std::uint32_t>& offsets,
-                                        const FillLocal& fillLocal = {})
+std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::size_t size, const PointOf& pointOf, const BoxOf& boxOf, const VarianceOf& varianceOf, MeasurementStore& columns, std::vector<std::uint32_t>& offsets, const FillLocal& fillLocal = {})
 {
   resizeMeasurementColumns(columns, size);
   offsets.resize(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
-  buildGridRows(size, offsets, [&](std::size_t i) {
-    const auto p = pointOf(i);
-    return geometry.bucketAt(p.layer, boxOf(i).start, p.phi, secondCoordinate<Det>(p.layer, p.r, p.z)); }, [&](std::size_t i, std::uint32_t row) {
-    const auto p = pointOf(i);
-    const auto box = boxOf(i);
-    const auto variance = varianceOf(i);
-    columns.timePS[row] = box.start;
-    columns.widthPS[row] = box.width;
-    columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
-    columns.x[row] = p.x;
-    columns.y[row] = p.y;
-    columns.z[row] = p.z;
-    columns.r[row] = p.r;
-    columns.phi[row] = p.phi;
-    columns.varZ[row] = variance.z;
-    columns.varR[row] = variance.r;
-    columns.varRPhi[row] = variance.rPhi;
-    fillLocal(i, row); });
+  buildGridRows(
+    size, offsets,
+    [&](std::size_t i) {
+      const auto p = pointOf(i);
+      return geometry.bucketAt(p.layer, boxOf(i).start, p.phi, secondCoordinate<Det>(p.layer, p.r, p.z));
+    },
+    [&](std::size_t i, std::uint32_t row) {
+      const auto p = pointOf(i);
+      const auto box = boxOf(i);
+      const auto variance = varianceOf(i);
+      columns.timePS[row] = box.start;
+      columns.widthPS[row] = box.width;
+      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+      columns.x[row] = p.x;
+      columns.y[row] = p.y;
+      columns.z[row] = p.z;
+      columns.r[row] = p.r;
+      columns.phi[row] = p.phi;
+      columns.varZ[row] = variance.z;
+      columns.varR[row] = variance.r;
+      columns.varRPhi[row] = variance.rPhi;
+      fillLocal(i, row);
+    });
   return std::make_unique<TimeFrame<Det>>(measurementView(columns), geometry, std::span<const std::uint32_t>{offsets});
 }
 
@@ -173,8 +175,7 @@ std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::
 /// \a vertices as `planTimeframe` plans them, the slice planned as it plans
 /// its slices.
 template <typename Tracker, DetectorLayout Det>
-[[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice,
-                            std::span<const VertexSeed> vertices)
+[[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice, std::span<const VertexSeed> vertices)
 {
   const auto plan = tracker.planTimeframe(frame, vertices, frame.grid().geometry().blockCount(), 0);
   const auto slicePlan = planSlice(frame, slice, sliceReach(frameBounds(frame), frame.grid().geometry()).gatePS());

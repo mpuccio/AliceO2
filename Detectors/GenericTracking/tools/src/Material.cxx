@@ -150,9 +150,7 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
     return found;
   };
   std::vector<std::vector<long>> byZ(static_cast<std::size_t>(nz));
-  forEachOnNavigators(byZ.size(), threads, [&](std::size_t iz, TGeoNavigator* navigator) {
-    byZ[iz] = facesAt(-zMax + (static_cast<double>(iz) * dz), navigator);
-  });
+  forEachOnNavigators(byZ.size(), threads, [&](std::size_t iz, TGeoNavigator* navigator) { byZ[iz] = facesAt(-zMax + (static_cast<double>(iz) * dz), navigator); });
   std::set<long> faces;
   for (const auto& found : byZ) {
     faces.insert(found.begin(), found.end());
@@ -208,8 +206,7 @@ std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::s
       const double direction[3] = {sign * normal[0], sign * normal[1], sign * normal[2]};
       gGeoManager->InitTrack(centre, direction);
       if (!named(sensorPattern)) {
-        throw std::runtime_error(std::format("trkStackThickness: the centre of a sensor of layer {} is in {}, not a sensor", sensor.layer,
-                                             gGeoManager->GetCurrentVolume()->GetName()));
+        throw std::runtime_error(std::format("trkStackThickness: the centre of a sensor of layer {} is in {}, not a sensor", sensor.layer, gGeoManager->GetCurrentVolume()->GetName()));
       }
       gGeoManager->FindNextBoundaryAndStep();
       double stack = 0.;
@@ -226,8 +223,7 @@ std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::s
   return thickness;
 }
 
-std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors, std::span<const SensorSpec> specs,
-                                      std::span<const ChipStack> stack)
+std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const ChipStack> stack)
 {
   // A flat sensor's silicon is centred on its frame: a face moves by its
   // stack with the half-thickness grown by all of it, and each face is

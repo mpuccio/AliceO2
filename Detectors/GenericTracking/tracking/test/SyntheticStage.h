@@ -60,11 +60,13 @@ struct Count {
 /// but offset[e] + k is caught.
 [[nodiscard]] GPUhdi() Tracklet syntheticRecord(std::uint32_t element, std::uint32_t k)
 {
-  return Tracklet{.source = element,
-                  .target = (element * 1000U) + k,
-                  .link = static_cast<std::uint16_t>(element % 5U),
-                  .lambda = static_cast<Scalar>(element) + (static_cast<Scalar>(k) * 0.125F),
-                  .phi = -static_cast<Scalar>(element) - (static_cast<Scalar>(k) * 0.25F)};
+  return Tracklet{
+    .source = element,
+    .target = (element * 1000U) + k,
+    .link = static_cast<std::uint16_t>(element % 5U),
+    .lambda = static_cast<Scalar>(element) + (static_cast<Scalar>(k) * 0.125F),
+    .phi = -static_cast<Scalar>(element) - (static_cast<Scalar>(k) * 0.25F),
+  };
 }
 
 /// testStageOutput's Generator.

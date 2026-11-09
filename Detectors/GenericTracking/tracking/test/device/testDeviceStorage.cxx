@@ -42,12 +42,7 @@ namespace
 
 using namespace device_test;
 
-bool sameTracklet(const Tracklet& lhs, const Tracklet& rhs)
-{
-  return lhs.source == rhs.source && lhs.target == rhs.target && lhs.link == rhs.link &&
-         std::bit_cast<std::uint32_t>(lhs.lambda) == std::bit_cast<std::uint32_t>(rhs.lambda) &&
-         std::bit_cast<std::uint32_t>(lhs.phi) == std::bit_cast<std::uint32_t>(rhs.phi);
-}
+bool sameTracklet(const Tracklet& lhs, const Tracklet& rhs) { return lhs.source == rhs.source && lhs.target == rhs.target && lhs.link == rhs.link && std::bit_cast<std::uint32_t>(lhs.lambda) == std::bit_cast<std::uint32_t>(rhs.lambda) && std::bit_cast<std::uint32_t>(lhs.phi) == std::bit_cast<std::uint32_t>(rhs.phi); }
 
 } // namespace
 
@@ -103,8 +98,7 @@ BOOST_AUTO_TEST_CASE(SweepToFixedPointStopsAndChecksItsBound)
   std::vector<std::uint32_t> values;
   std::array<std::uint32_t, 2> flags{};
   std::uint32_t changing = 0U;
-  BOOST_REQUIRE((kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, kLength + 5U, kLength - 1U, values, flags, changing) ==
-                 StageStatus::kComplete));
+  BOOST_REQUIRE((kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, kLength + 5U, kLength - 1U, values, flags, changing) == StageStatus::kComplete));
   for (std::uint32_t index = 0; index < kLength; ++index) {
     BOOST_TEST(values[index] == index + 1U);
   }
@@ -114,14 +108,12 @@ BOOST_AUTO_TEST_CASE(SweepToFixedPointStopsAndChecksItsBound)
   BOOST_TEST(changing <= kLength - 1U);
 
   // A value above the threshold, early in the chain: the second flag stays up.
-  BOOST_REQUIRE(
-    (kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, 3U, kLength - 1U, values, flags, changing) == StageStatus::kComplete));
+  BOOST_REQUIRE((kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, 3U, kLength - 1U, values, flags, changing) == StageStatus::kComplete));
   BOOST_TEST(flags[0] == 0U);
   BOOST_TEST(flags[1] == 1U);
 
   // No changing pass allowed: a chain that needs one throws.
-  BOOST_CHECK_THROW(static_cast<void>(kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, kLength + 5U, 0U, values, flags, changing)),
-                    std::logic_error);
+  BOOST_CHECK_THROW(static_cast<void>(kernels().sweepChain(*device.runtime, device.stream, *device.arena, kLength, kLength + 5U, 0U, values, flags, changing)), std::logic_error);
   // A chain of one value never changes: no changing pass needed.
   BOOST_REQUIRE((kernels().sweepChain(*device.runtime, device.stream, *device.arena, 1U, 5U, 0U, values, flags, changing) == StageStatus::kComplete));
   BOOST_TEST(changing == 0U);
@@ -144,10 +136,8 @@ BOOST_AUTO_TEST_CASE(CopyColumnsAtOffsets)
     BOOST_TEST(sameTracklet(destination[row], copied ? records[row - 100U + 250U] : untouched), "row " << row);
   }
   // Past either end is refused.
-  BOOST_CHECK_THROW(static_cast<void>(kernels().copyColumns(*device.runtime, device.stream, *device.arena, *source, 900U, 600U, 0U, 200U, destination)),
-                    std::out_of_range);
-  BOOST_CHECK_THROW(static_cast<void>(kernels().copyColumns(*device.runtime, device.stream, *device.arena, *source, 0U, 600U, 500U, 200U, destination)),
-                    std::out_of_range);
+  BOOST_CHECK_THROW(static_cast<void>(kernels().copyColumns(*device.runtime, device.stream, *device.arena, *source, 900U, 600U, 0U, 200U, destination)), std::out_of_range);
+  BOOST_CHECK_THROW(static_cast<void>(kernels().copyColumns(*device.runtime, device.stream, *device.arena, *source, 0U, 600U, 500U, 200U, destination)), std::out_of_range);
 }
 
 /// Chunks of several sizes, one empty, gathered back in order; an arena too

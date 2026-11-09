@@ -250,8 +250,7 @@ void upload(typename DeviceColumns<S>::ConstView source, std::size_t rows, Devic
     return;
   }
   auto& runtime = destination.arena().runtime();
-  device_storage_detail::forEachColumnPair(source, destination.view(),
-                                           [&](auto* to, const auto* from) { runtime.copyToDevice(to, from, rows * sizeof(*to), stream); });
+  device_storage_detail::forEachColumnPair(source, destination.view(), [&](auto* to, const auto* from) { runtime.copyToDevice(to, from, rows * sizeof(*to), stream); });
 }
 
 /// Download \a rows rows of \a source into \a destination from row \a
@@ -266,8 +265,7 @@ void download(const DeviceColumns<S>& source, BoundedColumns<S>& destination, st
     return;
   }
   auto& runtime = source.arena().runtime();
-  device_storage_detail::forEachColumnPair(source.view(), destination.view(),
-                                           [&](auto* to, const auto* from) { runtime.copyToHost(to + destinationOffset, from, rows * sizeof(*to), stream); });
+  device_storage_detail::forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) { runtime.copyToHost(to + destinationOffset, from, rows * sizeof(*to), stream); });
 }
 
 template <template <template <class> class> class S>
@@ -286,19 +284,15 @@ namespace device_storage_detail
 /// \a destination at row \a destinationOffset, a copy per column, appended to
 /// \a copies.
 template <template <template <class> class> class S>
-void columnCopies(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
-                  std::vector<DeviceCopy>& copies)
+void columnCopies(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows, std::vector<DeviceCopy>& copies)
 {
-  if (sourceOffset > source.size() || rows > source.size() - sourceOffset || destinationOffset > destination.size() ||
-      rows > destination.size() - destinationOffset) {
+  if (sourceOffset > source.size() || rows > source.size() - sourceOffset || destinationOffset > destination.size() || rows > destination.size() - destinationOffset) {
     throw std::out_of_range("device column copy exceeds its source or its destination");
   }
   if (rows == 0U) {
     return;
   }
-  forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) {
-    copies.push_back({.to = to + destinationOffset, .from = from + sourceOffset, .bytes = rows * sizeof(*to)});
-  });
+  forEachColumnPair(source.view(), destination.view(), [&](auto* to, const auto* from) { copies.push_back({.to = to + destinationOffset, .from = from + sourceOffset, .bytes = rows * sizeof(*to)}); });
 }
 } // namespace device_storage_detail
 
@@ -306,8 +300,7 @@ void columnCopies(const DeviceColumns<S>& source, std::size_t sourceOffset, Devi
 /// \a destination at row \a destinationOffset, on the device: all columns
 /// by one kernel, queued on \a stream.
 template <template <template <class> class> class S>
-void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows,
-                 DeviceStream& stream)
+void copyColumns(const DeviceColumns<S>& source, std::size_t sourceOffset, DeviceColumns<S>& destination, std::size_t destinationOffset, std::size_t rows, DeviceStream& stream)
 {
   std::vector<DeviceCopy> copies;
   device_storage_detail::columnCopies(source, sourceOffset, destination, destinationOffset, rows, copies);

@@ -61,8 +61,7 @@ using Controller = Tracker<Det, UniformMaterial>;
 
 /// The largest variances per layer over \a slice's halo rows.
 template <DetectorLayout Layout>
-std::array<TripletTargetBounds, static_cast<std::size_t>(Detector<Layout>::nLayers)> haloTargetBounds(const TimeFrame<Layout>& frame,
-                                                                                                      const typename TimeFrame<Layout>::TimeSlice& slice)
+std::array<TripletTargetBounds, static_cast<std::size_t>(Detector<Layout>::nLayers)> haloTargetBounds(const TimeFrame<Layout>& frame, const typename TimeFrame<Layout>::TimeSlice& slice)
 {
   return boundsOver(frame, std::span<const MeasurementRange, HaloBounds<Layout>::kLayerCount>{slice.halo}).target;
 }
@@ -117,12 +116,14 @@ InputPoint helixPoint(std::size_t track, LayerID layer)
   if (phi < 0.) {
     phi += 2 * std::numbers::pi_v<double>;
   }
-  return {.layer = layer,
-          .x = static_cast<Scalar>(x),
-          .y = static_cast<Scalar>(y),
-          .z = static_cast<Scalar>(kSlope[track] * arc),
-          .r = static_cast<Scalar>(radius),
-          .phi = static_cast<Scalar>(phi)};
+  return {
+    .layer = layer,
+    .x = static_cast<Scalar>(x),
+    .y = static_cast<Scalar>(y),
+    .z = static_cast<Scalar>(kSlope[track] * arc),
+    .r = static_cast<Scalar>(radius),
+    .phi = static_cast<Scalar>(phi),
+  };
 }
 
 class Fixture
@@ -145,24 +146,29 @@ class Fixture
       for (std::size_t noise = 0; noise < kNoisePerLayer; ++noise) {
         const double phi = 0.55 + (1.85 * static_cast<double>(noise)) + (0.23 * static_cast<double>(layer));
         const std::size_t index = (3U * kTracks) + (layer * kNoisePerLayer) + noise;
-        input[index] = {.layer = static_cast<LayerID>(layer),
-                        .x = static_cast<Scalar>(radius * std::cos(phi)),
-                        .y = static_cast<Scalar>(radius * std::sin(phi)),
-                        .z = static_cast<Scalar>((noise % 2U == 0U ? 0.65 : -0.55) + (0.1 * static_cast<double>(layer))),
-                        .r = static_cast<Scalar>(radius),
-                        .phi = static_cast<Scalar>(phi)};
+        input[index] = {
+          .layer = static_cast<LayerID>(layer),
+          .x = static_cast<Scalar>(radius * std::cos(phi)),
+          .y = static_cast<Scalar>(radius * std::sin(phi)),
+          .z = static_cast<Scalar>((noise % 2U == 0U ? 0.65 : -0.55) + (0.1 * static_cast<double>(layer))),
+          .r = static_cast<Scalar>(radius),
+          .phi = static_cast<Scalar>(phi),
+        };
       }
     }
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(10.); }, [&](std::size_t i) { const auto scale = static_cast<Scalar>(1U + (i % 3U)); return test::PointVariances{scale * 1.e-6F, scale * 2.e-6F, scale * 3.e-6F}; }, columns, offsets);
+    frame = test::frameOf(
+      geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(10.); },
+      [&](std::size_t i) {
+        const auto scale = static_cast<Scalar>(1U + (i % 3U));
+        return test::PointVariances{scale * 1.e-6F, scale * 2.e-6F, scale * 3.e-6F};
+      },
+      columns, offsets);
   }
 
   [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (3U * track) + layer; }
 
-  [[nodiscard]] std::uint32_t row(std::size_t logical) const
-  {
-    return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin());
-  }
+  [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;
@@ -206,13 +212,15 @@ MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope,
   if (phi < 0.) {
     phi += 2 * std::numbers::pi_v<double>;
   }
-  return {.layer = layer,
-          .timeNS = timeNS,
-          .x = static_cast<Scalar>(x),
-          .y = static_cast<Scalar>(y),
-          .z = static_cast<Scalar>(slope * arc),
-          .r = static_cast<Scalar>(std::hypot(x, y)),
-          .phi = static_cast<Scalar>(phi)};
+  return {
+    .layer = layer,
+    .timeNS = timeNS,
+    .x = static_cast<Scalar>(x),
+    .y = static_cast<Scalar>(y),
+    .z = static_cast<Scalar>(slope * arc),
+    .r = static_cast<Scalar>(std::hypot(x, y)),
+    .phi = static_cast<Scalar>(phi),
+  };
 }
 
 std::uint16_t mixedLink(LayerID from, LayerID to)
@@ -266,10 +274,7 @@ class MixedFixture
     frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(input[i].timeNS); }, [&](std::size_t i) { return test::PointVariances{9.e-6F, 9.e-6F, 9.e-6F}; }, columns, offsets);
   }
 
-  [[nodiscard]] std::uint32_t row(std::size_t logical) const
-  {
-    return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin());
-  }
+  [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
   GridGeometry<Mixed> geometry;
   std::vector<std::uint32_t> offsets;
@@ -311,10 +316,7 @@ class SliceFixture
 
   [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (3U * track) + layer; }
 
-  [[nodiscard]] std::uint32_t row(std::size_t logical) const
-  {
-    return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin());
-  }
+  [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;
@@ -333,17 +335,14 @@ bool sameTripletOutputIgnoringLevelSweep(const Triplets& lhs, const Triplets& rh
   const auto a = lhs.view();
   const auto b = rhs.view();
   const std::size_t size = lhs.size();
-  return std::memcmp(a.first, b.first, size * sizeof(*a.first)) == 0 && std::memcmp(a.second, b.second, size * sizeof(*a.second)) == 0 &&
-         std::memcmp(a.curvature, b.curvature, size * sizeof(*a.curvature)) == 0 &&
-         std::memcmp(a.varCurvature, b.varCurvature, size * sizeof(*a.varCurvature)) == 0;
+  return std::memcmp(a.first, b.first, size * sizeof(*a.first)) == 0 && std::memcmp(a.second, b.second, size * sizeof(*a.second)) == 0 && std::memcmp(a.curvature, b.curvature, size * sizeof(*a.curvature)) == 0 && std::memcmp(a.varCurvature, b.varCurvature, size * sizeof(*a.varCurvature)) == 0;
 }
 
 /// The path bounds at 3 clusters and any road end: no path is too short, so
 /// the permutation drops only the first tracklets whose middle has no
 /// tracklets and the stage applies its own cuts alone.
 template <DetectorLayout Layout>
-TrackletPathBounds everyPath(TrackletPaths<Layout>& paths, IterationParameters<Layout> parameters, const LayerRowMap<Layout>& sources,
-                             const Tracklets& tracklets)
+TrackletPathBounds everyPath(TrackletPaths<Layout>& paths, IterationParameters<Layout> parameters, const LayerRowMap<Layout>& sources, const Tracklets& tracklets)
 {
   parameters.minClusters = 3U;
   parameters.roadEndLayers = 0U;
@@ -356,8 +355,7 @@ TrackletPathBounds everyPath(TrackletPaths<Layout>& paths, IterationParameters<L
 /// in arena order; returns how many tracklets it excludes because their
 /// middle is not a source.
 template <DetectorLayout Layout>
-std::size_t checkPermutation(const IterationParameters<Layout>& parameters, const LayerRowMap<Layout>& sources, const Tracklets& tracklets,
-                             const TripletPermutation<Layout>& permutation)
+std::size_t checkPermutation(const IterationParameters<Layout>& parameters, const LayerRowMap<Layout>& sources, const Tracklets& tracklets, const TripletPermutation<Layout>& permutation)
 {
   const auto view = tracklets.view();
   const auto offsets = tracklets.offsets();
@@ -391,8 +389,7 @@ std::uint32_t permutationElement(const TripletPermutation<Layout>& permutation, 
 /// Each first tracklet's triplets in canonical order: by the second
 /// tracklet's link in the middle layer's out-link order, then by lambda.
 template <DetectorLayout Layout>
-void checkOutputOrder(const IterationParameters<Layout>& parameters, const Tracklets& tracklets, const TripletPermutation<Layout>& permutation,
-                      const Triplets& triplets)
+void checkOutputOrder(const IterationParameters<Layout>& parameters, const Tracklets& tracklets, const TripletPermutation<Layout>& permutation, const Triplets& triplets)
 {
   const auto trackletView = tracklets.view();
   const auto tripletView = triplets.view();
@@ -436,9 +433,12 @@ struct TripletStageChecks {
   using FrameT = TimeFrame<Layout>;
   using PermutationT = TripletPermutation<Layout>;
 
-  TripletStageChecks(const Parameters& parameters, const SourcesT& sources, const FrameT& frame, const Tracklets& tracklets,
-                     const TripletTargetBounds* targetBounds)
-    : mParameters(&parameters), mSources(&sources), mFrame(&frame), mTracklets(&tracklets), mTargetBounds(targetBounds)
+  TripletStageChecks(const Parameters& parameters, const SourcesT& sources, const FrameT& frame, const Tracklets& tracklets, const TripletTargetBounds* targetBounds)
+    : mParameters(&parameters),
+      mSources(&sources),
+      mFrame(&frame),
+      mTracklets(&tracklets),
+      mTargetBounds(targetBounds)
   {
   }
 
@@ -480,10 +480,7 @@ struct TripletStageChecks {
   }
 
  private:
-  [[nodiscard]] TripletStage<Layout> stage(const PermutationT& order) const
-  {
-    return {*mParameters, *mSources, *mFrame, *mTracklets, mTargetBounds, order.data(), bounds};
-  }
+  [[nodiscard]] TripletStage<Layout> stage(const PermutationT& order) const { return {*mParameters, *mSources, *mFrame, *mTracklets, mTargetBounds, order.data(), bounds}; }
 
   const Parameters* mParameters = nullptr;
   const SourcesT* mSources = nullptr;
@@ -496,9 +493,7 @@ struct TripletStageChecks {
 /// The return value counts candidates that pass the lambda window but fail a
 /// later triplet cut.
 template <DetectorLayout Layout>
-std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters, const LayerRowMap<Layout>& sources, const TimeFrame<Layout>& frame,
-                                   const Tracklets& tracklets, const TripletTargetBounds* targetBounds, const TripletPermutation<Layout>& sourceOrder,
-                                   const Triplets& serial)
+std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters, const LayerRowMap<Layout>& sources, const TimeFrame<Layout>& frame, const Tracklets& tracklets, const TripletTargetBounds* targetBounds, const TripletPermutation<Layout>& sourceOrder, const Triplets& serial)
 {
   const auto trackletView = tracklets.view();
   const auto tripletView = serial.view();
@@ -516,8 +511,7 @@ std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters
         const std::size_t secondLink = trackletView.link[candidateIndex];
         const LayerID targetLayer = parameters.linkTargets[secondLink];
         const Scalar halfWidth = tripletLambdaHalfWidth(parameters, secondLink, middleLayer, first.point, middle.point, targetBounds[targetLayer]);
-        if (trackletView.lambda[candidateIndex] < trackletView.lambda[firstIndex] - halfWidth ||
-            trackletView.lambda[candidateIndex] > trackletView.lambda[firstIndex] + halfWidth) {
+        if (trackletView.lambda[candidateIndex] < trackletView.lambda[firstIndex] - halfWidth || trackletView.lambda[candidateIndex] > trackletView.lambda[firstIndex] + halfWidth) {
           continue;
         }
         const auto third = timedPointAt(frame.measurements(), trackletView.target[candidateIndex]);
@@ -619,8 +613,7 @@ SliceRun runTripletSlices(const SliceFixture& fixture, std::int32_t widthBlocks,
       if (trackletView.source[first] < firstCore.begin || trackletView.source[first] >= firstCore.end) {
         continue;
       }
-      result.triplets.push_back({trackletView.source[first], trackletView.target[first], trackletView.target[second],
-                                 std::bit_cast<std::uint32_t>(tripletView.curvature[index]), std::bit_cast<std::uint32_t>(tripletView.varCurvature[index])});
+      result.triplets.push_back({trackletView.source[first], trackletView.target[first], trackletView.target[second], std::bit_cast<std::uint32_t>(tripletView.curvature[index]), std::bit_cast<std::uint32_t>(tripletView.varCurvature[index])});
     }
     begin = end;
   }
@@ -816,16 +809,13 @@ BOOST_AUTO_TEST_CASE(TripletsAreInvariantUnderSliceWidthAndOrigin)
   checkSliceTriplets(twoBlocks.triplets, whole.triplets);
   checkSliceTriplets(shifted.triplets, whole.triplets);
 
-  const bool duplicateRows = std::ranges::adjacent_find(whole.triplets, [](const SliceTriplet& lhs, const SliceTriplet& rhs) {
-                               return lhs[0] == rhs[0] && lhs[1] == rhs[1] && lhs[2] == rhs[2];
-                             }) != whole.triplets.end();
+  const bool duplicateRows = std::ranges::adjacent_find(whole.triplets, [](const SliceTriplet& lhs, const SliceTriplet& rhs) { return lhs[0] == rhs[0] && lhs[1] == rhs[1] && lhs[2] == rhs[2]; }) != whole.triplets.end();
   BOOST_TEST(!duplicateRows);
 
   const std::uint32_t crossingFirst = fixture.row(SliceFixture::logicalIndex(1U, 0U));
   const std::uint32_t crossingMiddle = fixture.row(SliceFixture::logicalIndex(1U, 1U));
   const std::uint32_t crossingThird = fixture.row(SliceFixture::logicalIndex(1U, 2U));
-  const bool crossingFound = std::ranges::any_of(
-    whole.triplets, [&](const SliceTriplet& triplet) { return triplet[0] == crossingFirst && triplet[1] == crossingMiddle && triplet[2] == crossingThird; });
+  const bool crossingFound = std::ranges::any_of(whole.triplets, [&](const SliceTriplet& triplet) { return triplet[0] == crossingFirst && triplet[1] == crossingMiddle && triplet[2] == crossingThird; });
   BOOST_TEST(crossingFound);
 
   const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
@@ -843,8 +833,7 @@ BOOST_AUTO_TEST_CASE(TripletsAreInvariantUnderSliceWidthAndOrigin)
     BOOST_TEST(run->haloSourceTracklets > 0U);
   }
   const auto fraction = [](const SliceRun& run) { return static_cast<double>(run.haloSourceTracklets) / static_cast<double>(run.tracklets); };
-  BOOST_TEST_MESSAGE("halo-source tracklet fractions: one-block " << fraction(oneBlock) << ", two-block " << fraction(twoBlocks) << ", shifted "
-                                                                  << fraction(shifted));
+  BOOST_TEST_MESSAGE("halo-source tracklet fractions: one-block " << fraction(oneBlock) << ", two-block " << fraction(twoBlocks) << ", shifted " << fraction(shifted));
 }
 
 } // namespace o2::gtrk

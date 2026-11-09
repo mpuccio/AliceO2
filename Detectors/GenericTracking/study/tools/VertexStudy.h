@@ -202,8 +202,7 @@ class VertexStudy
   /// primaries by the tracking QA's \a comparison; the vertexer run on them
   /// with \a stage on \a threads, the tables at \a table (the same settings
   /// from the configuration).
-  VertexStudy(const TimeFrame<Det>& frame, std::span<const study::TruthRow> rows, const study::ParticleTable& particles, std::size_t iteration,
-              double passMinPtGeV, const study::ComparisonSettings& comparison, const VertexerSettings& stage, const Settings& table, int threads)
+  VertexStudy(const TimeFrame<Det>& frame, std::span<const study::TruthRow> rows, const study::ParticleTable& particles, std::size_t iteration, double passMinPtGeV, const study::ComparisonSettings& comparison, const VertexerSettings& stage, const Settings& table, int threads)
     : mFrame(&frame),
       mRows(rows),
       mParticles(&particles),
@@ -238,8 +237,7 @@ class VertexStudy
     const ScatteringErrors<Det> errors{.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
     // Its work arrays on a pool of their own, for their peak.
     mStagePool->resetPeakMemory();
-    const auto found = mStage.find(slice.frame->measurements(), tracklets, triplets, result.triplets->size(), mArena.get(), true, errors, mStagePool.get(),
-                                   ownedFrames(slice.frame->grid().geometry(), slice.slice->coreBlocks));
+    const auto found = mStage.find(slice.frame->measurements(), tracklets, triplets, result.triplets->size(), mArena.get(), true, errors, mStagePool.get(), ownedFrames(slice.frame->grid().geometry(), slice.slice->coreBlocks));
     mStageSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     mStagePoolPeak = std::max(mStagePoolPeak, mStagePool->getPeakMemory());
     // Each triplet as the vertexer measures it, without its cuts, for the
@@ -260,8 +258,7 @@ class VertexStudy
       VertexCandidateFit fit;
       StageFit stageFit;
       BeamTerm term;
-      stageFit.status =
-        measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), open, errors, fit, stageFit.weight, stageFit.box, &term);
+      stageFit.status = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), open, errors, fit, stageFit.weight, stageFit.box, &term);
       stageFit.chi2RZ = fit.chi2RZ;
       stageFit.zUM = stageFit.status == VertexCandidateStatus::kAccepted ? vertexKeyZUM(fit.key) : 0;
       stageFit.dcaCM = term.d;
@@ -362,8 +359,7 @@ class VertexStudy
       links += std::format(" {}->{} {}", Det::layerLinks[link].from, Det::layerLinks[link].to, count);
       links += std::format(" (shape {})", mTrackletsShaped[link]);
     }
-    lines.push_back(std::format("vertex study: iteration {}, {} slices; tracklets by link:{}; triplets {} ({} distinct)", mIteration, mSlices, links, observed,
-                                mStageFits.size()));
+    lines.push_back(std::format("vertex study: iteration {}, {} slices; tracklets by link:{}; triplets {} ({} distinct)", mIteration, mSlices, links, observed, mStageFits.size()));
     buildCollisions();
     buildCandidates();
     describeCandidates(lines);
@@ -371,17 +367,13 @@ class VertexStudy
     const auto stage = stageScore();
     lines.emplace_back("the vertexer (VertexStage.h) at the table's settings:");
     lines.push_back(describe(stage, mTable) + std::format(" | rounds {}", mStageRounds));
-    lines.push_back(std::format("the vertexer took {:.4f} s for {} candidates, {} threads; its work arrays' peak {:.1f} MB", mStageSeconds, mStageCandidates,
-                                mArena->maxConcurrency(), static_cast<double>(mStagePoolPeak) * 1.e-6));
+    lines.push_back(std::format("the vertexer took {:.4f} s for {} candidates, {} threads; its work arrays' peak {:.1f} MB", mStageSeconds, mStageCandidates, mArena->maxConcurrency(), static_cast<double>(mStagePoolPeak) * 1.e-6));
     const auto& beam = mStageBeam;
-    lines.push_back(beam.valid
-                      ? std::format("the beam point from the triplets' circles: ({:+.1f}, {:+.1f}) um off the rows' beam line, +- ({:.1f}, "
-                                    "{:.1f}) um, residuals' rms {:.0f} um, {} of {} terms; the rows about ({:.4f}, {:.4f}) cm, so the beam at ({:.4f}, "
-                                    "{:.4f}) cm",
-                                    static_cast<double>(beam.x) * 1.e4, static_cast<double>(beam.y) * 1.e4, static_cast<double>(beam.sigmaX) * 1.e4,
-                                    static_cast<double>(beam.sigmaY) * 1.e4, static_cast<double>(beam.rmsCM) * 1.e4, beam.used, beam.terms, mBeamX, mBeamY,
-                                    mBeamX + static_cast<double>(beam.x), mBeamY + static_cast<double>(beam.y))
-                      : std::format("the beam point from the triplets' circles: no estimate ({} of {} terms usable)", beam.used, beam.terms));
+    lines.push_back(beam.valid ? std::format("the beam point from the triplets' circles: ({:+.1f}, {:+.1f}) um off the rows' beam line, +- ({:.1f}, "
+                                             "{:.1f}) um, residuals' rms {:.0f} um, {} of {} terms; the rows about ({:.4f}, {:.4f}) cm, so the beam at ({:.4f}, "
+                                             "{:.4f}) cm",
+                                             static_cast<double>(beam.x) * 1.e4, static_cast<double>(beam.y) * 1.e4, static_cast<double>(beam.sigmaX) * 1.e4, static_cast<double>(beam.sigmaY) * 1.e4, static_cast<double>(beam.rmsCM) * 1.e4, beam.used, beam.terms, mBeamX, mBeamY, mBeamX + static_cast<double>(beam.x), mBeamY + static_cast<double>(beam.y))
+                               : std::format("the beam point from the triplets' circles: no estimate ({} of {} terms usable)", beam.used, beam.terms));
     // The vertexer's list (its debris rule included) by multiplicity; its
     // diagnostics after the replay.
     const auto efficiency = efficiencyByMultiplicity(mTable, stage, "the vertexer's ");
@@ -422,17 +414,12 @@ class VertexStudy
       owned << columns.clusterIndex[row] << '\n';
     }
     drops << "variant,collision,findable,zUM,owner,ownerCollision,ownerZUM,source,sourceCollision,sourceState,sourceZUM,row,rowCollision\n";
-    constexpr std::array<std::string_view, kReplayStates> kStateNames{"chi2", "dca", "degenerate", "deduplicated", "kept",
-                                                                      "own", "other", "fake", "dropped"};
+    constexpr std::array<std::string_view, kReplayStates> kStateNames{"chi2", "dca", "degenerate", "deduplicated", "kept", "own", "other", "fake", "dropped"};
     for (const auto& run : mReplays) {
       for (std::size_t v = 0; v < run.vertices.size(); ++v) {
         const auto& r = run.vertices[v];
         const auto* collision = r.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(r.collision)];
-        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f}\n", run.name, v, r.listed,
-                                mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden,
-                                r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4,
-                                collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare,
-                                r.noParticleShare);
+        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare);
       }
       for (std::size_t c = 0; c < mCollisions.size(); ++c) {
         const auto& collision = mCollisions[c];
@@ -440,15 +427,11 @@ class VertexStudy
         const auto best = run.score.best[c];
         const auto* vertex = best < 0 ? nullptr : &run.vertices[static_cast<std::size_t>(run.listedToId[static_cast<std::size_t>(best)])];
         const auto* dense = s.dense < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(s.dense)];
-        collisions << std::format("{},{},{:.1f},{},{},{},{:d},{:.1f},{},{},{},{},{}", run.name, c, collision.z * 1.e4,
-                                  collision.frame < 0 ? 0U : mFrameTimes[static_cast<std::size_t>(collision.frame)], collision.inner, collision.findable,
-                                  vertex != nullptr, vertex == nullptr ? 0. : vertex->zUM, vertex == nullptr ? 0U : vertex->contributors,
-                                  vertex == nullptr ? 0U : vertex->round, s.accepted, s.kept, s.core);
+        collisions << std::format("{},{},{:.1f},{},{},{},{:d},{:.1f},{},{},{},{},{}", run.name, c, collision.z * 1.e4, collision.frame < 0 ? 0U : mFrameTimes[static_cast<std::size_t>(collision.frame)], collision.inner, collision.findable, vertex != nullptr, vertex == nullptr ? 0. : vertex->zUM, vertex == nullptr ? 0U : vertex->contributors, vertex == nullptr ? 0U : vertex->round, s.accepted, s.kept, s.core);
         for (const auto count : s.states) {
           collisions << ',' << count;
         }
-        collisions << std::format(",{},{},{:.1f},{},{},{}\n", s.dense, dense == nullptr ? 0U : dense->findable,
-                                  dense == nullptr ? 0. : std::abs(collision.z - dense->z) * 1.e4, s.denseContributors, s.vetoedWindow, s.vetoedSidebands);
+        collisions << std::format(",{},{},{:.1f},{},{},{}\n", s.dense, dense == nullptr ? 0U : dense->findable, dense == nullptr ? 0. : std::abs(collision.z - dense->z) * 1.e4, s.denseContributors, s.vetoedWindow, s.vetoedSidebands);
       }
       for (const auto& drop : run.drops) {
         const auto& candidate = mCandidates[drop.candidate];
@@ -457,10 +440,7 @@ class VertexStudy
           continue;
         }
         const auto& source = mCandidates[drop.source];
-        drops << std::format("{},{},{},{},{},{},{:.1f},{},{},{},{},{},{}\n", run.name, candidate.collision,
-                             mCollisions[static_cast<std::size_t>(candidate.collision)].findable, candidate.fit.zUM, drop.owner, owner.collision, owner.zUM,
-                             drop.source, source.collision, kStateNames[static_cast<std::size_t>(run.base[drop.source])], source.fit.zUM, drop.row,
-                             rowCollision(drop.row));
+        drops << std::format("{},{},{},{},{},{},{:.1f},{},{},{},{},{},{}\n", run.name, candidate.collision, mCollisions[static_cast<std::size_t>(candidate.collision)].findable, candidate.fit.zUM, drop.owner, owner.collision, owner.zUM, drop.source, source.collision, kStateNames[static_cast<std::size_t>(run.base[drop.source])], source.fit.zUM, drop.row, rowCollision(drop.row));
       }
     }
   }
@@ -483,11 +463,7 @@ class VertexStudy
       const auto& seed = mStageVertices[v];
       const auto* collision = vertex.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(vertex.collision)];
       const auto& m = made[v];
-      out << std::format("{},{},{},{:.1f},{},{},{:.1f},{},{},{},{:d},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{:.3f},{:.3f},{:.1f},{:.4f},{:.4f}\n",
-                         vertex.frame, seed.timePS, seed.widthPS, vertex.zUM, vertex.contributors, vertex.collision,
-                         collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? -1 : collision->frame,
-                         collision == nullptr ? 0U : collision->findable, collision == nullptr ? 0U : collision->inner, m.strongest, m.shares[0], m.shares[1],
-                         m.shares[2], m.shares[3], m.shares[4], m.shares[5], m.dcaUM, m.chi2RZ, m.radiusM, m.shared, m.reuseClaim, m.reuseWindow);
+      out << std::format("{},{},{},{:.1f},{},{},{:.1f},{},{},{},{:d},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{:.3f},{:.3f},{:.1f},{:.4f},{:.4f}\n", vertex.frame, seed.timePS, seed.widthPS, vertex.zUM, vertex.contributors, vertex.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? -1 : collision->frame, collision == nullptr ? 0U : collision->findable, collision == nullptr ? 0U : collision->inner, m.strongest, m.shares[0], m.shares[1], m.shares[2], m.shares[3], m.shares[4], m.shares[5], m.dcaUM, m.chi2RZ, m.radiusM, m.shared, m.reuseClaim, m.reuseWindow);
     }
   }
 
@@ -597,8 +573,7 @@ class VertexStudy
     }
     for (const auto& [particle, chain] : study::particleLayers(mRows, mComparison)) {
       const auto info = mParticles->find(particle);
-      if (info == mParticles->end() || info->second.origin != study::ParticleOrigin::kPhysicalPrimary ||
-          !study::isFindable(info->second.pt, chain, mComparison)) {
+      if (info == mParticles->end() || info->second.origin != study::ParticleOrigin::kPhysicalPrimary || !study::isFindable(info->second.pt, chain, mComparison)) {
         continue;
       }
       if (const auto at = mCollisionIndex.find(collisionOf(particle)); at != mCollisionIndex.end()) {
@@ -665,11 +640,13 @@ class VertexStudy
         dca = std::abs((ax * cy) - (ay * cx)) / std::hypot(cx - ax, cy - ay);
       }
       const auto frame = frameIndex(columns.timePS[triple[1]]);
-      Candidate candidate{.frame = frame,
-                          .zUM = std::llround(z0 * 1.e4),
-                          .z0 = z0,
-                          .sigmaZ0 = std::sqrt(swr2 / det),
-                          .straddles = frameIndex(columns.timePS[triple[0]]) != frame || frameIndex(columns.timePS[triple[2]]) != frame};
+      Candidate candidate{
+        .frame = frame,
+        .zUM = std::llround(z0 * 1.e4),
+        .z0 = z0,
+        .sigmaZ0 = std::sqrt(swr2 / det),
+        .straddles = frameIndex(columns.timePS[triple[0]]) != frame || frameIndex(columns.timePS[triple[2]]) != frame,
+      };
       candidate.chi2RZ = chi2;
       candidate.dcaXY = dca;
       candidate.radius = radius;
@@ -722,10 +699,7 @@ class VertexStudy
 
   /// The element at quantile \a q of \a sorted, the one at min(n - 1, q n):
   /// every quantile the study prints. \a sorted must not be empty.
-  [[nodiscard]] static double quantileAt(const std::vector<double>& sorted, double q)
-  {
-    return sorted[std::min(sorted.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(sorted.size())))];
-  }
+  [[nodiscard]] static double quantileAt(const std::vector<double>& sorted, double q) { return sorted[std::min(sorted.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(sorted.size())))]; }
 
   /// 68/95/99 % and the largest of \a values times \a scale, "n/a" for none.
   static std::string quantiles(std::vector<double> values, double scale)
@@ -734,8 +708,7 @@ class VertexStudy
       return "n/a";
     }
     std::ranges::sort(values);
-    return std::format("{:.0f} {:.0f} {:.0f} {:.0f}", quantileAt(values, 0.68) * scale, quantileAt(values, 0.95) * scale, quantileAt(values, 0.99) * scale,
-                       values.back() * scale);
+    return std::format("{:.0f} {:.0f} {:.0f} {:.0f}", quantileAt(values, 0.68) * scale, quantileAt(values, 0.95) * scale, quantileAt(values, 0.99) * scale, values.back() * scale);
   }
 
   void describeCandidates(std::vector<std::string>& lines) const
@@ -759,12 +732,8 @@ class VertexStudy
       }
     }
     const auto n = static_cast<double>(std::max<std::size_t>(mCandidates.size(), 1U));
-    lines.push_back(std::format("candidates {}: primary {} ({:.1f} %), secondary {} ({:.1f} %), fake {} ({:.1f} %); straddling frames {} ({} primary)",
-                                mCandidates.size(), primary, 100. * static_cast<double>(primary) / n, secondary, 100. * static_cast<double>(secondary) / n,
-                                mCandidates.size() - primary - secondary, 100. * static_cast<double>(mCandidates.size() - primary - secondary) / n, straddling,
-                                primaryStraddling));
-    lines.push_back(std::format("primary candidates' |z0 - z_true| 68/95/99/max [um]: {}; |pull| on the points' errors: {}", quantiles(residuals, 1.e4),
-                                quantiles(pulls, 1.)));
+    lines.push_back(std::format("candidates {}: primary {} ({:.1f} %), secondary {} ({:.1f} %), fake {} ({:.1f} %); straddling frames {} ({} primary)", mCandidates.size(), primary, 100. * static_cast<double>(primary) / n, secondary, 100. * static_cast<double>(secondary) / n, mCandidates.size() - primary - secondary, 100. * static_cast<double>(mCandidates.size() - primary - secondary) / n, straddling, primaryStraddling));
+    lines.push_back(std::format("primary candidates' |z0 - z_true| 68/95/99/max [um]: {}; |pull| on the points' errors: {}", quantiles(residuals, 1.e4), quantiles(pulls, 1.)));
     {
       std::vector<double> chi2Primary, chi2Fake, dcaPrimary, dcaFake;
       for (const auto& c : mCandidates) {
@@ -814,10 +783,10 @@ class VertexStudy
     for (const auto& [frame, count] : perFrame) {
       ++sharing[std::min<std::size_t>(count, sharing.size() - 1U)];
     }
-    lines.push_back(std::format(
-      "frames with candidates {}, the busiest {} candidates; collisions {} ({} with an inner primary above {:.2f} GeV), "
-      "findable primaries {} ({} in collisions without one); frames by collisions 1/2/3/4+: {} {} {} {}",
-      frames, busiest, mCollisions.size(), withInner, mPassMinPtGeV, findable, findableWithoutInner, sharing[1], sharing[2], sharing[3], sharing[4]));
+    lines.push_back(
+      std::format("frames with candidates {}, the busiest {} candidates; collisions {} ({} with an inner primary above {:.2f} GeV), "
+                  "findable primaries {} ({} in collisions without one); frames by collisions 1/2/3/4+: {} {} {} {}",
+                  frames, busiest, mCollisions.size(), withInner, mPassMinPtGeV, findable, findableWithoutInner, sharing[1], sharing[2], sharing[3], sharing[4]));
   }
 
   /// Each triplet's two tests in units of its own error, at
@@ -947,9 +916,7 @@ class VertexStudy
     const double t2 = static_cast<double>(d.z - b.z) / d2;
     const double a1 = 1. / (1. + (t1 * t1));
     const double a2 = 1. / (1. + (t2 * t2));
-    const double varKink = (a1 * a1 * static_cast<double>(a.varZ) / (d1 * d1)) +
-                           ((a1 / d1) + (a2 / d2)) * ((a1 / d1) + (a2 / d2)) * static_cast<double>(b.varZ) +
-                           (a2 * a2 * static_cast<double>(d.varZ) / (d2 * d2));
+    const double varKink = (a1 * a1 * static_cast<double>(a.varZ) / (d1 * d1)) + ((a1 / d1) + (a2 / d2)) * ((a1 / d1) + (a2 / d2)) * static_cast<double>(b.varZ) + (a2 * a2 * static_cast<double>(d.varZ) / (d2 * d2));
     const double varKinkScattering = static_cast<double>(tripletScattering<Det>(table, cut, mRows[c.triple[1]].layer, a, b, d)) * scale;
     out.rz = (std::atan(t2) - std::atan(t1)) / std::sqrt(varKink + varKinkScattering);
     return out;
@@ -979,8 +946,9 @@ class VertexStudy
     constexpr std::array<double, 6> kPtEdges{0., 0.3, 0.5, 1., 2., 1.e30};
     std::vector<Class> classes;
     for (std::size_t bin = 0; bin + 1U < kPtEdges.size(); ++bin) {
-      classes.push_back({.name = bin + 2U < kPtEdges.size() ? std::format("true primary, pT {}-{} GeV", kPtEdges[bin], kPtEdges[bin + 1U])
-                                                            : std::format("true primary, pT > {} GeV", kPtEdges[bin])});
+      classes.push_back({
+        .name = bin + 2U < kPtEdges.size() ? std::format("true primary, pT {}-{} GeV", kPtEdges[bin], kPtEdges[bin + 1U]) : std::format("true primary, pT > {} GeV", kPtEdges[bin]),
+      });
     }
     classes.push_back({.name = "true primary, |eta| < 1"});
     classes.push_back({.name = "true primary, |eta| > 1"});
@@ -1060,9 +1028,7 @@ class VertexStudy
       lines.push_back(
         std::format("  {}: {} | dca {:.2f} {:.2f} {:.2f} {:.2f} mean {:+.2f} | rz {:.2f} {:.2f} {:.2f} {:.2f} | pT ratio {:.2f} {:.2f} {:.2f} | "
                     "kept both{} | dca only{} | rz only{} | absolute {} (chi2 {}, dca {})",
-                    out.name, n, at(out.dca, 0.5), at(out.dca, 0.68), at(out.dca, 0.95), at(out.dca, 0.99), mean, at(out.rz, 0.5), at(out.rz, 0.68),
-                    at(out.rz, 0.95), at(out.rz, 0.99), at(out.ptRatio, 0.16), at(out.ptRatio, 0.5), at(out.ptRatio, 0.84), kept, dcaOnly, rzOnly,
-                    share(out.absolute), share(out.absoluteChi2), share(out.absoluteDca)));
+                    out.name, n, at(out.dca, 0.5), at(out.dca, 0.68), at(out.dca, 0.95), at(out.dca, 0.99), mean, at(out.rz, 0.5), at(out.rz, 0.68), at(out.rz, 0.95), at(out.rz, 0.99), at(out.ptRatio, 0.16), at(out.ptRatio, 0.5), at(out.ptRatio, 0.84), kept, dcaOnly, rzOnly, share(out.absolute), share(out.absoluteChi2), share(out.absoluteDca)));
     }
   }
 
@@ -1196,12 +1162,7 @@ class VertexStudy
       over += counts[f] > 8U ? 1U : 0U;
       mostThree = std::max(mostThree, counts[f] + (f > 0U ? counts[f - 1U] : 0U) + (f + 1U < counts.size() ? counts[f + 1U] : 0U));
     }
-    return std::format(
-      "{:4.0f} {:4.0f} {:5d} {:5d} {:4d} {:2.0f} | {:8d} {:6d}/{:<5d} {:6.1f} % {:8d}/{:<8d} | {:5d} {:6d} {:6d} | {:4d} {:4d} {:4d} | {:>24} | {:.0f}",
-      settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance, result.vertices.size(),
-      found, mCollisions.size(),
-      100. * static_cast<double>(foundWithInner) / std::max(1., static_cast<double>(withInner)), covered, findable, result.fakes, result.splits, result.merged,
-      most, mostThree, over, quantiles(residuals, 1.), contributors.empty() ? 0. : contributors[contributors.size() / 2U]);
+    return std::format("{:4.0f} {:4.0f} {:5d} {:5d} {:4d} {:2.0f} | {:8d} {:6d}/{:<5d} {:6.1f} % {:8d}/{:<8d} | {:5d} {:6d} {:6d} | {:4d} {:4d} {:4d} | {:>24} | {:.0f}", settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance, result.vertices.size(), found, mCollisions.size(), 100. * static_cast<double>(foundWithInner) / std::max(1., static_cast<double>(withInner)), covered, findable, result.fakes, result.splits, result.merged, most, mostThree, over, quantiles(residuals, 1.), contributors.empty() ? 0. : contributors[contributors.size() / 2U]);
   }
 
   /// The efficiency table, its lines, and the diagnostics of the fakes and
@@ -1319,17 +1280,11 @@ class VertexStudy
             realTop.push_back(top / n);
           }
         }
-        out.diagnostics.push_back(std::format("  fakes: azimuth sectors of 16 hit {}; true-triplet share {}; one particle's share {}", lowQuantiles(fakeSectors, 1.),
-                                              lowQuantiles(fakeTrue, 1.), lowQuantiles(fakeTop, 1.)));
-        out.diagnostics.push_back(
-          std::format("  real: azimuth sectors of 16 hit {}; one particle's share {}", lowQuantiles(realSectors, 1.), lowQuantiles(realTop, 1.)));
+        out.diagnostics.push_back(std::format("  fakes: azimuth sectors of 16 hit {}; true-triplet share {}; one particle's share {}", lowQuantiles(fakeSectors, 1.), lowQuantiles(fakeTrue, 1.), lowQuantiles(fakeTop, 1.)));
+        out.diagnostics.push_back(std::format("  real: azimuth sectors of 16 hit {}; one particle's share {}", lowQuantiles(realSectors, 1.), lowQuantiles(realTop, 1.)));
       }
-      out.diagnostics.push_back(std::format("  fakes not their frame's strongest ({}): contributors {}; |dz| to the strongest [mm] {}; contributors / strongest's {}",
-                                            fakeContributors.size(), lowQuantiles(fakeContributors, 1.), lowQuantiles(fakeDistance, 1.e-3),
-                                            lowQuantiles(fakeRatio, 1.)));
-      out.diagnostics.push_back(std::format("  real pile-up vertices ({}): contributors {}; |dz| to the strongest [mm] {}; contributors / strongest's {}",
-                                            pileContributors.size(), lowQuantiles(pileContributors, 1.), lowQuantiles(pileDistance, 1.e-3),
-                                            lowQuantiles(pileRatio, 1.)));
+      out.diagnostics.push_back(std::format("  fakes not their frame's strongest ({}): contributors {}; |dz| to the strongest [mm] {}; contributors / strongest's {}", fakeContributors.size(), lowQuantiles(fakeContributors, 1.), lowQuantiles(fakeDistance, 1.e-3), lowQuantiles(fakeRatio, 1.)));
+      out.diagnostics.push_back(std::format("  real pile-up vertices ({}): contributors {}; |dz| to the strongest [mm] {}; contributors / strongest's {}", pileContributors.size(), lowQuantiles(pileContributors, 1.), lowQuantiles(pileDistance, 1.e-3), lowQuantiles(pileRatio, 1.)));
     }
     // The missed collisions with 20 inner primaries or more, and why.
     for (std::size_t c = 0; c < mCollisions.size(); ++c) {
@@ -1347,20 +1302,14 @@ class VertexStudy
       }
       std::string where;
       for (const auto& [claim, count] : claims) {
-        where += claim >= 0 ? std::format(" vertex of collision {} at {:.4f} cm: {}", result.vertices[static_cast<std::size_t>(claim)].collision,
-                                          result.vertices[static_cast<std::size_t>(claim)].zUM * 1.e-4, count)
-                            : std::format(" {}: {}", claim == -1 ? "free" : "cut", count);
+        where += claim >= 0 ? std::format(" vertex of collision {} at {:.4f} cm: {}", result.vertices[static_cast<std::size_t>(claim)].collision, result.vertices[static_cast<std::size_t>(claim)].zUM * 1.e-4, count) : std::format(" {}: {}", claim == -1 ? "free" : "cut", count);
       }
-      out.diagnostics.push_back(std::format("  missed collision {}: z {:.4f} cm, inner {}, findable {}, candidates {};{}", c, collision.z, collision.inner,
-                                            collision.findable, own, where));
+      out.diagnostics.push_back(std::format("  missed collision {}: z {:.4f} cm, inner {}, findable {}, candidates {};{}", c, collision.z, collision.inner, collision.findable, own, where));
     }
     std::string& line = out.table;
-    line = std::format(
-      "{}efficiency by inner primaries (chi2 {}, dca {} um, w {} um, claim {} um, minC {}, k {}): bin found/all (findable primaries covered/all):", who,
-      settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance);
+    line = std::format("{}efficiency by inner primaries (chi2 {}, dca {} um, w {} um, claim {} um, minC {}, k {}): bin found/all (findable primaries covered/all):", who, settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance);
     for (std::size_t bin = 0; bin < kEdges.size(); ++bin) {
-      line += std::format(" [{}{}] {}/{} ({}/{})", kEdges[bin], bin + 1U < kEdges.size() ? std::format("-{}", kEdges[bin + 1U] - 1U) : std::string{"+"},
-                          found[bin], all[bin], covered[bin], findable[bin]);
+      line += std::format(" [{}{}] {}/{} ({}/{})", kEdges[bin], bin + 1U < kEdges.size() ? std::format("-{}", kEdges[bin + 1U] - 1U) : std::string{"+"}, found[bin], all[bin], covered[bin], findable[bin]);
     }
     // The same by the collision's findable primaries, which do not depend on
     // the pass's pT floor: passes at different floors compare bin by bin.
@@ -1377,9 +1326,7 @@ class VertexStudy
     }
     line += std::format("\n{}efficiency by findable primaries: bin found/all:", who);
     for (std::size_t bin = 0; bin < kFindableEdges.size(); ++bin) {
-      line += std::format(" [{}{}] {}/{}", kFindableEdges[bin],
-                          bin + 1U < kFindableEdges.size() ? std::format("-{}", kFindableEdges[bin + 1U] - 1U) : std::string{"+"}, foundByFindable[bin],
-                          allByFindable[bin]);
+      line += std::format(" [{}{}] {}/{}", kFindableEdges[bin], bin + 1U < kFindableEdges.size() ? std::format("-{}", kFindableEdges[bin + 1U] - 1U) : std::string{"+"}, foundByFindable[bin], allByFindable[bin]);
     }
     return out;
   }
@@ -1778,10 +1725,12 @@ class VertexStudy
         if (best == m) {
           for (std::size_t k = 0; k < m; ++k) {
             if (isFree(k) && countIn(z[k], z[k] + window) >= s.minContributors) {
-              run.vetoes.push_back({.frame = mCandidates[begin].frame,
-                                    .zUM = z[k],
-                                    .window = countIn(z[k], z[k] + window),
-                                    .sidebands = countIn(z[k] - claim - window, z[k] - claim) + countIn(z[k] + window + claim, z[k] + (2 * window) + claim)});
+              run.vetoes.push_back({
+                .frame = mCandidates[begin].frame,
+                .zUM = z[k],
+                .window = countIn(z[k], z[k] + window),
+                .sidebands = countIn(z[k] - claim - window, z[k] - claim) + countIn(z[k] + window + claim, z[k] + (2 * window) + claim),
+              });
             }
           }
           break;
@@ -1797,8 +1746,7 @@ class VertexStudy
         const Scalar centre = static_cast<Scalar>(sum) / static_cast<Scalar>(members);
         vertex.centreUM = centre;
         vertex.window = countIn(z[best], z[best] + window);
-        const std::array<std::pair<std::int64_t, std::int64_t>, 2> sides{
-          {{z[best] - claim - window, z[best] - claim}, {z[best] + window + claim, z[best] + (2 * window) + claim}}};
+        const std::array<std::pair<std::int64_t, std::int64_t>, 2> sides{{{z[best] - claim - window, z[best] - claim}, {z[best] + window + claim, z[best] + (2 * window) + claim}}};
         for (const auto& [low, high] : sides) {
           vertex.sidebands += countIn(low, high);
           vertex.hidden += static_cast<std::uint32_t>(at(high) - at(low)) - countIn(low, high);
@@ -1855,9 +1803,7 @@ class VertexStudy
             scatterSum += candidateScatter(claimedZ[k], claimedWeight[k], settled.mean);
           }
         }
-        const auto seed = vertexSeedOf(
-          {.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest},
-          VertexConstraint{});
+        const auto seed = vertexSeedOf({.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest}, VertexConstraint{});
         vertex.zUM = static_cast<double>(seed.z) * 1.e4;
         vertex.selected = static_cast<std::uint32_t>(selectedCount);
         vertex.startPS = seed.timePS;
@@ -1925,8 +1871,7 @@ class VertexStudy
     for (std::size_t v = 0; v < order.size(); ++v) {
       order[v] = v;
     }
-    std::ranges::stable_sort(order, {},
-                             [&](std::size_t v) { return std::pair{mFrameTimes[static_cast<std::size_t>(run.vertices[v].frame)], run.vertices[v].seed.z}; });
+    std::ranges::stable_sort(order, {}, [&](std::size_t v) { return std::pair{mFrameTimes[static_cast<std::size_t>(run.vertices[v].frame)], run.vertices[v].seed.z}; });
     for (std::size_t l = 0; l < order.size(); ++l) {
       run.vertices[order[l]].listed = static_cast<std::int64_t>(l);
     }
@@ -1953,9 +1898,7 @@ class VertexStudy
         continue;
       }
       auto& vertex = run.vertices[static_cast<std::size_t>(claimedBy[i])];
-      const auto dense = vertex.reference < 0 || vertex.reference == vertex.listed
-                           ? std::int64_t{-3}
-                           : run.vertices[static_cast<std::size_t>(run.listedToId[static_cast<std::size_t>(vertex.reference)])].collision;
+      const auto dense = vertex.reference < 0 || vertex.reference == vertex.listed ? std::int64_t{-3} : run.vertices[static_cast<std::size_t>(run.listedToId[static_cast<std::size_t>(vertex.reference)])].collision;
       for (const auto row : mCandidates[i].triple) {
         const auto& truth = mRows[row];
         if (truth.count == 0U) {
@@ -1996,8 +1939,7 @@ class VertexStudy
       }
       if (state == ReplayState::kFree) {
         ++out.kept;
-        out.core +=
-          std::abs(static_cast<double>(c.fit.zUM) - (mCollisions[static_cast<std::size_t>(c.collision)].z * 1.e4)) <= static_cast<double>(window) ? 1U : 0U;
+        out.core += std::abs(static_cast<double>(c.fit.zUM) - (mCollisions[static_cast<std::size_t>(c.collision)].z * 1.e4)) <= static_cast<double>(window) ? 1U : 0U;
         if (dropped[i] != 0U) {
           state = ReplayState::kDropped;
         } else if (claimedBy[i] >= 0) {
@@ -2020,8 +1962,7 @@ class VertexStudy
       for (std::size_t c = 0; c < mCollisions.size(); ++c) {
         const auto trueZ = mCollisions[c].z * 1.e4;
         auto& out = run.collisions[c];
-        if (mCollisions[c].frame == veto.frame && static_cast<double>(veto.zUM) <= trueZ && trueZ < static_cast<double>(veto.zUM + window) &&
-            veto.window > out.vetoedWindow) {
+        if (mCollisions[c].frame == veto.frame && static_cast<double>(veto.zUM) <= trueZ && trueZ < static_cast<double>(veto.zUM + window) && veto.window > out.vetoedWindow) {
           out.vetoedWindow = veto.window;
           out.vetoedSidebands = veto.sidebands;
         }
@@ -2036,9 +1977,7 @@ class VertexStudy
   template <typename Columns>
   [[nodiscard]] static bool pairShaped(const Columns& columns, std::uint32_t from, std::uint32_t to)
   {
-    const auto admits = [&](std::uint32_t at) {
-      return shapeAdmits(columns, at, columns.x[from], columns.y[from], columns.z[from], columns.x[to], columns.y[to], columns.z[to]);
-    };
+    const auto admits = [&](std::uint32_t at) { return shapeAdmits(columns, at, columns.x[from], columns.y[from], columns.z[from], columns.x[to], columns.y[to], columns.z[to]); };
     return admits(from) && admits(to);
   }
 
@@ -2081,10 +2020,7 @@ class VertexStudy
     for (std::size_t l = 0; l < std::min(first.listedToId.size(), mStageVertices.size()); ++l) {
       const auto& replayed = first.vertices[static_cast<std::size_t>(first.listedToId[l])];
       const auto& staged = mStageVertices[l];
-      sameVertices += replayed.seed.timePS == staged.timePS && replayed.seed.widthPS == staged.widthPS && bits(replayed.seed.z) == bits(staged.z) &&
-                          bits(replayed.seed.varZ) == bits(staged.varZ) && replayed.contributors == mStageContributors[l]
-                        ? 1U
-                        : 0U;
+      sameVertices += replayed.seed.timePS == staged.timePS && replayed.seed.widthPS == staged.widthPS && bits(replayed.seed.z) == bits(staged.z) && bits(replayed.seed.varZ) == bits(staged.varZ) && replayed.contributors == mStageContributors[l] ? 1U : 0U;
     }
     std::size_t sameClaims = 0U;
     for (std::size_t i = 0; i < mCandidates.size(); ++i) {
@@ -2132,11 +2068,9 @@ class VertexStudy
       std::string line = std::format(
         "replay {}: vertices {} of {} found, collisions {}/{}, fakes {} splits {} merged {}, candidates dropped {}; triplets {}, past the cuts {}, "
         "true {}; by findable (QA):",
-        run.name, run.listedToId.size(), run.vertices.size(), found, mCollisions.size(), run.score.fakes, run.score.splits, run.score.merged, run.dropped, made,
-        pastCuts, pastCutsTrue);
+        run.name, run.listedToId.size(), run.vertices.size(), found, mCollisions.size(), run.score.fakes, run.score.splits, run.score.merged, run.dropped, made, pastCuts, pastCutsTrue);
       for (std::size_t bin = 0; bin < kEdges.size(); ++bin) {
-        line += std::format(" [{}{}] {}/{}", kEdges[bin], bin + 1U < kEdges.size() ? std::format("-{}", kEdges[bin + 1U] - 1U) : std::string{"+"}, foundIn[bin],
-                            all[bin]);
+        line += std::format(" [{}{}] {}/{}", kEdges[bin], bin + 1U < kEdges.size() ? std::format("-{}", kEdges[bin + 1U] - 1U) : std::string{"+"}, foundIn[bin], all[bin]);
       }
       lines.push_back(line);
     }

@@ -61,20 +61,19 @@ inline constexpr double kVDThickness = 20 * kUm;
 inline constexpr double kVDPitch = 10 * kUm;
 
 /// The arc width of a VD sensor of layer \a layer [cm], as O2 computes it.
-[[nodiscard]] constexpr double vdWidth(int layer)
-{
-  return (kVDRadius[static_cast<std::size_t>(layer)] * 2 * std::numbers::pi / 4) - kVDPetalGap[static_cast<std::size_t>(layer)];
-}
+[[nodiscard]] constexpr double vdWidth(int layer) { return (kVDRadius[static_cast<std::size_t>(layer)] * 2 * std::numbers::pi / 4) - kVDPetalGap[static_cast<std::size_t>(layer)]; }
 
 [[nodiscard]] constexpr SensorSpec vdSensor(int layer)
 {
-  return {.shape = ShapeType::kCylinder,
-          .halfX = 0.5 * vdWidth(layer),
-          .halfY = 0.5 * kVDLength,
-          .halfThickness = 0.5 * kVDThickness,
-          .pitchX = kVDPitch,
-          .pitchY = kVDPitch,
-          .radius = kVDRadius[static_cast<std::size_t>(layer)]};
+  return {
+    .shape = ShapeType::kCylinder,
+    .halfX = 0.5 * vdWidth(layer),
+    .halfY = 0.5 * kVDLength,
+    .halfThickness = 0.5 * kVDThickness,
+    .pitchX = kVDPitch,
+    .pitchY = kVDPitch,
+    .radius = kVDRadius[static_cast<std::size_t>(layer)],
+  };
 }
 
 /// The ML, OT and FT3 chip: 2.5 x 2.9 cm, of which a 1.5 mm strip along one
@@ -86,12 +85,14 @@ inline constexpr double kChipPassiveEdgeReadOut = 1.5 * kMm;
 inline constexpr double kChipLength = 29 * kMm;
 inline constexpr double kChipThickness = 100 * kUm;
 inline constexpr double kChipPitch = 20 * kUm;
-inline constexpr SensorSpec kChip{.shape = ShapeType::kRectangle,
-                                  .halfX = 0.5 * (kChipWidth - kChipPassiveEdgeReadOut),
-                                  .halfY = 0.5 * kChipLength,
-                                  .halfThickness = 0.5 * kChipThickness,
-                                  .pitchX = kChipPitch,
-                                  .pitchY = kChipPitch};
+inline constexpr SensorSpec kChip{
+  .shape = ShapeType::kRectangle,
+  .halfX = 0.5 * (kChipWidth - kChipPassiveEdgeReadOut),
+  .halfY = 0.5 * kChipLength,
+  .halfThickness = 0.5 * kChipThickness,
+  .pitchX = kChipPitch,
+  .pitchY = kChipPitch,
+};
 
 } // namespace trkft3
 

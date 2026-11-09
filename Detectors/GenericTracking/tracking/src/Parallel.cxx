@@ -141,8 +141,7 @@ int TaskArena::maxConcurrency() const noexcept { return mImpl->arena.max_concurr
 void parallelSortIndices(TaskArena& arena, size_t count, void* context, ParallelSortLess less, uint32_t* first)
 {
   const auto begin = profile::now();
-  arena.mImpl->arena.execute(
-    [=] { tbb::parallel_sort(first, first + count, [context, less](uint32_t lhs, uint32_t rhs) { return less(context, lhs, rhs); }); });
+  arena.mImpl->arena.execute([=] { tbb::parallel_sort(first, first + count, [context, less](uint32_t lhs, uint32_t rhs) { return less(context, lhs, rhs); }); });
   // Parallel, but not in chunks a profile can see.
   profile::addOpaque(static_cast<double>(profile::now() - begin) * 1.e-9);
 }

@@ -45,12 +45,10 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
 
   /// At most \a maxBytes in use at once: an allocation past it throws
   /// MemoryLimitExceeded. Without \a upstream the shared caching pool serves.
-  explicit BoundedMemoryResource(size_t maxBytes = std::numeric_limits<size_t>::max(),
-                                 std::pmr::memory_resource* upstream = nullptr);
+  explicit BoundedMemoryResource(size_t maxBytes = std::numeric_limits<size_t>::max(), std::pmr::memory_resource* upstream = nullptr);
 
   /// As above, owning its \a upstream.
-  explicit BoundedMemoryResource(std::unique_ptr<std::pmr::memory_resource> upstream,
-                                 size_t maxBytes = std::numeric_limits<size_t>::max());
+  explicit BoundedMemoryResource(std::unique_ptr<std::pmr::memory_resource> upstream, size_t maxBytes = std::numeric_limits<size_t>::max());
 
   [[nodiscard]] size_t getUsedMemory() const noexcept;
   [[nodiscard]] size_t getMaxMemory() const noexcept;

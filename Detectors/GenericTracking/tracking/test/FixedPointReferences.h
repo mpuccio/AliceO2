@@ -47,14 +47,15 @@ class RoadBase
   using Index = StageOutput<TripletT>::Index;
 
   RoadBase(TrackletConstView tracklets, TripletConstView triplets, const LayerID* linkSources, const MeasurementRange* core, std::uint32_t* roads)
-    : mTracklets(tracklets), mTriplets(triplets), mLinkSources(linkSources), mCore(core), mRoads(roads)
+    : mTracklets(tracklets),
+      mTriplets(triplets),
+      mLinkSources(linkSources),
+      mCore(core),
+      mRoads(roads)
   {
   }
 
-  GPUhdi() void operator()(Index triplet) const
-  {
-    mRoads[triplet] = mTriplets.level[triplet] == 1U && roadOwned(mTracklets, mTriplets, mLinkSources, mCore, triplet) ? 1U : 0U;
-  }
+  GPUhdi() void operator()(Index triplet) const { mRoads[triplet] = mTriplets.level[triplet] == 1U && roadOwned(mTracklets, mTriplets, mLinkSources, mCore, triplet) ? 1U : 0U; }
 
  private:
   TrackletConstView mTracklets;
@@ -93,7 +94,11 @@ class LevelUpdate
   using Level = std::uint32_t;
 
   LevelUpdate(const Index* chained, const Index* neighbourOffsets, const Index* from, Level* level, Index* changed)
-    : mChained(chained), mNeighbourOffsets(neighbourOffsets), mFrom(from), mLevel(level), mChanged(changed)
+    : mChained(chained),
+      mNeighbourOffsets(neighbourOffsets),
+      mFrom(from),
+      mLevel(level),
+      mChanged(changed)
   {
   }
 
@@ -134,7 +139,10 @@ class SuccessorMark
   using Index = StageOutput<TripletT>::Index;
 
   SuccessorMark(const Index* neighbourOffsets, const Index* from, const std::uint32_t* level, std::uint32_t* successorAbove)
-    : mNeighbourOffsets(neighbourOffsets), mFrom(from), mLevel(level), mSuccessorAbove(successorAbove)
+    : mNeighbourOffsets(neighbourOffsets),
+      mFrom(from),
+      mLevel(level),
+      mSuccessorAbove(successorAbove)
   {
   }
 
@@ -170,9 +178,14 @@ class RoadCountUpdate
  public:
   using Index = StageOutput<TripletT>::Index;
 
-  RoadCountUpdate(const Index* chained, const Index* neighbourOffsets, const Index* from, const std::uint32_t* level, std::uint32_t* roads, Index* changed,
-                  Index* overflow)
-    : mChained(chained), mNeighbourOffsets(neighbourOffsets), mFrom(from), mLevel(level), mRoads(roads), mChanged(changed), mOverflow(overflow)
+  RoadCountUpdate(const Index* chained, const Index* neighbourOffsets, const Index* from, const std::uint32_t* level, std::uint32_t* roads, Index* changed, Index* overflow)
+    : mChained(chained),
+      mNeighbourOffsets(neighbourOffsets),
+      mFrom(from),
+      mLevel(level),
+      mRoads(roads),
+      mChanged(changed),
+      mOverflow(overflow)
   {
   }
 
@@ -236,9 +249,7 @@ StageOutput<TripletT>::Index fixedPointLevels(ForEach forEach, const StageOutput
 /// source layer, \a core the slice's rows per layer. \a forEach as
 /// `fixedPointLevels`'s.
 template <typename ForEach>
-[[nodiscard]] StageStatus fixedPointRoads(RoadCount& count, ForEach forEach, const LayerID* linkSources, const MeasurementRange* core,
-                                          const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets,
-                                          const StageOutput<NeighbourT>& neighbours, RoadCount::Index chunkSize = 256U)
+[[nodiscard]] StageStatus fixedPointRoads(RoadCount& count, ForEach forEach, const LayerID* linkSources, const MeasurementRange* core, const RoadStartRule& startRule, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours, RoadCount::Index chunkSize = 256U)
 {
   using Index = RoadCount::Index;
   const auto status = guardOutOfMemory([&] {

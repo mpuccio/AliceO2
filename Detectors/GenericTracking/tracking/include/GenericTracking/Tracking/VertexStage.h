@@ -94,7 +94,7 @@ struct VertexerSettings {
   /// never rerun, so a collision's debris makes no vertex at the lower
   /// minimum. 0, or `minContributors` and above: no rerun.
   std::uint32_t aloneMinContributors = 0;
-  Scalar significance = 5.F;         ///< k: a peak's excess over the sidebands' mean b must reach k sqrt(b)
+  Scalar significance = 5.F; ///< k: a peak's excess over the sidebands' mean b must reach k sqrt(b)
   /// A vertex's z and its error from its claimed candidates within this many
   /// of their own and the mean's errors of their weighted mean, grown from the
   /// core within the window: its own tails
@@ -140,9 +140,7 @@ struct BeamTerm {
 /// \a term, if given, receives the triplet's BeamTerm whenever its circle
 /// is computed, before the transverse cut decides: a beam line off by more
 /// than the cut still needs every triplet's say.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() VertexCandidateStatus vertexCandidate(const PairPoint& a, const PairPoint& b, const PairPoint& c,
-                                                                               std::uint32_t middlePS, const VertexerSettings& settings,
-                                                                               VertexCandidateFit& fit, BeamTerm* term = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() VertexCandidateStatus vertexCandidate(const PairPoint& a, const PairPoint& b, const PairPoint& c, std::uint32_t middlePS, const VertexerSettings& settings, VertexCandidateFit& fit, BeamTerm* term = nullptr)
 {
   using o2::gpu::GPUCommonMath;
   const PairPoint points[3] = {a, b, c};
@@ -254,8 +252,7 @@ struct BeamTerm {
 /// (2W - S)^2 >= k2 S. The host's and the device's search
 /// (`Vertexer::find`, `vertex_glue::Score`).
 template <typename CountIn>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t peakExcess(std::int64_t z, std::int64_t window, std::int64_t claim, std::uint32_t minContributors,
-                                                                 Scalar k2, const CountIn& countIn)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t peakExcess(std::int64_t z, std::int64_t window, std::int64_t claim, std::uint32_t minContributors, Scalar k2, const CountIn& countIn)
 {
   const auto inWindow = countIn(z, z + window);
   if (inWindow < minContributors) {
@@ -316,10 +313,7 @@ inline constexpr Scalar kVertexWeightScale = 4294967296.F;
 
 /// A candidate's frame and z from its key.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t vertexKeyFrame(std::uint64_t key) { return static_cast<std::int64_t>(key >> 32U); }
-[[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t vertexKeyZUM(std::uint64_t key)
-{
-  return static_cast<std::int64_t>(key & 0xFFFFFFFFULL) - kVertexZOffsetUM;
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() std::int64_t vertexKeyZUM(std::uint64_t key) { return static_cast<std::int64_t>(key & 0xFFFFFFFFULL) - kVertexZOffsetUM; }
 
 /// The ownership slot's key of measurement \a row of a triplet with
 /// candidate key \a key: its frame and the row, so that a measurement in
@@ -407,11 +401,13 @@ struct VertexClaim {
     const auto n = static_cast<Scalar>(claim.count);
     varMeanUM2 = (kVertexWeightScale / weightSum) * (static_cast<Scalar>(claim.scatterSum) / weightSum) * (n / (n - 1.F));
   }
-  return {.timePS = claim.earliestPS,
-          .widthPS = claim.latestPS - claim.earliestPS,
-          .z = moments.mean * 1.e-4F,
-          .varZ = varMeanUM2 * 1.e-8F,
-          .varTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse)};
+  return {
+    .timePS = claim.earliestPS,
+    .widthPS = claim.latestPS - claim.earliestPS,
+    .z = moments.mean * 1.e-4F,
+    .varZ = varMeanUM2 * 1.e-8F,
+    .varTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse),
+  };
 }
 
 /// Triplet \a triplet's three rows, innermost first; the column sets are
@@ -430,9 +426,7 @@ template <typename Tracklets, typename Triplets>
 /// its rows' time box into \a box; \a term as `vertexCandidate` takes it.
 /// The host's map and a device's are this.
 template <typename Measurements, typename Tracklets, typename Triplets, typename Errors>
-GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets,
-                                                                  std::uint32_t triplet, const VertexerSettings& settings, const Errors& errors,
-                                                                  VertexCandidateFit& fit, std::uint64_t& weight, TimeEstPS& box, BeamTerm* term)
+GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::uint32_t triplet, const VertexerSettings& settings, const Errors& errors, VertexCandidateFit& fit, std::uint64_t& weight, TimeEstPS& box, BeamTerm* term)
 {
   const auto rows = tripletRows(tracklets, triplets, triplet);
   const auto pa = pairPointAt(measurements, rows[0]);
@@ -542,9 +536,7 @@ class Vertexer
   /// deduplication still sees every candidate it has, so that a frame's
   /// comes out as in one slice over the timeframe.
   template <typename Measurements, typename Tracklets, typename Triplets, typename Errors>
-  [[nodiscard]] VertexerResult find(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::size_t tripletCount,
-                                    detail::TaskArena* arena, bool keepTripletVertex, const Errors& errors, std::pmr::memory_resource* pool = nullptr,
-                                    const OwnedFrames& owned = {}) const
+  [[nodiscard]] VertexerResult find(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::size_t tripletCount, detail::TaskArena* arena, bool keepTripletVertex, const Errors& errors, std::pmr::memory_resource* pool = nullptr, const OwnedFrames& owned = {}) const
   {
     std::pmr::memory_resource* const resource = pool != nullptr ? pool : std::pmr::get_default_resource();
     VertexerResult result;
@@ -734,8 +726,7 @@ class Vertexer
   /// `aloneMinContributors` when that is the lower minimum; nothing was
   /// claimed, owned or dropped, so it starts from the same state. The rounds
   /// taken, the last included -- of the rerun alone where it ran.
-  std::uint32_t findInFrame(std::span<const Candidate> segment, std::span<std::int32_t> claims, BoundedVector<Found>& found, std::span<const Source> sources,
-                            std::span<std::uint8_t> ownedSlots) const
+  std::uint32_t findInFrame(std::span<const Candidate> segment, std::span<std::int32_t> claims, BoundedVector<Found>& found, std::span<const Source> sources, std::span<std::uint8_t> ownedSlots) const
   {
     const std::size_t n = segment.size();
     std::pmr::memory_resource* const resource = found.get_allocator().resource();
@@ -841,9 +832,7 @@ class Vertexer
           scatterSum += candidateScatter(claimed[k], claimedWeight[k], settled.mean);
         }
       }
-      vertex.seed = vertexSeedOf(
-        {.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest},
-        mBeamSpot);
+      vertex.seed = vertexSeedOf({.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest}, mBeamSpot);
       found.push_back(vertex);
       // The vertex owns the measurements of the frame's triplets within
       // its claim; the free candidates with an owned one are dropped before

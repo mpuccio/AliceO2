@@ -128,8 +128,7 @@ void runEmpty()
   const TimeFrame<Det> frame{measurementView(columns), grid, std::span<const std::uint32_t>{offsets}};
 
   const IterationSettings settings{.windows = windows, .vertexSource = VertexSource::kBeamLine};
-  Tracker<Det, UniformMaterial> tracker{settings, beamSpot, scatteringTable<Det>(uniformLayerMaterial<Det>(0.01)),
-                                        std::make_shared<BoundedMemoryResource>(), 1U};
+  Tracker<Det, UniformMaterial> tracker{settings, beamSpot, scatteringTable<Det>(uniformLayerMaterial<Det>(0.01)), std::make_shared<BoundedMemoryResource>(), 1U};
   tracker.setTrackModel(*tracking, UniformMaterial{}, Propagator{.bzKiloGauss = 5.F});
   const auto result = tracker.run(frame, tracker.planTimeframe(frame, {}, 1, 0.));
   BOOST_TEST((result.status == StageStatus::kComplete));
@@ -263,8 +262,7 @@ namespace
 
 /// A curved sensor like the ALICE 3 VD's: a 71 degree arc of a 0.5 cm cylinder,
 /// 20 um thick and 50 cm long.
-constexpr SensorSpec
-  kCurved{.shape = ShapeType::kCylinder, .halfX = 0.3112, .halfY = 25., .halfThickness = 0.001, .pitchX = 0.001, .pitchY = 0.001, .radius = 0.5};
+constexpr SensorSpec kCurved{.shape = ShapeType::kCylinder, .halfX = 0.3112, .halfY = 25., .halfThickness = 0.001, .pitchX = 0.001, .pitchY = 0.001, .radius = 0.5};
 
 /// A sensor rotated by \a angle about the beam axis and moved by \a t.
 Sensor rotatedAboutBeam(double angle, std::array<double, 3> t)
@@ -361,9 +359,7 @@ BOOST_AUTO_TEST_CASE(TangentPlaneTouchesItsCylinder)
     const auto plane = tangentPlane(cylinder, angle);
     BOOST_TEST(plane.surfacePhi == angle);
     // (axis0, axis1, normal) is right-handed and orthonormal.
-    const Scalar cross[3]{(plane.axis0[1] * plane.axis1[2]) - (plane.axis0[2] * plane.axis1[1]),
-                          (plane.axis0[2] * plane.axis1[0]) - (plane.axis0[0] * plane.axis1[2]),
-                          (plane.axis0[0] * plane.axis1[1]) - (plane.axis0[1] * plane.axis1[0])};
+    const Scalar cross[3]{(plane.axis0[1] * plane.axis1[2]) - (plane.axis0[2] * plane.axis1[1]), (plane.axis0[2] * plane.axis1[0]) - (plane.axis0[0] * plane.axis1[2]), (plane.axis0[0] * plane.axis1[1]) - (plane.axis0[1] * plane.axis1[0])};
     for (int i = 0; i < 3; ++i) {
       BOOST_TEST(std::abs(cross[i] - plane.normal[i]) < 1e-6F);
     }

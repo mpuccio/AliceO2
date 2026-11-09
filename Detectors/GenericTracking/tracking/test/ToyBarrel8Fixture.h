@@ -91,12 +91,14 @@ inline InputPoint helixAt(double phi0, double slope, double ptGeV, LayerID layer
   if (phi < 0.) {
     phi += 2 * std::numbers::pi_v<double>;
   }
-  return {.layer = layer,
-          .x = static_cast<Scalar>(x),
-          .y = static_cast<Scalar>(y),
-          .z = static_cast<Scalar>(slope * arc),
-          .r = static_cast<Scalar>(radius),
-          .phi = static_cast<Scalar>(phi)};
+  return {
+    .layer = layer,
+    .x = static_cast<Scalar>(x),
+    .y = static_cast<Scalar>(y),
+    .z = static_cast<Scalar>(slope * arc),
+    .r = static_cast<Scalar>(radius),
+    .phi = static_cast<Scalar>(phi),
+  };
 }
 
 inline InputPoint helixPoint(std::size_t track, LayerID layer)
@@ -182,16 +184,21 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
       if (phi < 0.) {
         phi += 2 * std::numbers::pi_v<double>;
       }
-      hits.push_back({.point = {.layer = id,
-                                .x = global[0],
-                                .y = global[1],
-                                .z = global[2],
-                                .r = static_cast<Scalar>(std::hypot(position[0], position[1])),
-                                .phi = static_cast<Scalar>(phi)},
-                      .timeNS = startNS + (arc * std::hypot(1., slope) / static_cast<double>(constants::physics::LightSpeedCm2NS)),
-                      .surface = sensor,
-                      .loc0 = local[0],
-                      .loc1 = local[1]});
+      hits.push_back({
+        .point =
+          {
+            .layer = id,
+            .x = global[0],
+            .y = global[1],
+            .z = global[2],
+            .r = static_cast<Scalar>(std::hypot(position[0], position[1])),
+            .phi = static_cast<Scalar>(phi),
+          },
+        .timeNS = startNS + (arc * std::hypot(1., slope) / static_cast<double>(constants::physics::LightSpeedCm2NS)),
+        .surface = sensor,
+        .loc0 = local[0],
+        .loc1 = local[1],
+      });
       break;
     }
   }
@@ -225,20 +232,25 @@ class Fixture
     : geometry(test::cappedGrid<Det>(durationNS, params, windowParameters(), kBeamConstraint, 16, 8)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
-    frame = test::frameOf(geometry, hits.size(), [&](std::size_t i) { return hits[i].point; }, [&](std::size_t i) { return boxOf(hits[i]); }, [&](std::size_t i) { const auto scale = static_cast<Scalar>(1U + (i % 3U)); return test::PointVariances{scale * 1.e-6F, scale * 2.e-6F, scale * 3.e-6F}; }, columns, offsets, [&](std::size_t i, std::uint32_t row) {
-      columns.surface[row] = hits[i].surface;
-      columns.loc0[row] = hits[i].loc0;
-      columns.loc1[row] = hits[i].loc1;
-      columns.varLoc0[row] = columns.varRPhi[row];
-      columns.varLoc1[row] = columns.varZ[row]; });
+    frame = test::frameOf(
+      geometry, hits.size(), [&](std::size_t i) { return hits[i].point; }, [&](std::size_t i) { return boxOf(hits[i]); },
+      [&](std::size_t i) {
+        const auto scale = static_cast<Scalar>(1U + (i % 3U));
+        return test::PointVariances{scale * 1.e-6F, scale * 2.e-6F, scale * 3.e-6F};
+      },
+      columns, offsets,
+      [&](std::size_t i, std::uint32_t row) {
+        columns.surface[row] = hits[i].surface;
+        columns.loc0[row] = hits[i].loc0;
+        columns.loc1[row] = hits[i].loc1;
+        columns.varLoc0[row] = columns.varRPhi[row];
+        columns.varLoc1[row] = columns.varZ[row];
+      });
   }
 
   [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (kLayers * track) + layer; }
 
-  [[nodiscard]] std::uint32_t row(std::size_t logical) const
-  {
-    return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin());
-  }
+  [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;

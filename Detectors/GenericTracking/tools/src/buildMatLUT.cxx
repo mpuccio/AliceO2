@@ -118,8 +118,7 @@ inline constexpr float kTrkRMax = 83.F; ///< beyond the OT's carbon support, and
 inline constexpr float kTrkGapDr = 1.F; ///< the widest band in a gap
 
 /// The bands of the barrel's layers, \a envelopes with their stacks; the discs' follow none.
-std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces,
-                                std::span<const double> chipThickness)
+std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces, std::span<const double> chipThickness)
 {
   std::vector<LUTLayer> layers;
   const auto cell = [&](float inner, float outer, float drPhi) {
@@ -212,8 +211,7 @@ void populateCell(o2::base::MatLayerCyl& layer, int ip, int iz, int trials, TGeo
   double x2X0 = 0.;
   double length = 0.;
   const auto add = [&](double cs, double sn, double r0, double z0, double r1, double z1) {
-    const auto bud = o2::base::GeometryManager::meanMaterialBudget(static_cast<float>(r0 * cs), static_cast<float>(r0 * sn), static_cast<float>(z0),
-                                                                   static_cast<float>(r1 * cs), static_cast<float>(r1 * sn), static_cast<float>(z1), nav);
+    const auto bud = o2::base::GeometryManager::meanMaterialBudget(static_cast<float>(r0 * cs), static_cast<float>(r0 * sn), static_cast<float>(z0), static_cast<float>(r1 * cs), static_cast<float>(r1 * sn), static_cast<float>(z1), nav);
     const double segment = bud.length;
     if (segment > 0.) {
       rhoLength += segment * static_cast<double>(bud.meanRho);
@@ -258,9 +256,7 @@ void populate(o2::base::MatLayerCylSet& lut, int trials, int threads)
       }
     }
   }
-  o2::gtrk::tools::forEachOnNavigators(cells.size(), threads, [&](std::size_t i, TGeoNavigator* nav) {
-    populateCell(lut.getLayer(cells[i].layer), cells[i].ip, cells[i].iz, trials, nav);
-  });
+  o2::gtrk::tools::forEachOnNavigators(cells.size(), threads, [&](std::size_t i, TGeoNavigator* nav) { populateCell(lut.getLayer(cells[i].layer), cells[i].ip, cells[i].iz, trials, nav); });
   lut.finalizeStructures();
 }
 
@@ -355,8 +351,7 @@ int run(int argc, char** argv)
   std::cout << "material LUT layers:\n";
   for (std::size_t i = 0; i < layers.size(); ++i) {
     const auto& layer = layers[i];
-    std::cout << "  " << std::setw(2) << i << ": r " << std::setw(4) << layer.rMin << " .. " << std::setw(4) << layer.rMax << " cm, |z| < " << layer.zMax
-              << " cm, dz " << layer.dz << " cm, drphi " << layer.drPhi << " cm\n";
+    std::cout << "  " << std::setw(2) << i << ": r " << std::setw(4) << layer.rMin << " .. " << std::setw(4) << layer.rMax << " cm, |z| < " << layer.zMax << " cm, dz " << layer.dz << " cm, drphi " << layer.drPhi << " cm\n";
     lut.addLayer(layer.rMin, layer.rMax, layer.zMax, layer.dz, layer.drPhi);
   }
 

@@ -88,11 +88,7 @@ template <class Columns>
 /// the spatial block positive definite. A zero variance divides the update's
 /// whitening and the U-D factorisation by zero, and nothing downstream
 /// reports the NaN that makes.
-[[nodiscard]] inline bool measurementVariancesValid(Scalar varLoc0, Scalar covLoc01, Scalar varLoc1)
-{
-  return isFiniteScalar(varLoc0) && isFiniteScalar(covLoc01) && isFiniteScalar(varLoc1) && varLoc0 > 0.F && varLoc1 > 0.F &&
-         covLoc01 * covLoc01 < varLoc0 * varLoc1;
-}
+[[nodiscard]] inline bool measurementVariancesValid(Scalar varLoc0, Scalar covLoc01, Scalar varLoc1) { return isFiniteScalar(varLoc0) && isFiniteScalar(covLoc01) && isFiniteScalar(varLoc1) && varLoc0 > 0.F && varLoc1 > 0.F && covLoc01 * covLoc01 < varLoc0 * varLoc1; }
 
 /// What the tracking borrows from the device that holds the run's conditions.
 struct TrackingConditions {
@@ -149,8 +145,7 @@ class TrackingInterface
     mContext = std::make_unique<DeviceContext>(mDeviceOptions.backend, mDeviceOptions.device, arena);
     mBlock = mContext->block(0U);
     const auto& properties = mContext->runtime().properties();
-    LOGP(info, "the tracking on {} device {}: {} ({}), arena {} MB", mContext->runtime().backend(), mDeviceOptions.device, properties.name,
-         properties.architecture, mDeviceOptions.arenaMB);
+    LOGP(info, "the tracking on {} device {}: {} ({}), arena {} MB", mContext->runtime().backend(), mDeviceOptions.device, properties.name, properties.architecture, mDeviceOptions.arenaMB);
   }
 
   /// The tracking on \a reconstruction's GPU, which its owner initialised
@@ -161,8 +156,7 @@ class TrackingInterface
     mContext = std::make_unique<DeviceContext>(reconstruction);
     mDeviceOptions = {.backend = std::string{mContext->runtime().backend()}};
     const auto& properties = mContext->runtime().properties();
-    LOGP(info, "the tracking on {} inside the GPU reconstruction: {} ({}), in the pool's free memory after the TPC", mContext->runtime().backend(), properties.name,
-         properties.architecture);
+    LOGP(info, "the tracking on {} inside the GPU reconstruction: {} ({}), in the pool's free memory after the TPC", mContext->runtime().backend(), properties.name, properties.architecture);
   }
 
   /// The next timeframe's device memory, on a borrowed reconstruction: set
@@ -232,9 +226,7 @@ class TrackingInterface
     for (int iteration = 0; iteration < iterationCount(param); ++iteration) {
       settings.push_back(iterationSettings(param, iteration));
       if (settings.back().vertexSource == VertexSource::kVertexList && !mWithVertices && !param.vertexer) {
-        LOGP(fatal,
-             "iteration {} seeds from the vertex list (GTRKReco<DET>.iterationVertexSource), and this device has none: an input of seeds or GTRKReco<DET>.vertexer",
-             iteration);
+        LOGP(fatal, "iteration {} seeds from the vertex list (GTRKReco<DET>.iterationVertexSource), and this device has none: an input of seeds or GTRKReco<DET>.vertexer", iteration);
         return;
       }
     }
@@ -248,10 +240,8 @@ class TrackingInterface
     // both hold at once (the vertexer's pass stays while the tracking runs).
     mPool = trackerMemoryPool(param);
     if (param.vertexer) {
-      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, mScattering, mPool, chunkSize,
-                                               std::max(param.threads, 0));
-      LOGP(info, "the vertexer: a pass at {} GeV on layers 0-2, window {} um, claim {} um, at least {} contributors ({} in a frame without a vertex)",
-           param.vertexerMinPtGeV, param.vertexerWindowUM, param.vertexerClaimUM, param.vertexerMinContributors, param.vertexerAloneMinContributors);
+      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, mScattering, mPool, chunkSize, std::max(param.threads, 0));
+      LOGP(info, "the vertexer: a pass at {} GeV on layers 0-2, window {} um, claim {} um, at least {} contributors ({} in a frame without a vertex)", param.vertexerMinPtGeV, param.vertexerWindowUM, param.vertexerClaimUM, param.vertexerMinContributors, param.vertexerAloneMinContributors);
     }
     mTrackerSource = iterationSettings(param, 0).vertexSource;
     mTrackerLabel = sourceLabel(settings);
@@ -274,15 +264,13 @@ class TrackingInterface
   /// row count, every measurement's variances fit for the fit, \a seeds
   /// time-sorted with finite z. Nullptr if it may be tracked, else why not.
   template <class Columns>
-  [[nodiscard]] static const char* checkInput(const Columns& columns, std::span<const std::uint32_t> offsets, std::size_t bucketCount,
-                                              std::span<const VertexSeed> seeds)
+  [[nodiscard]] static const char* checkInput(const Columns& columns, std::span<const std::uint32_t> offsets, std::size_t bucketCount, std::span<const VertexSeed> seeds)
   {
     if (!std::ranges::is_sorted(seeds, {}, &VertexSeed::timePS) || !std::ranges::all_of(seeds, [](const VertexSeed& seed) { return std::isfinite(seed.z); })) {
       return "vertex seeds are not time-sorted or finite";
     }
     const auto n = columns.loc0.size();
-    const bool validOffsets = n <= std::numeric_limits<std::uint32_t>::max() && offsets.size() == bucketCount + 1U && offsets.front() == 0U &&
-                              offsets.back() == n && std::ranges::is_sorted(offsets);
+    const bool validOffsets = n <= std::numeric_limits<std::uint32_t>::max() && offsets.size() == bucketCount + 1U && offsets.front() == 0U && offsets.back() == n && std::ranges::is_sorted(offsets);
     if (!measurementColumnsHaveSize(columns, n) || !validOffsets) {
       return "measurement column lengths or grid offsets are invalid";
     }
@@ -314,14 +302,12 @@ class TrackingInterface
     mVertexed = true;
     if (mDevice) {
       // The run's every iteration, the pass last, with an empty list.
-      mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS),
-                                       param.sliceHaloPS);
+      mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), param.sliceHaloPS);
       const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (!beginDeviceTimeframe()) {
         return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
       }
-      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param),
-                                                         mDeviceFound, mDeviceReport);
+      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param), mDeviceFound, mDeviceReport);
       const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (status != StageStatus::kComplete) {
         return {.seconds = seconds, .planSeconds = planSeconds, .dropped = dropOrFail(status, "the vertexing pass")};
@@ -432,10 +418,7 @@ class TrackingInterface
   [[nodiscard]] VertexSource trackerSource() const { return mTrackerSource; }
   [[nodiscard]] const std::string& trackerLabel() const { return mTrackerLabel; }
   /// The track model's propagator: the run's field, the mass hypothesis.
-  [[nodiscard]] Propagator propagator() const
-  {
-    return {.bzKiloGauss = static_cast<Scalar>(mBzKiloGauss), .massGeV = static_cast<Scalar>(recoParam<Det>().massHypothesisGeV)};
-  }
+  [[nodiscard]] Propagator propagator() const { return {.bzKiloGauss = static_cast<Scalar>(mBzKiloGauss), .massGeV = static_cast<Scalar>(recoParam<Det>().massHypothesisGeV)}; }
 
  private:
   /// The layers' and the passive scatterers' budgets from \a material and
@@ -507,8 +490,7 @@ class TrackingInterface
     const auto& param = recoParam<Det>();
     const bool replaced = mVertexing != nullptr;
     const std::size_t iterations = mTracker->iterationCount();
-    mDeviceTrackingPlan = replaced ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS)
-                                   : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
+    mDeviceTrackingPlan = replaced ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS) : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (!beginDeviceTimeframe()) {
@@ -531,8 +513,7 @@ class TrackingInterface
   {
     if (status == StageStatus::kOutOfMemory && recoParam<Det>().dropTFUponFailure) {
       ++mDropped;
-      LOGP(error, "{} ran out of memory (GTRKReco<DET>.memoryLimitGB, or the device's --gtrk-gpu-arena-mb): the timeframe dropped, {} so far (GTRKReco<DET>.dropTFUponFailure)",
-           what, mDropped);
+      LOGP(error, "{} ran out of memory (GTRKReco<DET>.memoryLimitGB, or the device's --gtrk-gpu-arena-mb): the timeframe dropped, {} so far (GTRKReco<DET>.dropTFUponFailure)", what, mDropped);
       return true;
     }
     LOGP(fatal, "{} failed with status {}", what, static_cast<int>(status));

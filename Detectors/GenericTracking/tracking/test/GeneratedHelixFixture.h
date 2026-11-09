@@ -64,11 +64,13 @@ struct GeneratedHelixFixture {
 
   [[nodiscard]] static State propagate(const State& start, double curvature, double arc)
   {
-    return {.x = start.x + ((std::sin(start.phi + (curvature * arc)) - std::sin(start.phi)) / curvature),
-            .y = start.y + ((std::cos(start.phi) - std::cos(start.phi + (curvature * arc))) / curvature),
-            .z = start.z + (start.slope * arc),
-            .phi = start.phi + (curvature * arc),
-            .slope = start.slope};
+    return {
+      .x = start.x + ((std::sin(start.phi + (curvature * arc)) - std::sin(start.phi)) / curvature),
+      .y = start.y + ((std::cos(start.phi) - std::cos(start.phi + (curvature * arc))) / curvature),
+      .z = start.z + (start.slope * arc),
+      .phi = start.phi + (curvature * arc),
+      .slope = start.slope,
+    };
   }
 
   /// To the layer: a barrel's radius by bisection on the outgoing half-turn,
@@ -114,14 +116,19 @@ struct GeneratedHelixFixture {
     const double x = state.x + (((radial * state.x) - (tangential * state.y)) / r);
     const double y = state.y + (((radial * state.y) + (tangential * state.x)) / r);
     const double z = state.z + (normal(generator) * std::sqrt(errors.varZ));
-    return {.point = {.x = static_cast<Scalar>(x),
-                      .y = static_cast<Scalar>(y),
-                      .z = static_cast<Scalar>(z),
-                      .r = static_cast<Scalar>(std::hypot(x, y)),
-                      .varZ = static_cast<Scalar>(errors.varZ),
-                      .varR = static_cast<Scalar>(errors.varR),
-                      .varRPhi = static_cast<Scalar>(errors.varRPhi)},
-            .time = test::toyTimeBox(timeNS)};
+    return {
+      .point =
+        {
+          .x = static_cast<Scalar>(x),
+          .y = static_cast<Scalar>(y),
+          .z = static_cast<Scalar>(z),
+          .r = static_cast<Scalar>(std::hypot(x, y)),
+          .varZ = static_cast<Scalar>(errors.varZ),
+          .varR = static_cast<Scalar>(errors.varR),
+          .varRPhi = static_cast<Scalar>(errors.varRPhi),
+        },
+      .time = test::toyTimeBox(timeNS),
+    };
   }
 };
 

@@ -50,9 +50,7 @@ void GPUChainGenericTracking::RegisterPermanentMemoryAndProcessors()
     pair->device.InitGPUProcessor(mRec, GPUProcessor::PROCESSOR_TYPE_DEVICE, &pair->host);
     // Device only. Custom: the per-event allocation pass, which knows a
     // permanent resource as allocated by its host pointer, leaves it alone.
-    pair->resource = mRec->RegisterMemoryAllocation(&pair->host, &BlockProcessor::SetPointersBlock,
-                                                    GPUMemoryResource::MEMORY_GPU | GPUMemoryResource::MEMORY_PERMANENT | GPUMemoryResource::MEMORY_CUSTOM,
-                                                    "GenericTrackingBlock");
+    pair->resource = mRec->RegisterMemoryAllocation(&pair->host, &BlockProcessor::SetPointersBlock, GPUMemoryResource::MEMORY_GPU | GPUMemoryResource::MEMORY_PERMANENT | GPUMemoryResource::MEMORY_CUSTOM, "GenericTrackingBlock");
   }
 }
 

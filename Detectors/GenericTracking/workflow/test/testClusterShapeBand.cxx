@@ -35,9 +35,11 @@ namespace
 /// none.
 ClusterShapeBand band()
 {
-  ClusterShapeBand result{.maxRows = {0, 2, 0},
-                          .slopeLow = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.first),
-                          .slopeHigh = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.second)};
+  ClusterShapeBand result{
+    .maxRows = {0, 2, 0},
+    .slopeLow = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.first),
+    .slopeHigh = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.second),
+  };
   const auto set = [&](std::size_t span, float low, float high) {
     result.slopeLow[ClusterShapeBand::kSpans + span] = low;
     result.slopeHigh[ClusterShapeBand::kSpans + span] = high;

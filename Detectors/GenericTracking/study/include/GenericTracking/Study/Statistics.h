@@ -48,10 +48,7 @@ template <typename T>
 }
 
 /// \a part as a percentage of \a whole, 0 for none.
-[[nodiscard]] inline double percent(std::uint64_t part, std::uint64_t whole)
-{
-  return whole == 0U ? 0. : 100. * static_cast<double>(part) / static_cast<double>(whole);
-}
+[[nodiscard]] inline double percent(std::uint64_t part, std::uint64_t whole) { return whole == 0U ? 0. : 100. * static_cast<double>(part) / static_cast<double>(whole); }
 
 } // namespace o2::gtrk::study
 

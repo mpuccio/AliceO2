@@ -82,10 +82,7 @@ namespace adaptor
 
 /// A particle's label, the fake flag unless \a good; O2's noise label for no
 /// particle.
-[[nodiscard]] inline o2::MCCompLabel labelOf(std::uint64_t particle, bool good)
-{
-  return particle == kNoTrackParticle ? o2::MCCompLabel(true) : labelOfParticle(particle, !good);
-}
+[[nodiscard]] inline o2::MCCompLabel labelOf(std::uint64_t particle, bool good) { return particle == kNoTrackParticle ? o2::MCCompLabel(true) : labelOfParticle(particle, !good); }
 
 /// A timeframe's clusters as the adaptor needs them: each one's readout frame
 /// (its record in CLUSTERSROF) and that frame's start in BC from the
@@ -147,8 +144,7 @@ template <typename Record>
 }
 
 /// Each cluster's pixel count, the converter's decoding (`localClusters`).
-[[nodiscard]] inline std::vector<std::uint32_t> pixelCounts(std::span<const o2::itsmft::CompClusterExt> compact, std::span<const unsigned char> patterns,
-                                                            const o2::itsmft::TopologyDictionary& dictionary)
+[[nodiscard]] inline std::vector<std::uint32_t> pixelCounts(std::span<const o2::itsmft::CompClusterExt> compact, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary)
 {
   const auto local = alice::localClusters(compact, patterns, dictionary);
   std::vector<std::uint32_t> result(local.size());
@@ -160,8 +156,7 @@ template <typename Record>
 /// clusters' labels, innermost first; \a carried gets, per row, whether it
 /// carries that particle.
 template <typename Record>
-[[nodiscard]] o2::MCCompLabel trackLabel(const Record& record, std::span<const std::uint32_t> clusterIndex,
-                                         const o2::dataformats::MCTruthContainer<o2::MCCompLabel>& labels, std::span<bool> carried)
+[[nodiscard]] o2::MCCompLabel trackLabel(const Record& record, std::span<const std::uint32_t> clusterIndex, const o2::dataformats::MCTruthContainer<o2::MCCompLabel>& labels, std::span<bool> carried)
 {
   constexpr std::size_t kRows = std::extent_v<std::remove_cvref_t<decltype(record.clusters.index)>>;
   std::array<RowParticles, kRows> rows{};
@@ -252,8 +247,7 @@ class AdaptorTask : public o2::framework::Task
     const std::span<const std::uint32_t> clusterIndex{rows.data(), rows.size()};
     const std::span<const o2::itsmft::ROFRecord> frameRecords{rofs.data(), rofs.size()};
     const auto frames = adaptor::clusterFrames(frameRecords, compact.size(), orbit);
-    const auto pixels = compact.empty() ? std::vector<std::uint32_t>{}
-                                        : adaptor::pixelCounts({compact.data(), compact.size()}, {patterns.data(), patterns.size()}, *mDictionary);
+    const auto pixels = compact.empty() ? std::vector<std::uint32_t>{} : adaptor::pixelCounts({compact.data(), compact.size()}, {patterns.data(), patterns.size()}, *mDictionary);
     const auto timing = mConditions->frameTiming().front();
     const double bz = nominalBzKiloGauss();
 
@@ -275,9 +269,7 @@ class AdaptorTask : public o2::framework::Task
 
  private:
   template <typename LayerOf>
-  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex,
-              std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const Labels* labels,
-              const FrameTiming& timing, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const Labels* labels, const FrameTiming& timing, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
@@ -293,16 +285,17 @@ class AdaptorTask : public o2::framework::Task
     const auto delay = static_cast<std::int64_t>(AlpideParam::Instance().getROFDelayInBC(0));
     using BC = o2::itsmft::tracking::ROFTimingLayer::BCType;
     // ITS's frame of a time: its lower edge's, 0 before the first.
-    const o2::itsmft::tracking::ROFTimingLayer rofTiming{.mROFLength = static_cast<BC>(length),
-                                                         .mROFDelay = static_cast<BC>(delay),
-                                                         .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(0))};
+    const o2::itsmft::tracking::ROFTimingLayer rofTiming{
+      .mROFLength = static_cast<BC>(length),
+      .mROFDelay = static_cast<BC>(delay),
+      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(0)),
+    };
     // A vertex's frame as a track's: the lower edge of its time with the half
     // width at most half a frame. Its box's own lower edge lies a margin
     // before its frame starts, in the frame before.
     const auto vertexFrame = [&](const o2::its::Vertex& vertex) {
       const auto time = vertex.getTimeStamp().makeSymmetrical();
-      return static_cast<std::int64_t>(
-        rofTiming.getROF(o2::its::TimeStamp(time.getTimeStamp(), std::min(time.getTimeStampError(), static_cast<float>(length) / 2.F))));
+      return static_cast<std::int64_t>(rofTiming.getROF(o2::its::TimeStamp(time.getTimeStamp(), std::min(time.getTimeStampError(), static_cast<float>(length) / 2.F))));
     };
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
@@ -363,8 +356,7 @@ class AdaptorTask : public o2::framework::Task
     for (std::size_t v = 0; v < seeds.size(); ++v) {
       const auto& seed = seeds[v];
       const std::array<float, o2::its::Vertex::kNCov> cov{seed.varTransverse, 0.F, seed.varTransverse, 0.F, 0.F, seed.varZ};
-      auto& vertex = vertices.emplace_back(o2::math_utils::Point3D<float>(static_cast<float>(shipped.beamLine.x), static_cast<float>(shipped.beamLine.y), seed.z), cov,
-                                           static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())), 0.F);
+      auto& vertex = vertices.emplace_back(o2::math_utils::Point3D<float>(static_cast<float>(shipped.beamLine.x), static_cast<float>(shipped.beamLine.y), seed.z), cov, static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())), 0.F);
       const auto lower = bcOfPS(seed.timePS);
       vertex.setTimeStamp(o2::its::TimeEstBC(static_cast<std::uint32_t>(lower), static_cast<std::uint32_t>(bcOfPS(static_cast<std::int64_t>(seed.timePS) + seed.widthPS) - lower)));
     }
@@ -391,8 +383,7 @@ class AdaptorTask : public o2::framework::Task
       frameRecords->resize(static_cast<std::size_t>(frameCount));
       for (std::int64_t i = 0; i < frameCount; ++i) {
         auto& rof = (*frameRecords)[static_cast<std::size_t>(i)];
-        rof.setBCData(o2::InteractionRecord(static_cast<std::uint16_t>(((i * length) % o2::constants::lhc::LHCMaxBunches) + delay),
-                                            orbit + static_cast<std::uint32_t>(i * length / o2::constants::lhc::LHCMaxBunches)));
+        rof.setBCData(o2::InteractionRecord(static_cast<std::uint16_t>(((i * length) % o2::constants::lhc::LHCMaxBunches) + delay), orbit + static_cast<std::uint32_t>(i * length / o2::constants::lhc::LHCMaxBunches)));
         rof.setROFrame(static_cast<std::uint32_t>(i));
         rof.setNEntries(0);
         rof.setFirstEntry(-1);
@@ -445,14 +436,11 @@ class AdaptorTask : public o2::framework::Task
       pc.outputs().make<std::vector<o2::MCCompLabel>>(Output{origin, "VERTICESMCTR", 0}, vertices.size());
       pc.outputs().make<std::vector<float>>(Output{origin, "VERTICESMCPUR", 0}, vertices.size(), 0.F);
     }
-    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} in a frame turned by pi), {} vertices, {} readout frames", Det::name, orbit,
-         tracks.size(), records.size() - fitted.size(), turned, vertices.size(), trackROFs.size());
+    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} in a frame turned by pi), {} vertices, {} readout frames", Det::name, orbit, tracks.size(), records.size() - fitted.size(), turned, vertices.size(), trackROFs.size());
   }
 
   template <typename LayerOf>
-  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex,
-              std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const Labels* labels, double bz,
-              std::uint32_t orbit, const LayerOf& layerOf)
+  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const Labels* labels, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     const auto& origin = detectorOrigin<Det>();
@@ -519,8 +507,7 @@ class AdaptorTask : public o2::framework::Task
         trackLabels.push_back(c.label);
       }
     }
-    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} across readout frames, timed by the earlier), {} readout frames", Det::name,
-         orbit, tracks.size(), records.size() - fitted.size(), crossing, trackROFs.size());
+    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} across readout frames, timed by the earlier), {} readout frames", Det::name, orbit, tracks.size(), records.size() - fitted.size(), crossing, trackROFs.size());
   }
 
   bool mUseMC = false;
@@ -538,16 +525,8 @@ o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC)
   using namespace o2::framework;
   constexpr bool kITS = std::same_as<Det, detectors::ITS>;
   const auto origin = detectorOrigin<Det>();
-  std::vector<InputSpec> inputs{
-    InputSpec{"tracks", gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe},
-    InputSpec{"clusterIndex", gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(MeasurementColumn::clusterIndex), Lifetime::Timeframe},
-    InputSpec{"rofs", origin, "CLUSTERSROF", 0, Lifetime::Timeframe},
-    InputSpec{"compclusters", origin, "COMPCLUSTERS", 0, Lifetime::Timeframe},
-    InputSpec{"patterns", origin, "PATTERNS", 0, Lifetime::Timeframe},
-    InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
-  std::vector<OutputSpec> outputs{{origin, "TRACKS", 0, Lifetime::Timeframe},
-                                  {origin, "TRACKCLSID", 0, Lifetime::Timeframe},
-                                  {"META", adaptor::metaDescription<Det>(), 0, Lifetime::Sporadic}};
+  std::vector<InputSpec> inputs{InputSpec{"tracks", gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, InputSpec{"clusterIndex", gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(MeasurementColumn::clusterIndex), Lifetime::Timeframe}, InputSpec{"rofs", origin, "CLUSTERSROF", 0, Lifetime::Timeframe}, InputSpec{"compclusters", origin, "COMPCLUSTERS", 0, Lifetime::Timeframe}, InputSpec{"patterns", origin, "PATTERNS", 0, Lifetime::Timeframe}, InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
+  std::vector<OutputSpec> outputs{{origin, "TRACKS", 0, Lifetime::Timeframe}, {origin, "TRACKCLSID", 0, Lifetime::Timeframe}, {"META", adaptor::metaDescription<Det>(), 0, Lifetime::Sporadic}};
   if constexpr (kITS) {
     inputs.emplace_back("measurementGeometry", gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
     inputs.emplace_back("vertices", gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe);
@@ -568,10 +547,12 @@ o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC)
     }
   }
   auto conditions = std::make_shared<Conditions<Det>>(inputs);
-  return DataProcessorSpec{.name = deviceName<Det>("adaptor"),
-                           .inputs = inputs,
-                           .outputs = outputs,
-                           .algorithm = AlgorithmSpec{adaptFromTask<adaptor::AdaptorTask<Det>>(useMC, conditions)}};
+  return DataProcessorSpec{
+    .name = deviceName<Det>("adaptor"),
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<adaptor::AdaptorTask<Det>>(useMC, conditions)},
+  };
 }
 
 } // namespace o2::gtrk::workflow

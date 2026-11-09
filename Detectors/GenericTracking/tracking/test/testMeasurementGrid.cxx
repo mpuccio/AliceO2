@@ -69,15 +69,17 @@ auto defaultWindows() { return test::oneIterationWindows<Toy>(SearchWindowParams
 /// Grid one row per point, all in the box [0, 1 ps), and return the positions in
 /// \a points of the rows a query on \a target visits.
 template <DetectorLayout Det, std::size_t N>
-std::vector<std::uint32_t> visitedPoints(const GridGeometry<Det>& geometry, LayerID target, const std::array<GridPoint, N>& points,
-                                         const CandidateWindow& window)
+std::vector<std::uint32_t> visitedPoints(const GridGeometry<Det>& geometry, LayerID target, const std::array<GridPoint, N>& points, const CandidateWindow& window)
 {
   std::vector<std::uint32_t> offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
   MeasurementStore columns;
   resizeMeasurementColumns(columns, N);
-  test::buildGridRows(N, offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); }, [&](std::size_t i, std::uint32_t row) {
-    columns.widthPS[row] = 1U;
-    columns.clusterIndex[row] = static_cast<std::uint32_t>(i); });
+  test::buildGridRows(
+    N, offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
+    [&](std::size_t i, std::uint32_t row) {
+      columns.widthPS[row] = 1U;
+      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+    });
 
   const MeasurementGrid<Det> grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
   std::vector<std::uint32_t> visited;
@@ -164,8 +166,7 @@ BOOST_AUTO_TEST_CASE(CrossingWindowFollowsTheSeed)
   // opens to the disc's outer edge.
   const auto near = candidateWindow(toDisc, seed, 0.F, 3.F, 2.9F, seed.width);
   BOOST_TEST(static_cast<double>(near.secondCentre + near.secondHalfWidth) == secondMax<Mixed>(kFirstPositiveDisc) + helix, boost::test_tools::tolerance(1e-5));
-  BOOST_TEST(static_cast<double>(near.secondCentre - near.secondHalfWidth) == (3. * (zLow + 3.) / (static_cast<double>(2.9F) + 3.)) - helix,
-             boost::test_tools::tolerance(1e-5));
+  BOOST_TEST(static_cast<double>(near.secondCentre - near.secondHalfWidth) == (3. * (zLow + 3.) / (static_cast<double>(2.9F) + 3.)) - helix, boost::test_tools::tolerance(1e-5));
 
   // The +22 cm disc -> barrel layer 3: z_j = z_v + (z_i - z_v) R / r_i.
   const auto toBarrel = layerPairWindow<Mixed>(kFirstPositiveDisc, kOuterBarrel, params, beamSpot);
@@ -383,8 +384,7 @@ BOOST_AUTO_TEST_CASE(ALayerIsSizedByTheQueriesIntoIt)
 
   // A link only a high-pT iteration takes is sized at that pT; the low-pT one
   // takes only 0 -> 1 (its mask), so layer 1 is sized at its pT.
-  const auto mixed = sizes({IterationSettings{.windows = high, .minClusters = 3, .follow = false},
-                            IterationSettings{.windows = low, .minClusters = 2, .layerMask = 0b011U, .follow = false}});
+  const auto mixed = sizes({IterationSettings{.windows = high, .minClusters = 3, .follow = false}, IterationSettings{.windows = low, .minClusters = 2, .layerMask = 0b011U, .follow = false}});
   BOOST_TEST(mixed[2].phiHalfWidth == static_cast<double>(pair(1, 2, high).phiHalfWidth));
   BOOST_TEST(mixed[1].phiHalfWidth == static_cast<double>(pair(0, 1, low).phiHalfWidth));
   BOOST_TEST(mixed[1].phiHalfWidth > static_cast<double>(pair(0, 1, high).phiHalfWidth));
@@ -409,10 +409,8 @@ BOOST_AUTO_TEST_CASE(ALayerIsSizedByTheQueriesIntoIt)
 BOOST_AUTO_TEST_CASE(CellsServeTheNarrowestAndTheWidestQuery)
 {
   // One width: the convention.
-  BOOST_TEST(balancedBinCount(2 * std::numbers::pi_v<double>, 0.2, 0.2, kPhiCellsPerWindow) ==
-             derivedBinCount(2 * std::numbers::pi_v<double>, 0.2, kPhiCellsPerWindow));
-  BOOST_TEST(balancedBinCount(2 * std::numbers::pi_v<double>, 0., 0.2, kPhiCellsPerWindow) ==
-             derivedBinCount(2 * std::numbers::pi_v<double>, 0.2, kPhiCellsPerWindow));
+  BOOST_TEST(balancedBinCount(2 * std::numbers::pi_v<double>, 0.2, 0.2, kPhiCellsPerWindow) == derivedBinCount(2 * std::numbers::pi_v<double>, 0.2, kPhiCellsPerWindow));
+  BOOST_TEST(balancedBinCount(2 * std::numbers::pi_v<double>, 0., 0.2, kPhiCellsPerWindow) == derivedBinCount(2 * std::numbers::pi_v<double>, 0.2, kPhiCellsPerWindow));
   // Two widths: between their conventions, each exceeding it by the same factor.
   const double a = 0.01;
   const double b = 0.4;
@@ -502,9 +500,12 @@ BOOST_AUTO_TEST_CASE(QueryWrapsPhiAcrossZero)
   std::vector<std::uint32_t> offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
   MeasurementStore columns;
   resizeMeasurementColumns(columns, phis.size());
-  test::buildGridRows(phis.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(1, 0U, phis[i], 0.F); }, [&](std::size_t i, std::uint32_t row) {
-    columns.widthPS[row] = 1U;
-    columns.clusterIndex[row] = ids[i]; });
+  test::buildGridRows(
+    phis.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(1, 0U, phis[i], 0.F); },
+    [&](std::size_t i, std::uint32_t row) {
+      columns.widthPS[row] = 1U;
+      columns.clusterIndex[row] = ids[i];
+    });
 
   const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
   const CandidateWindow window{.phiCentre = 0.F, .phiHalfWidth = 0.1F, .secondCentre = 0.F, .secondHalfWidth = 2.F};
@@ -535,8 +536,7 @@ BOOST_AUTO_TEST_CASE(QueryCoversEveryPhiCellWhenAWrappingWindowEndsInItsStartCel
   // (3.5, 3.78), so both of its ends fall in cell 1 -- yet it spans all
   // three cells, including the seed's own direction in cell 0.
   const CandidateWindow window{.phiCentre = 0.5F, .phiHalfWidth = 3.F, .secondCentre = 0.F, .secondHalfWidth = 100.F};
-  constexpr std::array<GridPoint, 3> points{
-    {{.layer = 1, .phi = 0.5F, .second = 0.F}, {.layer = 1, .phi = 3.F, .second = 0.F}, {.layer = 1, .phi = 5.F, .second = 0.F}}};
+  constexpr std::array<GridPoint, 3> points{{{.layer = 1, .phi = 0.5F, .second = 0.F}, {.layer = 1, .phi = 3.F, .second = 0.F}, {.layer = 1, .phi = 5.F, .second = 0.F}}};
   for (const auto& point : points) {
     BOOST_TEST(spatiallyCompatible(window, point.phi, point.second));
   }
@@ -567,8 +567,7 @@ BOOST_AUTO_TEST_CASE(QueryReachesDiscSensorCornersBeyondTheRingEdge)
 
   // A window this narrow lies wholly beyond the nominal edge.
   const CandidateWindow window{.phiCentre = point.phi, .phiHalfWidth = 0.01F, .secondCentre = point.second, .secondHalfWidth = 0.02F};
-  const GridGeometry<Mixed> geometry{100'000, test::withToyFrames(GridParams{.blockWidth = 100'000}),
-                                     test::oneIterationWindows<Mixed>(SearchWindowParams{}, VertexConstraint{})};
+  const GridGeometry<Mixed> geometry{100'000, test::withToyFrames(GridParams{.blockWidth = 100'000}), test::oneIterationWindows<Mixed>(SearchWindowParams{}, VertexConstraint{})};
   const auto visited = visitedPoints(geometry, kDisc, std::array<GridPoint, 1>{point}, window);
   BOOST_TEST(visited.size() == 1U);
 }
@@ -585,10 +584,13 @@ BOOST_AUTO_TEST_CASE(QueryVisitsTheOverlappingBoxesInsideTheSearchBracket)
   const auto bucket = geometry.bucketAt(1, 0U, 0.F, 0.F);
   MeasurementStore columns;
   resizeMeasurementColumns(columns, starts.size());
-  test::buildGridRows(starts.size(), offsets, [&](std::size_t) { return bucket; }, [&](std::size_t i, std::uint32_t row) {
-    columns.timePS[row] = starts[i];
-    columns.widthPS[row] = kWidth;
-    columns.clusterIndex[row] = static_cast<std::uint32_t>(i); });
+  test::buildGridRows(
+    starts.size(), offsets, [&](std::size_t) { return bucket; },
+    [&](std::size_t i, std::uint32_t row) {
+      columns.timePS[row] = starts[i];
+      columns.widthPS[row] = kWidth;
+      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+    });
 
   const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
   const LayerPairWindow pair{.phiHalfWidth = std::numbers::pi_v<Scalar>, .secondHalfWidth = 2.F};
@@ -613,10 +615,13 @@ BOOST_AUTO_TEST_CASE(LanesShareAQueryAndVisitEachRowOnce)
     const auto bucket = geometry.bucketAt(1, 0U, 0.F, 0.F);
     MeasurementStore columns;
     resizeMeasurementColumns(columns, rows);
-    test::buildGridRows(rows, offsets, [&](std::size_t) { return bucket; }, [&](std::size_t i, std::uint32_t row) {
-      columns.timePS[row] = 5U * i;
-      columns.widthPS[row] = 10U;
-      columns.clusterIndex[row] = i; });
+    test::buildGridRows(
+      rows, offsets, [&](std::size_t) { return bucket; },
+      [&](std::size_t i, std::uint32_t row) {
+        columns.timePS[row] = 5U * i;
+        columns.widthPS[row] = 10U;
+        columns.clusterIndex[row] = i;
+      });
 
     const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
     const LayerPairWindow pair{.phiHalfWidth = std::numbers::pi_v<Scalar>, .secondHalfWidth = 2.F};
@@ -627,8 +632,7 @@ BOOST_AUTO_TEST_CASE(LanesShareAQueryAndVisitEachRowOnce)
     for (const std::uint32_t count : {1U, 2U, 3U, 8U, 32U}) {
       std::vector<std::uint32_t> shared;
       for (std::uint32_t lane = 0; lane < count; ++lane) {
-        grid.visitCandidates(
-          1, window, geometry.allBlocks(), [&](std::uint32_t row) { shared.push_back(columns.clusterIndex[row]); }, Lanes{.lane = lane, .count = count});
+        grid.visitCandidates(1, window, geometry.allBlocks(), [&](std::uint32_t row) { shared.push_back(columns.clusterIndex[row]); }, Lanes{.lane = lane, .count = count});
       }
       std::ranges::sort(shared);
       BOOST_TEST(shared == single, boost::test_tools::per_element());
@@ -651,8 +655,7 @@ static void checkGroupInStep(const Grid& grid, const MeasurementStore& columns, 
   std::size_t steps = 0U;
   for (std::uint32_t lane = 0; lane < L; ++lane) {
     std::vector<std::uint32_t> own;
-    grid.visitCandidates(
-      1, window, geometry.allBlocks(), [&](std::uint32_t row) { own.push_back(columns.clusterIndex[row]); }, Lanes{.lane = lane, .count = L});
+    grid.visitCandidates(1, window, geometry.allBlocks(), [&](std::uint32_t row) { own.push_back(columns.clusterIndex[row]); }, Lanes{.lane = lane, .count = L});
     std::vector<std::uint32_t> inStep;
     std::size_t calls = 0U;
     grid.visitCandidates(
@@ -708,10 +711,13 @@ BOOST_AUTO_TEST_CASE(AGroupInStepGivesEachLaneItsLanesRowsAtEveryStep)
     MeasurementStore columns;
     resizeMeasurementColumns(columns, rows.size());
     const auto bucketOf = [&](const Row& row) { return geometry.bucketAt(1, row.start, (static_cast<Scalar>(row.cell) + 0.5F) * cellWidth, 0.F); };
-    test::buildGridRows(rows.size(), offsets, [&](std::size_t i) { return bucketOf(rows[i]); }, [&](std::size_t i, std::uint32_t at) {
-      columns.timePS[at] = rows[i].start;
-      columns.widthPS[at] = rows[i].width;
-      columns.clusterIndex[at] = static_cast<std::uint32_t>(i); });
+    test::buildGridRows(
+      rows.size(), offsets, [&](std::size_t i) { return bucketOf(rows[i]); },
+      [&](std::size_t i, std::uint32_t at) {
+        columns.timePS[at] = rows[i].start;
+        columns.widthPS[at] = rows[i].width;
+        columns.clusterIndex[at] = static_cast<std::uint32_t>(i);
+      });
 
     const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
     const LayerPairWindow pair{.phiHalfWidth = 1.5F * cellWidth, .secondHalfWidth = 2.F};
@@ -754,9 +760,12 @@ BOOST_AUTO_TEST_CASE(QueryVisitsOrderedSecondRunsWithoutDuplicates)
   std::vector<std::uint32_t> offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
   MeasurementStore columns;
   resizeMeasurementColumns(columns, kBins);
-  test::buildGridRows(points.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); }, [&](std::size_t i, std::uint32_t row) {
-    columns.widthPS[row] = 1U;
-    columns.clusterIndex[row] = static_cast<std::uint32_t>(i); });
+  test::buildGridRows(
+    points.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
+    [&](std::size_t i, std::uint32_t row) {
+      columns.widthPS[row] = 1U;
+      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+    });
 
   const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
   const Scalar first = points[1].second;
@@ -767,8 +776,7 @@ BOOST_AUTO_TEST_CASE(QueryVisitsOrderedSecondRunsWithoutDuplicates)
   }};
   const CandidateWindow window{.phiCentre = 0.F, .phiHalfWidth = std::numbers::pi_v<Scalar>};
   std::vector<std::uint32_t> visited;
-  grid.visitCandidates(1, window, runs.data(), static_cast<std::uint32_t>(runs.size()), geometry.allBlocks(),
-                       [&](std::uint32_t row) { visited.push_back(columns.clusterIndex[row]); });
+  grid.visitCandidates(1, window, runs.data(), static_cast<std::uint32_t>(runs.size()), geometry.allBlocks(), [&](std::uint32_t row) { visited.push_back(columns.clusterIndex[row]); });
 
   BOOST_TEST(visited == (std::vector<std::uint32_t>{1U, 5U}), boost::test_tools::per_element());
 }

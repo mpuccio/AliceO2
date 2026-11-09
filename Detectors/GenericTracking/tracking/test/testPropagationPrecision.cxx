@@ -61,8 +61,7 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
     const double charge = trial % 2 == 0 ? 1. : -1.;
     const double radius = sample(0., 90.);
     const double azimuth = sample(-std::numbers::pi, std::numbers::pi);
-    const auto from =
-      plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
+    const auto from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
 
     BoundTrackState initial;
     initial.surface = from.id;
@@ -147,13 +146,11 @@ BOOST_AUTO_TEST_CASE(GrazingHalfTurnAndStraightLimitsStayWithinOneMicron)
 
             // Place the target on the track again, now with its normal turned
             // away from the arrival direction by exactly the wanted incidence.
-            const double actualTurn =
-              static_cast<double>(initial.qOverP()) * static_cast<double>(prop.bzKiloGauss) * static_cast<double>(constants::math::B2C) * path;
+            const double actualTurn = static_cast<double>(initial.qOverP()) * static_cast<double>(prop.bzKiloGauss) * static_cast<double>(constants::math::B2C) * path;
             const double middle = static_cast<double>(initial.phi()) + 0.5 * actualTurn;
             const double chord = path * std::sin(static_cast<double>(initial.theta())) * sinc(0.5 * actualTurn);
             const double normal = static_cast<double>(initial.phi()) + actualTurn + std::acos(incidence / std::sin(theta));
-            auto to = plane(80. + chord * std::cos(middle), -70. + chord * std::sin(middle), 290. + path * std::cos(static_cast<double>(initial.theta())),
-                            normal, false, 2);
+            auto to = plane(80. + chord * std::cos(middle), -70. + chord * std::sin(middle), 290. + path * std::cos(static_cast<double>(initial.theta())), normal, false, 2);
             for (int i = 0; i < 3; ++i) {
               to.origin[i] += static_cast<float>(offset * static_cast<double>(to.axis0[i]));
             }

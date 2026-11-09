@@ -108,10 +108,7 @@ void globalOf(const BoundTrackState& s, const TrackingSurface& p, double r[3], d
   mom[2] = pAbs * std::cos(s.theta());
 }
 
-double cosIncidenceOf(const BoundTrackState& s, const TrackingSurface& p)
-{
-  return (p.normal[0] * std::cos(s.phi()) * std::sin(s.theta())) + (p.normal[1] * std::sin(s.phi()) * std::sin(s.theta())) + (p.normal[2] * std::cos(s.theta()));
-}
+double cosIncidenceOf(const BoundTrackState& s, const TrackingSurface& p) { return (p.normal[0] * std::cos(s.phi()) * std::sin(s.theta())) + (p.normal[1] * std::sin(s.phi()) * std::sin(s.theta())) + (p.normal[2] * std::cos(s.theta())); }
 
 /// The state propagated onto \a to: forward, else backward (the points are on
 /// both sides at a perturbation's distance).
@@ -182,10 +179,7 @@ void requireClose(const detail::Jacobian& analytic, const detail::Jacobian& nume
 {
   for (int i = 0; i < kNBoundParams; ++i) {
     for (int k = 0; k < kNBoundParams; ++k) {
-      BOOST_TEST_CONTEXT("d" << i << "/d" << k << ": analytic " << analytic[i][k] << ", numeric " << numeric[i][k])
-      {
-        BOOST_TEST(std::abs(analytic[i][k] - numeric[i][k]) <= 2e-4 + (1e-2 * std::abs(analytic[i][k])));
-      }
+      BOOST_TEST_CONTEXT("d" << i << "/d" << k << ": analytic " << analytic[i][k] << ", numeric " << numeric[i][k]) { BOOST_TEST(std::abs(analytic[i][k] - numeric[i][k]) <= 2e-4 + (1e-2 * std::abs(analytic[i][k]))); }
     }
   }
 }
@@ -201,8 +195,7 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
   while (tested < 2000U) {
     const double sensorAlpha = (2. * uniform(random) - 1.) * std::numbers::pi;
     const auto p = barrelSensor(sensorAlpha, 2. + (40. * uniform(random)), 30. * (uniform(random) - 0.5), 0.2 * (uniform(random) - 0.5), 0.05 * (uniform(random) - 0.5));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.1 + (2.94 * uniform(random)),
-                         (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.1 + (2.94 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
     if (std::abs(cosIncidenceOf(s, p)) < 0.05) {
       continue;
     }
@@ -235,12 +228,10 @@ BOOST_AUTO_TEST_CASE(ForwardParametersAreTheStatesPointMomentumAndCharge)
   std::mt19937 random{4712U};
   std::uniform_real_distribution<double> uniform{0., 1.};
   for (int n = 0; n < 2000; ++n) {
-    const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1.,
-                              0.02 * (uniform(random) - 0.5));
+    const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1., 0.02 * (uniform(random) - 0.5));
     // Towards the muon arm, sin(theta) down to 0.05; some moving back.
     const double theta = uniform(random) < 0.9 ? std::numbers::pi - 0.05 - (0.6 * uniform(random)) : 0.05 + (0.6 * uniform(random));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta,
-                         (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
     const auto t = toTrackParCovFwd(s, p, kBz, 3.5);
     double r[3];
     double mom[3];
@@ -264,8 +255,7 @@ BOOST_AUTO_TEST_CASE(BarrelJacobianIsThePropagatorsOntoTheFrame)
   for (int n = 0; n < 4000 && tested < 400U; ++n) {
     const double sensorAlpha = (2. * uniform(random) - 1.) * std::numbers::pi;
     const auto p = barrelSensor(sensorAlpha, 3. + (40. * uniform(random)), 20. * (uniform(random) - 0.5), 1.2 * (uniform(random) - 0.5), 0.6 * (uniform(random) - 0.5));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.3 + (2.54 * uniform(random)),
-                         (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.3 + (2.54 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
     if (std::abs(cosIncidenceOf(s, p)) < 0.2) {
       continue;
     }
@@ -285,10 +275,7 @@ BOOST_AUTO_TEST_CASE(BarrelJacobianIsThePropagatorsOntoTheFrame)
       continue;
     }
     ++tested;
-    BOOST_TEST_CONTEXT("sensor alpha " << sensorAlpha << ", frame alpha " << alpha << ", phi " << s.phi() << ", theta " << s.theta() << ", q/p " << s.qOverP())
-    {
-      requireClose(detail::barrelJacobian(s, detail::shiftOnto(s, p, e, kBz), alpha), numeric);
-    }
+    BOOST_TEST_CONTEXT("sensor alpha " << sensorAlpha << ", frame alpha " << alpha << ", phi " << s.phi() << ", theta " << s.theta() << ", q/p " << s.qOverP()) { requireClose(detail::barrelJacobian(s, detail::shiftOnto(s, p, e, kBz), alpha), numeric); }
   }
   BOOST_TEST(tested >= 400U);
 }
@@ -299,11 +286,9 @@ BOOST_AUTO_TEST_CASE(ForwardJacobianIsThePropagatorsOntoFixedZ)
   std::uniform_real_distribution<double> uniform{0., 1.};
   unsigned tested = 0U;
   for (int n = 0; n < 4000 && tested < 400U; ++n) {
-    const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1.,
-                              0.6 * (uniform(random) - 0.5));
+    const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1., 0.6 * (uniform(random) - 0.5));
     const double theta = std::numbers::pi - 0.1 - (0.6 * uniform(random));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta,
-                         (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
     double r[3];
     double mom[3];
     globalOf(s, p, r, mom);
@@ -316,10 +301,7 @@ BOOST_AUTO_TEST_CASE(ForwardJacobianIsThePropagatorsOntoFixedZ)
       continue;
     }
     ++tested;
-    BOOST_TEST_CONTEXT("phi " << s.phi() << ", theta " << s.theta() << ", q/p " << s.qOverP())
-    {
-      requireClose(detail::forwardJacobian(s, detail::shiftOnto(s, p, e, kBz)), numeric);
-    }
+    BOOST_TEST_CONTEXT("phi " << s.phi() << ", theta " << s.theta() << ", q/p " << s.qOverP()) { requireClose(detail::forwardJacobian(s, detail::shiftOnto(s, p, e, kBz)), numeric); }
   }
   BOOST_TEST(tested >= 400U);
 }

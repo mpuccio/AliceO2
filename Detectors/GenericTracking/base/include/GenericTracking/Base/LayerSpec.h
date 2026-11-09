@@ -178,8 +178,7 @@ struct PassiveSpec {
 /// O2's beryllium beam pipe, as the ALICE ITS and MFT see it (O2's
 /// Detectors/Passive/src/Pipe.cxx): outer radius 1.9 cm, 0.8 mm thick, over
 /// |z| < 44.4 cm; 0.08 cm over beryllium's X0 of 35.28 cm.
-inline constexpr PassiveSpec
-  kAliceBerylliumPipe{.kind = PassiveSpec::Kind::kBarrel, .position = 1.86, .bandLow = 1.8, .bandHigh = 1.95, .low = -44.4, .high = 44.4, .x2X0 = 0.08 / 35.28};
+inline constexpr PassiveSpec kAliceBerylliumPipe{.kind = PassiveSpec::Kind::kBarrel, .position = 1.86, .bandLow = 1.8, .bandHigh = 1.95, .low = -44.4, .high = 44.4, .x2X0 = 0.08 / 35.28};
 
 /// What a detector type has to provide.
 ///
@@ -244,10 +243,7 @@ struct Detector {
   }
 
   /// A layer's stated sensor count.
-  [[nodiscard]] static constexpr int sensorCount(LayerID layer)
-  {
-    return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensorCount : Layout::discLayers[discIndex(layer)].sensorCount;
-  }
+  [[nodiscard]] static constexpr int sensorCount(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensorCount : Layout::discLayers[discIndex(layer)].sensorCount; }
 };
 
 /// Total sensor count of a detector, for the detector struct to use when

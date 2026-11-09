@@ -107,8 +107,7 @@ std::optional<Circle> circleOf(const TruthHelix& helix, double bzKiloGauss)
 bool followable(const TruthHelix& helix, double bzKiloGauss, double x, double y)
 {
   const auto finite = [](const std::array<double, 3>& v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); };
-  return finite(helix.position) && finite(helix.momentum) && std::isfinite(helix.charge) && std::isfinite(bzKiloGauss) && std::isfinite(x) &&
-         std::isfinite(y) && std::hypot(helix.momentum[0], helix.momentum[1], helix.momentum[2]) > 0.;
+  return finite(helix.position) && finite(helix.momentum) && std::isfinite(helix.charge) && std::isfinite(bzKiloGauss) && std::isfinite(x) && std::isfinite(y) && std::hypot(helix.momentum[0], helix.momentum[1], helix.momentum[2]) > 0.;
 }
 
 /// Whether \a helix moves transversely at all.
@@ -188,8 +187,7 @@ double helixMiss(const TruthHelix& helix, double bzKiloGauss, double x, double y
   return std::abs(std::hypot(x - circle->x, y - circle->y) - circle->radius);
 }
 
-TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics,
-                      const SeededBy& seeded, const ParticleExtrasTable& extras, const TrackRows* theirs, int iterations, const ComparisonSettings& settings)
+TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TrackRows* theirs, int iterations, const ComparisonSettings& settings)
 {
   if (iterations < 1 || iterations > kQAMaxIterations) {
     throw std::invalid_argument(std::format("QA: {} iterations, 1 to {} supported", iterations, kQAMaxIterations));
@@ -215,13 +213,15 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
     const auto& k = kinematics[track];
     const auto particle = goodParticle(rows, tracks[track]);
     auto& record = qa.tracks[track];
-    record = {.pt = k.pt,
-              .eta = k.eta,
-              .phi = wrapPhi(static_cast<double>(k.phi)),
-              .iteration = k.iteration,
-              .fake = particle == kNoTrackParticle,
-              .chi2 = k.chi2,
-              .ndf = k.ndf};
+    record = {
+      .pt = k.pt,
+      .eta = k.eta,
+      .phi = wrapPhi(static_cast<double>(k.phi)),
+      .iteration = k.iteration,
+      .fake = particle == kNoTrackParticle,
+      .chi2 = k.chi2,
+      .ndf = k.ndf,
+    };
     if (!record.fake) {
       auto& mask = foundBy[particle];
       record.clone = mask != 0U;
@@ -254,19 +254,21 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
     const auto& particle = found->second;
     const auto entry = foundBy.find(id);
     const auto seeds = seeded.find(id);
-    qa.particles.push_back({.pt = particle.pt,
-                            .eta = particle.eta,
-                            .phi = wrapPhi(static_cast<double>(particle.phi)),
-                            .origin = static_cast<std::uint8_t>(particle.origin),
-                            .foundBy = entry == foundBy.end() ? 0U : entry->second,
-                            .seededBy = seeds == seeded.end() ? 0U : seeds->second,
-                            .pdg = particle.pdg,
-                            .motherPdg = particle.motherPdg,
-                            .vz = particle.vz,
-                            .layers = layers.layers,
-                            .foundByO2 = foundByTheirs.contains(id),
-                            .findable = findable,
-                            .extras = extra});
+    qa.particles.push_back({
+      .pt = particle.pt,
+      .eta = particle.eta,
+      .phi = wrapPhi(static_cast<double>(particle.phi)),
+      .origin = static_cast<std::uint8_t>(particle.origin),
+      .foundBy = entry == foundBy.end() ? 0U : entry->second,
+      .seededBy = seeds == seeded.end() ? 0U : seeds->second,
+      .pdg = particle.pdg,
+      .motherPdg = particle.motherPdg,
+      .vz = particle.vz,
+      .layers = layers.layers,
+      .foundByO2 = foundByTheirs.contains(id),
+      .findable = findable,
+      .extras = extra,
+    });
   }
   return qa;
 }
@@ -275,39 +277,24 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
 {
   for (const auto& p : qa.particles) {
     const auto& e = p.extras;
-    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy
-           << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0
-           << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss
-           << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses
-           << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable
-           << "outwardLayers=" << e.outwardLayers << "\n";
+    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "outwardLayers=" << e.outwardLayers << "\n";
   }
   for (const auto& t : qa.tracks) {
-    output << "tracks" << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone
-           << "chi2=" << t.chi2 << "ndf=" << t.ndf << "\n";
+    output << "tracks" << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "\n";
   }
 }
 
 void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const QAResolution> entries)
 {
   for (const auto& r : entries) {
-    output << "resolution" << "pt=" << r.pt << "eta=" << r.eta << "phi=" << r.phi << "charge=" << r.charge << "pdg=" << r.pdg << "origin=" << r.origin
-           << "iteration=" << r.iteration << "kinks=" << r.kinks << "clusters=" << r.clusters << "layer=" << r.layer << "dLoc0=" << r.residual[0]
-           << "dLoc1=" << r.residual[1] << "dPhi=" << r.residual[2] << "dTheta=" << r.residual[3] << "dQOverP=" << r.residual[4] << "sLoc0=" << r.sigma[0]
-           << "sLoc1=" << r.sigma[1] << "sPhi=" << r.sigma[2] << "sTheta=" << r.sigma[3] << "sQOverP=" << r.sigma[4] << "fitPt=" << r.fitPt
-           << "dPtRel=" << r.ptResidual << "sPt=" << r.ptSigma << "dD0=" << r.dca[0] << "dZ0=" << r.dca[1] << "sD0=" << r.dcaSigma[0] << "sZ0=" << r.dcaSigma[1]
-           << "scatD0=" << r.dcaScattering[0] << "scatZ0=" << r.dcaScattering[1] << "productionOffset=" << r.productionOffset << "\n";
+    output << "resolution" << "pt=" << r.pt << "eta=" << r.eta << "phi=" << r.phi << "charge=" << r.charge << "pdg=" << r.pdg << "origin=" << r.origin << "iteration=" << r.iteration << "kinks=" << r.kinks << "clusters=" << r.clusters << "layer=" << r.layer << "dLoc0=" << r.residual[0] << "dLoc1=" << r.residual[1] << "dPhi=" << r.residual[2] << "dTheta=" << r.residual[3] << "dQOverP=" << r.residual[4] << "sLoc0=" << r.sigma[0] << "sLoc1=" << r.sigma[1] << "sPhi=" << r.sigma[2] << "sTheta=" << r.sigma[3] << "sQOverP=" << r.sigma[4] << "fitPt=" << r.fitPt << "dPtRel=" << r.ptResidual << "sPt=" << r.ptSigma << "dD0=" << r.dca[0] << "dZ0=" << r.dca[1] << "sD0=" << r.dcaSigma[0] << "sZ0=" << r.dcaSigma[1] << "scatD0=" << r.dcaScattering[0] << "scatZ0=" << r.dcaScattering[1] << "productionOffset=" << r.productionOffset << "\n";
   }
 }
 
 void streamOracle(o2::utils::TreeStreamRedirector& output, std::span<const QAOracle> entries)
 {
   for (const auto& o : entries) {
-    output << "oracle" << "pdg=" << o.pdg << "charge=" << o.charge << "origin=" << o.origin << "eta=" << o.eta << "layer=" << o.layer << "kinks=" << o.kinks
-           << "clusters=" << o.clusters << "productionOffset=" << o.productionOffset << "p=" << o.momentum << "pOuter=" << o.pOuter << "variant=" << o.variant
-           << "status=" << o.status << "chi2=" << o.chi2 << "ndf=" << o.ndf << "dLoc0=" << o.residual[0] << "dLoc1=" << o.residual[1]
-           << "dPhi=" << o.residual[2] << "dTheta=" << o.residual[3] << "dQOverP=" << o.residual[4] << "sLoc0=" << o.sigma[0] << "sLoc1=" << o.sigma[1]
-           << "sPhi=" << o.sigma[2] << "sTheta=" << o.sigma[3] << "sQOverP=" << o.sigma[4] << "dPtRel=" << o.ptResidual << "\n";
+    output << "oracle" << "pdg=" << o.pdg << "charge=" << o.charge << "origin=" << o.origin << "eta=" << o.eta << "layer=" << o.layer << "kinks=" << o.kinks << "clusters=" << o.clusters << "productionOffset=" << o.productionOffset << "p=" << o.momentum << "pOuter=" << o.pOuter << "variant=" << o.variant << "status=" << o.status << "chi2=" << o.chi2 << "ndf=" << o.ndf << "dLoc0=" << o.residual[0] << "dLoc1=" << o.residual[1] << "dPhi=" << o.residual[2] << "dTheta=" << o.residual[3] << "dQOverP=" << o.residual[4] << "sLoc0=" << o.sigma[0] << "sLoc1=" << o.sigma[1] << "sPhi=" << o.sigma[2] << "sTheta=" << o.sigma[3] << "sQOverP=" << o.sigma[4] << "dPtRel=" << o.ptResidual << "\n";
   }
 }
 
@@ -315,16 +302,10 @@ void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMo
 {
   for (const auto& m : entries) {
     std::vector<float> pAtLayer = m.pAtLayer;
-    output << "momenta" << "pdg=" << m.pdg << "origin=" << m.origin << "pt=" << m.pt << "eta=" << m.eta << "p0=" << m.p0 << "found=" << m.found
-           << "lostAt=" << m.lostAt << "pairLoss=" << m.pairLoss << "layers=" << m.layers << "fakeWrong=" << m.fakeWrong
-           << "fakeWrongLayer=" << m.fakeWrongLayer << "pAtLayer=" << pAtLayer << "\n";
+    output << "momenta" << "pdg=" << m.pdg << "origin=" << m.origin << "pt=" << m.pt << "eta=" << m.eta << "p0=" << m.p0 << "found=" << m.found << "lostAt=" << m.lostAt << "pairLoss=" << m.pairLoss << "layers=" << m.layers << "fakeWrong=" << m.fakeWrong << "fakeWrongLayer=" << m.fakeWrongLayer << "pAtLayer=" << pAtLayer << "\n";
   }
 }
 
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events)
-{
-  output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers
-         << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "\n";
-}
+void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "\n"; }
 
 } // namespace o2::gtrk::study

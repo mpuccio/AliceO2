@@ -134,10 +134,12 @@ template <DetectorLayout Det>
   ScatteringTable<Det> table;
   for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    table.layers[layer] = {.position = static_cast<Scalar>(Detector<Det>::isBarrelLayer(id) ? layerDistance<Det>(id) : discZ<Det>(id)),
-                           .low = static_cast<Scalar>(secondMin<Det>(id)),
-                           .high = static_cast<Scalar>(secondMax<Det>(id)),
-                           .k = static_cast<Scalar>(detail::highlandFactor(x2X0[layer]))};
+    table.layers[layer] = {
+      .position = static_cast<Scalar>(Detector<Det>::isBarrelLayer(id) ? layerDistance<Det>(id) : discZ<Det>(id)),
+      .low = static_cast<Scalar>(secondMin<Det>(id)),
+      .high = static_cast<Scalar>(secondMax<Det>(id)),
+      .k = static_cast<Scalar>(detail::highlandFactor(x2X0[layer])),
+    };
   }
   if constexpr (Detector<Det>::nPassives > 0) {
     if (!passiveX2X0.empty() && passiveX2X0.size() != ScatteringTable<Det>::kPassiveCount) {
@@ -145,11 +147,16 @@ template <DetectorLayout Det>
     }
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
       const auto& spec = Detector<Det>::passive(i);
-      table.passives[i] = {.at = {.position = static_cast<Scalar>(spec.position),
-                                  .low = static_cast<Scalar>(spec.low),
-                                  .high = static_cast<Scalar>(spec.high),
-                                  .k = static_cast<Scalar>(detail::highlandFactor(passiveX2X0.empty() ? spec.x2X0 : passiveX2X0[i]))},
-                           .barrel = spec.kind == PassiveSpec::Kind::kBarrel};
+      table.passives[i] = {
+        .at =
+          {
+            .position = static_cast<Scalar>(spec.position),
+            .low = static_cast<Scalar>(spec.low),
+            .high = static_cast<Scalar>(spec.high),
+            .k = static_cast<Scalar>(detail::highlandFactor(passiveX2X0.empty() ? spec.x2X0 : passiveX2X0[i])),
+          },
+        .barrel = spec.kind == PassiveSpec::Kind::kBarrel,
+      };
     }
     // The passives no segment of a layout link into, or out of, a layer can cross.
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
@@ -189,12 +196,14 @@ struct PairCut {
 [[nodiscard]] inline PairCut pairCut(const SearchWindowParams& params)
 {
   const double radius = curvatureRadius(params.minPtGeV, params.bzKiloGauss);
-  return {.twoRMin = static_cast<Scalar>(2. * radius),
-          .nSigma = static_cast<Scalar>(params.nSigma),
-          .invBetaMomentum2 = params.minPtGeV > 0. ? static_cast<Scalar>(invBetaMomentumMin2(params)) : 0.F,
-          .maxCurvature = static_cast<Scalar>(maxCurvature(params)),
-          .momentumCurvature = static_cast<Scalar>(std::abs(static_cast<double>(o2::constants::math::B2C) * params.bzKiloGauss)),
-          .mass2 = static_cast<Scalar>(params.massGeV * params.massGeV)};
+  return {
+    .twoRMin = static_cast<Scalar>(2. * radius),
+    .nSigma = static_cast<Scalar>(params.nSigma),
+    .invBetaMomentum2 = params.minPtGeV > 0. ? static_cast<Scalar>(invBetaMomentumMin2(params)) : 0.F,
+    .maxCurvature = static_cast<Scalar>(maxCurvature(params)),
+    .momentumCurvature = static_cast<Scalar>(std::abs(static_cast<double>(o2::constants::math::B2C) * params.bzKiloGauss)),
+    .mass2 = static_cast<Scalar>(params.massGeV * params.massGeV),
+  };
 }
 
 /// A candidate origin of the tracks in one collision: the beam line, one
@@ -217,11 +226,13 @@ struct VertexSeed {
 /// beam line, from the beam spot's z and widths.
 [[nodiscard]] inline VertexSeed vertexSeed(const VertexConstraint& constraint)
 {
-  return {.timePS = 0U,
-          .widthPS = std::numeric_limits<std::uint32_t>::max(),
-          .z = static_cast<Scalar>(constraint.z),
-          .varZ = static_cast<Scalar>(constraint.sigmaZ * constraint.sigmaZ),
-          .varTransverse = static_cast<Scalar>(constraint.sigmaTransverse * constraint.sigmaTransverse)};
+  return {
+    .timePS = 0U,
+    .widthPS = std::numeric_limits<std::uint32_t>::max(),
+    .z = static_cast<Scalar>(constraint.z),
+    .varZ = static_cast<Scalar>(constraint.sigmaZ * constraint.sigmaZ),
+    .varTransverse = static_cast<Scalar>(constraint.sigmaTransverse * constraint.sigmaTransverse),
+  };
 }
 
 /// What the tests read of one measurement: its shipped position and its
@@ -247,13 +258,15 @@ template <typename Row>
 template <typename Columns>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() PairPoint pairPointAt(const Columns& columns, std::uint32_t row)
 {
-  return {.x = columns.x[row],
-          .y = columns.y[row],
-          .z = columns.z[row],
-          .r = columns.r[row],
-          .varZ = columns.varZ[row],
-          .varR = columns.varR[row],
-          .varRPhi = columns.varRPhi[row]};
+  return {
+    .x = columns.x[row],
+    .y = columns.y[row],
+    .z = columns.z[row],
+    .r = columns.r[row],
+    .varZ = columns.varZ[row],
+    .varR = columns.varR[row],
+    .varRPhi = columns.varRPhi[row],
+  };
 }
 
 namespace detail
@@ -263,9 +276,7 @@ namespace detail
 /// r and \a dz from the vertex to the source, crosses \a scatterer before
 /// the source -- the source's own layer, \a own, always -- and if so its
 /// term of `sourceScattering`'s sum in \a term.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex,
-                                                                  const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor,
-                                                                  Scalar& term)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar& term)
 {
   if (barrel) {
     if (!own) {
@@ -303,8 +314,7 @@ namespace detail
 /// from the vertex sets the path through each layer, the lever arm and the
 /// momentum `p = pT g`; the Highland logarithm stays at normal incidence.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex,
-                                                                 LayerID sourceLayer, const PairPoint& source)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
 {
   if (!(source.r > 0.F)) {
     return 0.F;
@@ -322,8 +332,7 @@ template <DetectorLayout Det>
   Scalar term = 0.F;
   for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    if (detail::crossedBeforeSource(table.layers[layer], Detector<Det>::isBarrelLayer(id), id == sourceLayer, vertex, source, dz, slope, absDz, discFactor,
-                                    term)) {
+    if (detail::crossedBeforeSource(table.layers[layer], Detector<Det>::isBarrelLayer(id), id == sourceLayer, vertex, source, dz, slope, absDz, discFactor, term)) {
       sum += term;
     }
   }
@@ -354,8 +363,7 @@ template <DetectorLayout Det>
 /// can cross, so the terms and their order, and
 /// the sum, are the same as with all of them.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() Scalar betweenScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source,
-                                                const PairPoint& target, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
+[[nodiscard]] GPUhdi() Scalar betweenScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
 {
   if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
     return 0.F;
@@ -384,8 +392,7 @@ template <DetectorLayout Det>
         sPassive = scatterer.position * g;
       } else {
         const Scalar dzPassive = scatterer.position - vertex.z;
-        if (!(dzPassive * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) > absDz) ||
-            !(o2::gpu::GPUCommonMath::Abs(dzPassive) < o2::gpu::GPUCommonMath::Abs(dzTarget)) || !(absDz > 0.F)) {
+        if (!(dzPassive * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) > absDz) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) < o2::gpu::GPUCommonMath::Abs(dzTarget)) || !(absDz > 0.F)) {
           continue;
         }
         const Scalar rAt = source.r * dzPassive / dz;
@@ -527,8 +534,7 @@ template <DetectorLayout Det>
 /// the scatterer to the target. Zero if none can, which is how an iteration
 /// knows to skip the term (`IterationParameters::passiveBetween`).
 template <DetectorLayout Det>
-[[nodiscard]] inline double betweenKinkBound(const ScatteringTable<Det>& table, const SearchWindowParams& params, LayerID from, LayerID to,
-                                             const VertexConstraint& vertex)
+[[nodiscard]] inline double betweenKinkBound(const ScatteringTable<Det>& table, const SearchWindowParams& params, LayerID from, LayerID to, const VertexConstraint& vertex)
 {
   if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
     return 0.;
@@ -620,8 +626,7 @@ template <DetectorLayout Det>
 /// `betweenScattering` of the pair from \a from, its source's part, to
 /// \a target, over \a passives (`IterationParameters::betweenPassives`).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar betweenScattering(const BetweenSource<Det>& from, const PairCut& cut, const VertexSeed& vertex,
-                                                                  const PairPoint& target, std::uint64_t passives)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar betweenScattering(const BetweenSource<Det>& from, const PairCut& cut, const VertexSeed& vertex, const PairPoint& target, std::uint64_t passives)
 {
   if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
     return 0.F;
@@ -647,11 +652,9 @@ template <DetectorLayout Det>
 /// hold what the pair tests accept with \a table's scattering, not only the
 /// uniform material the grid's cells are sized with.
 template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex,
-                                                     const ScatteringTable<Det>& table)
+[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const ScatteringTable<Det>& table)
 {
-  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(table, params, from, vertex),
-                              betweenKinkBound<Det>(table, params, from, to, vertex));
+  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(table, params, from, vertex), betweenKinkBound<Det>(table, params, from, to, vertex));
 }
 
 /// The two tests' ingredients for one source, vertex and candidate.
@@ -699,20 +702,21 @@ struct ArcPairGeometry {
 /// never exceeds a curvature the measured one already reached, so the arcsine
 /// argument stays within [-1, 1]. Arc length is even in the curvature, so the
 /// bound's sign does not matter.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() ArcPairGeometry arcPairGeometry(const PairPoint& source, const PairPoint& target, Scalar cross, Scalar chord,
-                                                                         Scalar maxCurvature)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() ArcPairGeometry arcPairGeometry(const PairPoint& source, const PairPoint& target, Scalar cross, Scalar chord, Scalar maxCurvature)
 {
   const Scalar curvatureScale = 2.F / (source.r * target.r * chord);
   const Scalar measured = curvatureScale * cross;
   // Also false for the NaN of a zero chord.
   const bool bounded = !(o2::gpu::GPUCommonMath::Abs(measured) <= maxCurvature);
   const Scalar curvature = bounded ? maxCurvature : measured;
-  return {.curvature = curvature,
-          .curvatureScale = curvatureScale,
-          .chord = chord,
-          .bounded = bounded,
-          .source = arcLengthDerivatives(curvature, source.r),
-          .target = arcLengthDerivatives(curvature, target.r)};
+  return {
+    .curvature = curvature,
+    .curvatureScale = curvatureScale,
+    .chord = chord,
+    .bounded = bounded,
+    .source = arcLengthDerivatives(curvature, source.r),
+    .target = arcLengthDerivatives(curvature, target.r),
+  };
 }
 
 } // namespace detail
@@ -742,16 +746,13 @@ struct PairChord {
 /// the transverse test on every candidate, and GCC keeps the two out of
 /// line once the walk grows past its inlining limits -- a call each per
 /// candidate.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PairTerms transversePairTerms(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source,
-                                                                       Scalar sourceScatter, const PairPoint& target, const PairChord& pair,
-                                                                       Scalar betweenScatter = 0.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairTerms transversePairTerms(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
 {
   const Scalar chord2 = pair.chord2;
   const Scalar chord = pair.chord;
   const Scalar cross = pair.cross;
   // A kink between the two moves P_j against the side of length r_i.
-  const Scalar varCross =
-    (source.r * source.r * (target.varRPhi + betweenScatter)) + (target.r * target.r * source.varRPhi) + (chord2 * (vertex.varTransverse + sourceScatter));
+  const Scalar varCross = (source.r * source.r * (target.varRPhi + betweenScatter)) + (target.r * target.r * source.varRPhi) + (chord2 * (vertex.varTransverse + sourceScatter));
 
   // The circle through the beam point turns where it is farthest from it,
   // opposite the beam point across its centre. The pair lies on one side of
@@ -764,14 +765,15 @@ struct PairChord {
   const Scalar lowR2 = sourceR2 < targetR2 ? sourceR2 : targetR2;
   const Scalar highR2 = sourceR2 < targetR2 ? targetR2 : sourceR2;
 
-  return {.beforeTurn = dot >= lowR2 && dot <= highR2,
-          .curvature = cut.twoRMin * o2::gpu::GPUCommonMath::Abs(cross),
-          .bound = source.r * target.r * chord,
-          .varCurvature = cut.twoRMin * cut.twoRMin * varCross};
+  return {
+    .beforeTurn = dot >= lowR2 && dot <= highR2,
+    .curvature = cut.twoRMin * o2::gpu::GPUCommonMath::Abs(cross),
+    .bound = source.r * target.r * chord,
+    .varCurvature = cut.twoRMin * cut.twoRMin * varCross,
+  };
 }
 
-GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter,
-                                       const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
+GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
 {
   const Scalar dx = pair.dx;
   const Scalar dy = pair.dy;
@@ -805,11 +807,7 @@ GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, con
   const Scalar dz = target.z - source.z;
 
   terms.collinearity2 = collinearity * collinearity;
-  terms.varCollinearity = (source.varR * o2::gpu::CAMath::Square(sourceRadialD)) + (o2::gpu::CAMath::Square(sourceTangentD) * source.varRPhi) +
-                          (o2::gpu::CAMath::Square(targetRadialD) * target.varR) + (o2::gpu::CAMath::Square(targetTangentD) * target.varRPhi) +
-                          ((o2::gpu::CAMath::Square(vertexXD) + o2::gpu::CAMath::Square(vertexYD)) * vertex.varTransverse) +
-                          (o2::gpu::CAMath::Square(geometry.target.value) * source.varZ) + (o2::gpu::CAMath::Square(geometry.source.value) * target.varZ) +
-                          (o2::gpu::CAMath::Square(arcGap) * vertex.varZ) + ((o2::gpu::CAMath::Square(arcGap) + o2::gpu::CAMath::Square(dz)) * sourceScatter) +
+  terms.varCollinearity = (source.varR * o2::gpu::CAMath::Square(sourceRadialD)) + (o2::gpu::CAMath::Square(sourceTangentD) * source.varRPhi) + (o2::gpu::CAMath::Square(targetRadialD) * target.varR) + (o2::gpu::CAMath::Square(targetTangentD) * target.varRPhi) + ((o2::gpu::CAMath::Square(vertexXD) + o2::gpu::CAMath::Square(vertexYD)) * vertex.varTransverse) + (o2::gpu::CAMath::Square(geometry.target.value) * source.varZ) + (o2::gpu::CAMath::Square(geometry.source.value) * target.varZ) + (o2::gpu::CAMath::Square(arcGap) * vertex.varZ) + ((o2::gpu::CAMath::Square(arcGap) + o2::gpu::CAMath::Square(dz)) * sourceScatter) +
                           // A kink between the two moves the target's (s, z) corner against (s_i, z_i - z_v).
                           ((o2::gpu::CAMath::Square(geometry.source.value) + o2::gpu::CAMath::Square(dzSource)) * betweenScatter);
 }
@@ -824,15 +822,11 @@ GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, con
 }
 
 /// Collinear with the vertex within n sigma.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool longitudinalCompatible(const PairCut& cut, const PairTerms& terms)
-{
-  return terms.collinearity2 <= cut.nSigma * cut.nSigma * terms.varCollinearity;
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool longitudinalCompatible(const PairCut& cut, const PairTerms& terms) { return terms.collinearity2 <= cut.nSigma * cut.nSigma * terms.varCollinearity; }
 
 /// Always inlined (see `transversePairTerms`); the longitudinal half stays a
 /// call.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool pairCompatible(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter,
-                                                             const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool pairCompatible(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
 {
   countWork(WorkCounter::kPairTests);
   auto terms = transversePairTerms(cut, vertex, source, sourceScatter, target, pair, betweenScatter);
@@ -850,23 +844,11 @@ GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, con
 
 /// The same three without a computed chord, one pair each: the harness's and
 /// the tests' (StageFunnel, the sink).
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool pairCompatible(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter,
-                                                             const PairPoint& target, Scalar betweenScatter = 0.F)
-{
-  return pairCompatible(cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool pairCompatible(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, Scalar betweenScatter = 0.F) { return pairCompatible(cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter); }
 
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PairTerms transversePairTerms(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source,
-                                                                       Scalar sourceScatter, const PairPoint& target, Scalar betweenScatter = 0.F)
-{
-  return transversePairTerms(cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairTerms transversePairTerms(const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, Scalar betweenScatter = 0.F) { return transversePairTerms(cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter); }
 
-GPUhdi() GPUAlwaysInline() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source,
-                                                         Scalar sourceScatter, const PairPoint& target, Scalar betweenScatter = 0.F)
-{
-  addLongitudinalPairTerms(terms, cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter);
-}
+GPUhdi() GPUAlwaysInline() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, Scalar betweenScatter = 0.F) { addLongitudinalPairTerms(terms, cut, vertex, source, sourceScatter, target, pairChord(source, target), betweenScatter); }
 
 } // namespace o2::gtrk
 

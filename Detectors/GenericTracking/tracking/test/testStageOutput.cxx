@@ -103,7 +103,12 @@ BOOST_AUTO_TEST_CASE(EveryColumnReadsBackThroughItsOwnField)
   // whose pointers were bound in an order other than the declared one reads a
   // wrong value rather than a plausible one.
   const Tracklet sentinel{
-    .source = 0xA1A1A1A1U, .target = 0xB2B2B2B2U, .link = 0xC3C3U, .lambda = std::bit_cast<Scalar>(0x3ED4D4D4U), .phi = std::bit_cast<Scalar>(0xBEE5E5E5U)};
+    .source = 0xA1A1A1A1U,
+    .target = 0xB2B2B2B2U,
+    .link = 0xC3C3U,
+    .lambda = std::bit_cast<Scalar>(0x3ED4D4D4U),
+    .phi = std::bit_cast<Scalar>(0xBEE5E5E5U),
+  };
   const auto memory = pool();
   BoundedColumns<TrackletT> columns;
   columns.setMemoryResource(memory.get());

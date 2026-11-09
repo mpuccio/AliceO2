@@ -113,8 +113,7 @@ struct InitializeTriplets {
 // order); 1 the reverse sweep on \a reverse, one writer per element (the end
 // index is not built yet). A template, as every kernel of a header.
 template <typename = void>
-GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, const Index* permutation, const Index* tripletOffsets, const Index* firstRanges,
-                                                  LayerID forward, LayerID reverse, Index* prefix, std::uint8_t* suffix)
+GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, const Index* permutation, const Index* tripletOffsets, const Index* firstRanges, LayerID forward, LayerID reverse, Index* prefix, std::uint8_t* suffix)
 {
   const bool isForward = blockIdx.y == 0U;
   const LayerID layer = isForward ? forward : reverse;
@@ -198,8 +197,7 @@ struct LayerTriplets {
 /// layers. The prefix's maxima are 32-bit atomics on the scratch end, packed
 /// to bytes at the end.
 template <DetectorLayout Det>
-[[nodiscard]] StageStatus trackletPaths(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const IterationParameters<Det>* parameters,
-                                        const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets, DevicePathBounds& bounds)
+[[nodiscard]] StageStatus trackletPaths(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const IterationParameters<Det>* parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets, const std::uint32_t* offsets, DevicePathBounds& bounds)
 {
   static_assert(maxChainLayers<Det> <= 255U);
   const auto count = sources.size();
@@ -223,9 +221,7 @@ template <DetectorLayout Det>
     const LayerID reverse = order[order.size() - 1U - step];
     const auto forwardSize = static_cast<std::uint32_t>(sources.ranges[forward].size());
     const auto size = forwardSize + static_cast<std::uint32_t>(sources.ranges[reverse].size());
-    algorithms::forEach(runtime, stream, size,
-                        path_detail::MeasurementPaths<Det>{tracklets, offsets, sources, parameters, forward, forwardSize, reverse, prefix.data(),
-                                                           bounds.suffix.data()});
+    algorithms::forEach(runtime, stream, size, path_detail::MeasurementPaths<Det>{tracklets, offsets, sources, parameters, forward, forwardSize, reverse, prefix.data(), bounds.suffix.data()});
   }
   algorithms::forEach(runtime, stream, count, path_detail::PackPrefix{prefix.data(), bounds.prefix.data()});
   return StageStatus::kComplete;
@@ -236,10 +232,7 @@ template <DetectorLayout Det>
 /// \a permutation (the triplet stage's first tracklets, in tracklet order) in
 /// `layerElements`.
 template <DetectorLayout Det>
-[[nodiscard]] StageStatus tripletPaths(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const IterationParameters<Det>* parameters,
-                                       const LayerRowMap<Det>& sources, TrackletConstView tracklets, std::uint32_t trackletCount,
-                                       const std::uint32_t* trackletOffsets, TripletConstView triplets, const std::uint32_t* tripletOffsets,
-                                       const std::uint32_t* permutation, std::uint32_t firstCount, DevicePathBounds& bounds)
+[[nodiscard]] StageStatus tripletPaths(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const IterationParameters<Det>* parameters, const LayerRowMap<Det>& sources, TrackletConstView tracklets, std::uint32_t trackletCount, const std::uint32_t* trackletOffsets, TripletConstView triplets, const std::uint32_t* tripletOffsets, const std::uint32_t* permutation, std::uint32_t firstCount, DevicePathBounds& bounds)
 {
   static_assert(maxChainLayers<Det> <= 255U);
   constexpr auto kBoundaries = static_cast<std::uint32_t>(LayerRowMap<Det>::kLayerCount + 1U);
@@ -256,9 +249,7 @@ template <DetectorLayout Det>
   }
   // Each layer's range of the permutation, worked out in the initialisation's
   // launch, once per boundary.
-  algorithms::forEach(runtime, stream, std::max(trackletCount, kBoundaries),
-                      path_detail::InitializeTriplets<Det>{tracklets, parameters, prefix.data(), bounds.suffix.data(), trackletCount, trackletOffsets,
-                                                           permutation, firstCount, sources.offsets, bounds.layerElements.data()});
+  algorithms::forEach(runtime, stream, std::max(trackletCount, kBoundaries), path_detail::InitializeTriplets<Det>{tracklets, parameters, prefix.data(), bounds.suffix.data(), trackletCount, trackletOffsets, permutation, firstCount, sources.offsets, bounds.layerElements.data()});
   // Grid-stride loops cover skewed layer populations without a count readback.
   const auto shape = launchFor(std::max(1U, firstCount / static_cast<std::uint32_t>(LayerRowMap<Det>::kLayerCount)));
   // Step i of the forward sweep (order[i]) and of the reverse sweep
@@ -272,8 +263,7 @@ template <DetectorLayout Det>
     if (empty(forward) && empty(reverse)) {
       continue;
     }
-    path_detail::tripletPathsKernel<><<<dim3{shape.blocks, 2U}, shape.threads, 0U, nativeStream(runtime, stream)>>>(
-      triplets, permutation, tripletOffsets, bounds.layerElements.data(), forward, reverse, prefix.data(), bounds.suffix.data());
+    path_detail::tripletPathsKernel<><<<dim3{shape.blocks, 2U}, shape.threads, 0U, nativeStream(runtime, stream)>>>(triplets, permutation, tripletOffsets, bounds.layerElements.data(), forward, reverse, prefix.data(), bounds.suffix.data());
     checkLaunch();
   }
   algorithms::forEach(runtime, stream, trackletCount, path_detail::PackPrefix{prefix.data(), bounds.prefix.data()});
@@ -284,16 +274,14 @@ template <DetectorLayout Det>
 /// order, into \a kept with their elements' counts and offsets, and the
 /// bounds' layer ranges of triplets moved to them: the host's filter before
 /// the place (`Tracker::OnPathTriplets`). One readback, the kept count.
-[[nodiscard]] inline StageStatus onPathTriplets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletPathBounds paths,
-                                                const DeviceStageOutput<TripletT>& triplets, DeviceStageOutput<TripletT>& kept, DevicePathBounds& bounds)
+[[nodiscard]] inline StageStatus onPathTriplets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletPathBounds paths, const DeviceStageOutput<TripletT>& triplets, DeviceStageOutput<TripletT>& kept, DevicePathBounds& bounds)
 {
   const auto elements = triplets.elementCount();
   if (!kept.prepare(arena, elements)) {
     return StageStatus::kOutOfMemory;
   }
   const TripletConstView view = triplets.view();
-  algorithms::forEach(runtime, stream, elements + 1U,
-                      path_detail::CountOnPath{view, triplets.offsets().data(), paths, elements, kept.counts().data()});
+  algorithms::forEach(runtime, stream, elements + 1U, path_detail::CountOnPath{view, triplets.offsets().data(), paths, elements, kept.counts().data()});
   auto status = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(kept.counts()).data(), kept.offsets().data(), std::size_t{elements} + 1U);
   if (status != StageStatus::kComplete) {
     return status;
@@ -310,8 +298,7 @@ template <DetectorLayout Det>
   }
   algorithms::forEach(runtime, stream, total, path_detail::GatherTriplets{view, indices.data(), kept.view()});
   kept.setSize(total);
-  algorithms::forEach(runtime, stream, static_cast<std::uint32_t>(bounds.layerElements.size()),
-                      path_detail::LayerTriplets{bounds.layerElements.data(), kept.offsets().data(), bounds.layerTriplets.data()});
+  algorithms::forEach(runtime, stream, static_cast<std::uint32_t>(bounds.layerElements.size()), path_detail::LayerTriplets{bounds.layerElements.data(), kept.offsets().data(), bounds.layerTriplets.data()});
   return StageStatus::kComplete;
 }
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE::glue

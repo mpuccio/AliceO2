@@ -38,12 +38,14 @@ void readSegments(TTree& tree, const char* branch, std::vector<std::vector<HitSe
     auto& segments = events[event];
     segments.reserve(segments.size() + hits.size());
     for (const auto& hit : hits) {
-      segments.push_back({.track = hit.GetTrackID(),
-                          .chip = firstSensor + hit.GetDetectorID(),
-                          .start = {hit.GetStartX(), hit.GetStartY(), hit.GetStartZ()},
-                          .end = {hit.GetX(), hit.GetY(), hit.GetZ()},
-                          .momentum = {hit.GetPx(), hit.GetPy(), hit.GetPz()},
-                          .time = hit.GetTime()});
+      segments.push_back({
+        .track = hit.GetTrackID(),
+        .chip = firstSensor + hit.GetDetectorID(),
+        .start = {hit.GetStartX(), hit.GetStartY(), hit.GetStartZ()},
+        .end = {hit.GetX(), hit.GetY(), hit.GetZ()},
+        .momentum = {hit.GetPx(), hit.GetPy(), hit.GetPz()},
+        .time = hit.GetTime(),
+      });
     }
   }
   tree.ResetBranchAddresses();

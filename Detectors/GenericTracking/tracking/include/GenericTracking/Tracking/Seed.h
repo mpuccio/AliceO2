@@ -303,8 +303,7 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
   T height = T(0);
   T towards = T(0);
   for (int i = 0; i < 3; ++i) {
-    pointFromSurface[i] = static_cast<T>(measurements[0].loc0) * static_cast<T>(firstSurface.axis0[i]) +
-                          static_cast<T>(measurements[0].loc1) * static_cast<T>(firstSurface.axis1[i]);
+    pointFromSurface[i] = static_cast<T>(measurements[0].loc0) * static_cast<T>(firstSurface.axis0[i]) + static_cast<T>(measurements[0].loc1) * static_cast<T>(firstSurface.axis1[i]);
     if (i < 2) {
       pointFromSurface[i] += start[i];
     } else {
@@ -338,9 +337,7 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
   // Gluckstern's equal-spacing form; scattering only widens it.
   const T inv = T(1) / static_cast<T>(n);
   const T curvatureSigma = o2::math_utils::detail::sqrt(sumVarLoc0 * inv) * o2::math_utils::detail::sqrt(T(720) / (static_cast<T>(n) + T(4))) / (arc * arc);
-  seed.qOverPSigma = static_cast<Scalar>(o2::gpu::GPUCommonMath::Max(static_cast<T>(kChainQOverPSpread) * o2::gpu::GPUCommonMath::Abs(curvature),
-                                                                     static_cast<T>(kChainPriorOverResolution) * curvatureSigma) *
-                                         sinTheta / field);
+  seed.qOverPSigma = static_cast<Scalar>(o2::gpu::GPUCommonMath::Max(static_cast<T>(kChainQOverPSpread) * o2::gpu::GPUCommonMath::Abs(curvature), static_cast<T>(kChainPriorOverResolution) * curvatureSigma) * sinTheta / field);
   setDiffuseCovariance(state, seed.qOverPSigma);
   return seed;
 }

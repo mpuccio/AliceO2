@@ -176,12 +176,12 @@ template <DetectorLayout Det>
   auto& inputs = pc.inputs();
   const auto offsets = inputs.get<gsl::span<std::uint32_t>>(columnBinding<Det>(kColGridOffsets).c_str());
   const auto seeds = withVertices ? inputs.get<gsl::span<VertexSeed>>(inputBinding<Det>("vertices").c_str()) : gsl::span<const VertexSeed>{};
-  return {.shipped = inputs.get<MeasurementGeometry<Det>>(inputBinding<Det>("measurementGeometry").c_str()),
-          .columns = makeMeasurementColumns<MessageSpan>([&]<class T>(std::type_identity<T>, MeasurementColumn column) {
-            return inputs.get<gsl::span<T>>(columnBinding<Det>(static_cast<std::uint32_t>(column)).c_str());
-          }),
-          .offsets = {offsets.data(), offsets.size()},
-          .seeds = {seeds.data(), seeds.size()}};
+  return {
+    .shipped = inputs.get<MeasurementGeometry<Det>>(inputBinding<Det>("measurementGeometry").c_str()),
+    .columns = makeMeasurementColumns<MessageSpan>([&]<class T>(std::type_identity<T>, MeasurementColumn column) { return inputs.get<gsl::span<T>>(columnBinding<Det>(static_cast<std::uint32_t>(column)).c_str()); }),
+    .offsets = {offsets.data(), offsets.size()},
+    .seeds = {seeds.data(), seeds.size()},
+  };
 }
 
 /// Detector \a Det's device \a role: gtrk-<det>-<role>.

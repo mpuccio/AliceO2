@@ -148,8 +148,7 @@ class SensorCells
           std::array<double, 3> point{};
           for (std::size_t i = 0; i < 3; ++i) {
             const double radial = (std::cos(angle) * static_cast<double>(surface.axis0[i])) + (std::sin(angle) * static_cast<double>(surface.axis1[i]));
-            point[i] = static_cast<double>(surface.origin[i]) + (static_cast<double>(surface.radius + surface.depth) * radial) +
-                       (v * static_cast<double>(surface.normal[i]));
+            point[i] = static_cast<double>(surface.origin[i]) + (static_cast<double>(surface.radius + surface.depth) * radial) + (v * static_cast<double>(surface.normal[i]));
           }
           add(point);
         }
@@ -163,9 +162,7 @@ class SensorCells
         return point;
       };
       const auto halfY = static_cast<double>(surface.bounds.halfY);
-      const std::array<std::array<double, 3>, 4> corners = {
-        at(-static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), -halfY),
-        at(static_cast<double>(surface.bounds.halfX), halfY), at(-static_cast<double>(surface.bounds.halfX), halfY)};
+      const std::array<std::array<double, 3>, 4> corners = {at(-static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), halfY), at(-static_cast<double>(surface.bounds.halfX), halfY)};
       for (std::size_t i = 0; i < corners.size(); ++i) {
         const auto& a = corners[i];
         const auto& b = corners[(i + 1U) % corners.size()];
@@ -249,10 +246,7 @@ class SensorCells
         // a query's float rounding at a cell's edge cannot miss it.
         const auto phiFirst = static_cast<long>(std::floor((at.phiCentre + at.phiLow) / static_cast<double>(cells.phiBin))) - 1L;
         const auto phiLast = static_cast<long>(std::floor((at.phiCentre + at.phiHigh) / static_cast<double>(cells.phiBin))) + 1L;
-        const auto bin = [&](double second) {
-          return std::clamp(static_cast<long>(std::floor((second - static_cast<double>(cells.secondLow)) / static_cast<double>(cells.secondBin))), 0L,
-                            static_cast<long>(cells.nSecond) - 1L);
-        };
+        const auto bin = [&](double second) { return std::clamp(static_cast<long>(std::floor((second - static_cast<double>(cells.secondLow)) / static_cast<double>(cells.secondBin))), 0L, static_cast<long>(cells.nSecond) - 1L); };
         for (auto s = std::max(bin(at.secondLow) - 1L, 0L); s <= std::min(bin(at.secondHigh) + 1L, static_cast<long>(cells.nSecond) - 1L); ++s) {
           for (auto p = phiFirst; p <= std::min(phiLast, phiFirst + nPhi - 1L); ++p) {
             const auto cell = static_cast<std::size_t>(cells.cellOffset) + static_cast<std::size_t>((s * nPhi) + (((p % nPhi) + nPhi) % nPhi));

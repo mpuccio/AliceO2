@@ -78,15 +78,17 @@ void collectPulls(int trial, const BoundTrackState& state, const BoundTrackState
 
 Measurement measurementFromState(const BoundTrackState& state, std::uint32_t index)
 {
-  return Measurement{.loc0 = state.loc0(),
-                     .loc1 = state.loc1(),
-                     .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
-                     .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
-                     .varLoc0 = 2.5e-6F,
-                     .covLoc01 = 0.F,
-                     .varLoc1 = 2.5e-6F,
-                     .clusterIndex = index,
-                     .surface = state.surface};
+  return Measurement{
+    .loc0 = state.loc0(),
+    .loc1 = state.loc1(),
+    .timePS = test::toyTimeBox(test::kToyTrackTimeNS).start,
+    .widthPS = test::toyTimeBox(test::kToyTrackTimeNS).width,
+    .varLoc0 = 2.5e-6F,
+    .covLoc01 = 0.F,
+    .varLoc1 = 2.5e-6F,
+    .clusterIndex = index,
+    .surface = state.surface,
+  };
 }
 
 struct SyntheticChain {
@@ -140,12 +142,8 @@ double transverseRadius2At(const Propagator& prop, const BoundTrackState& state,
 BOOST_AUTO_TEST_CASE(ThreePointSeedRecoversTheGeneratingHelix)
 {
   const SyntheticChain chain;
-  const auto seed = makeThreePointSeed<Scalar>(chain.propagator, chain.measurements[0], chain.measurements[1], chain.measurements[2],
-                                               chain.tracking.surface(chain.measurements[0].surface), chain.tracking.surface(chain.measurements[1].surface),
-                                               chain.tracking.surface(chain.measurements[2].surface));
-  const auto exact = makeThreePointSeed<ExactScalar>(
-    chain.propagator, chain.measurements[0], chain.measurements[1], chain.measurements[2], chain.tracking.surface(chain.measurements[0].surface),
-    chain.tracking.surface(chain.measurements[1].surface), chain.tracking.surface(chain.measurements[2].surface));
+  const auto seed = makeThreePointSeed<Scalar>(chain.propagator, chain.measurements[0], chain.measurements[1], chain.measurements[2], chain.tracking.surface(chain.measurements[0].surface), chain.tracking.surface(chain.measurements[1].surface), chain.tracking.surface(chain.measurements[2].surface));
+  const auto exact = makeThreePointSeed<ExactScalar>(chain.propagator, chain.measurements[0], chain.measurements[1], chain.measurements[2], chain.tracking.surface(chain.measurements[0].surface), chain.tracking.surface(chain.measurements[1].surface), chain.tracking.surface(chain.measurements[2].surface));
 
   BOOST_TEST(std::abs(seed.loc0() - chain.truth[0].loc0()) < 1e-6F);
   BOOST_TEST(std::abs(seed.loc1() - chain.truth[0].loc1()) < 1e-6F);
@@ -259,8 +257,7 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
   truth[0].par[kTheta] = 0.048F;
   truth[0].par[kQOverP] = 0.05F;
   truth[0].surface = start;
-  const double cosIncidence = std::sin(0.048) * (std::cos(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[0]) +
-                                                 std::sin(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[1]));
+  const double cosIncidence = std::sin(0.048) * (std::cos(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[0]) + std::sin(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[1]));
   BOOST_TEST_REQUIRE(std::abs(cosIncidence) < 0.05);
   BOOST_TEST_REQUIRE(std::abs(cosIncidence) > static_cast<double>(propagator.minAbsCosIncidence));
 
@@ -438,8 +435,7 @@ struct BarrelChain {
         surfaceToGlobal(from, truth[layer - 1].loc0(), truth[layer - 1].loc1(), a);
         surfaceToGlobal(tracking.surface(id), truth[layer].loc0(), truth[layer].loc1(), b);
         Scalar variance = 0.F;
-        if (!detail::applyEnergyLoss(propagator, rho * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), PropagationDirection::kForward, truth[layer],
-                                     variance)) {
+        if (!detail::applyEnergyLoss(propagator, rho * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), PropagationDirection::kForward, truth[layer], variance)) {
           return;
         }
       }
@@ -491,8 +487,7 @@ BOOST_AUTO_TEST_CASE(ChainSeedRecoversTheGeneratingHelix)
     {
       BOOST_REQUIRE(chain.built);
       const auto scalarResult = makeChainSeed<Scalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
-      const auto exactResult =
-        makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+      const auto exactResult = makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
       const auto& reference = scalarResult.state;
       const auto& exact = exactResult.state;
       const auto& truth = chain.truth[0];
@@ -730,10 +725,7 @@ BOOST_AUTO_TEST_CASE(TheEnergyLossIsO2s)
 {
   // The Bethe-Bloch, from slow protons to ultra-relativistic electrons.
   for (const float betaGamma : {0.3F, 0.7F, 1.F, 3.5F, 10.F, 100.F, 1000.F, 1e4F}) {
-    BOOST_TEST_CONTEXT("beta gamma " << betaGamma)
-    {
-      BOOST_TEST(betheBlochSolid(betaGamma) == o2::track::BetheBlochSolidOpt<float>(betaGamma), boost::test_tools::tolerance(1e-6F));
-    }
+    BOOST_TEST_CONTEXT("beta gamma " << betaGamma) { BOOST_TEST(betheBlochSolid(betaGamma) == o2::track::BetheBlochSolidOpt<float>(betaGamma), boost::test_tools::tolerance(1e-6F)); }
   }
   // A step's loss against O2's own correction of a pion: outward loses
   // (x rho < 0), inward regains, the thick step in sub-steps; q/p scales by
@@ -744,8 +736,7 @@ BOOST_AUTO_TEST_CASE(TheEnergyLossIsO2s)
       BOOST_TEST_CONTEXT("p " << momentum << " GeV, x rho " << xRho)
       {
         // At tan(lambda) = 0, O2's q/pT is our q/p.
-        o2::track::TrackParCov o2Track(0.F, 0.F, {0.F, 0.F, 0.F, 0.F, 1.F / momentum},
-                                       {1e-4F, 0.F, 1e-4F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 0.F, 1e-4F});
+        o2::track::TrackParCov o2Track(0.F, 0.F, {0.F, 0.F, 0.F, 0.F, 1.F / momentum}, {1e-4F, 0.F, 1e-4F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 0.F, 1e-4F});
         o2Track.setPID(o2::track::PID::Pion);
         const float variance = o2Track.getSigma1Pt2();
         BOOST_REQUIRE(o2Track.correctForMaterial(0.F, xRho));

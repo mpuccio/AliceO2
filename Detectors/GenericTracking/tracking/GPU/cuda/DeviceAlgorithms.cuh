@@ -165,8 +165,7 @@ template <typename Call>
 /// `bool(std::uint32_t)` -- holds, in increasing order, into \a output
 /// (\a count entries on \a outputEnd); \a selected is how many, read back.
 template <typename Predicate>
-[[nodiscard]] StageStatus selectIndices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, std::uint32_t count, const Predicate& predicate,
-                                        DeviceSpan<std::uint32_t>& output, std::uint32_t& selected, ArenaEnd outputEnd = ArenaEnd::kBase)
+[[nodiscard]] StageStatus selectIndices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, std::uint32_t count, const Predicate& predicate, DeviceSpan<std::uint32_t>& output, std::uint32_t& selected, ArenaEnd outputEnd = ArenaEnd::kBase)
 {
   selected = 0U;
   detail::requireItems(count);
@@ -180,17 +179,14 @@ template <typename Predicate>
   DeviceSpan<std::uint32_t> indices;
   DeviceSpan<std::uint8_t> flags;
   DeviceSpan<std::uint32_t> selectedCount;
-  if (!indices.allocate(arena, count, ArenaEnd::kScratch) || !flags.allocate(arena, count, ArenaEnd::kScratch) ||
-      !selectedCount.allocate(arena, 1U, ArenaEnd::kScratch)) {
+  if (!indices.allocate(arena, count, ArenaEnd::kScratch) || !flags.allocate(arena, count, ArenaEnd::kScratch) || !selectedCount.allocate(arena, 1U, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
   const auto native = nativeStream(runtime, stream);
   const auto shape = launchFor(count);
   detail::flagIndicesKernel<<<shape.blocks, shape.threads, 0U, native>>>(predicate, count, indices.data(), flags.data());
   checkLaunch();
-  const auto flagged = detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceSelect::Flagged(temporary, bytes, indices.data(), flags.data(), output.data(), selectedCount.data(), static_cast<int>(count), native);
-  });
+  const auto flagged = detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSelect::Flagged(temporary, bytes, indices.data(), flags.data(), output.data(), selectedCount.data(), static_cast<int>(count), native); });
   if (flagged != StageStatus::kComplete) {
     return flagged;
   }
@@ -210,16 +206,13 @@ template <typename T>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceScan::ExclusiveSum(temporary, bytes, input, output, static_cast<int>(items), native);
-  });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::ExclusiveSum(temporary, bytes, input, output, static_cast<int>(items), native); });
 }
 
 /// `output[i]` = \a op over `input[0..i]`, over \a items entries; queued on
 /// \a stream, nothing read back.
 template <typename T, typename Op>
-[[nodiscard]] StageStatus inclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::size_t items,
-                                        const Op& op)
+[[nodiscard]] StageStatus inclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::size_t items, const Op& op)
 {
   detail::requireItems(items);
   if (items == 0U) {
@@ -227,37 +220,29 @@ template <typename T, typename Op>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceScan::InclusiveScan(temporary, bytes, input, output, op, static_cast<int>(items), native);
-  });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::InclusiveScan(temporary, bytes, input, output, op, static_cast<int>(items), native); });
 }
 
 /// Sort \a count pairs by \a keys' low \a endBit bits, stably: \a keys into
 /// \a sortedKeys, \a values into \a sortedValues. Queued on \a stream.
 template <typename Key, typename Value>
-[[nodiscard]] StageStatus sortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, const Value* values,
-                                    Value* sortedValues, std::uint32_t count, int endBit)
+[[nodiscard]] StageStatus sortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, const Value* values, Value* sortedValues, std::uint32_t count, int endBit)
 {
   detail::requireItems(count);
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceRadixSort::SortPairs(temporary, bytes, keys, sortedKeys, values, sortedValues, static_cast<int>(count), 0, endBit, native);
-  });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortPairs(temporary, bytes, keys, sortedKeys, values, sortedValues, static_cast<int>(count), 0, endBit, native); });
 }
 
 /// Sort \a count keys by their low \a endBit bits, stably, \a keys into
 /// \a sortedKeys. Queued on \a stream.
 template <typename Key>
-[[nodiscard]] StageStatus sortKeys(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, std::uint32_t count,
-                                   int endBit)
+[[nodiscard]] StageStatus sortKeys(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, std::uint32_t count, int endBit)
 {
   detail::requireItems(count);
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceRadixSort::SortKeys(temporary, bytes, keys, sortedKeys, static_cast<int>(count), 0, endBit, native);
-  });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortKeys(temporary, bytes, keys, sortedKeys, static_cast<int>(count), 0, endBit, native); });
 }
 
 /// Sort the items of every segment [\a begin[s], \a end[s]) by key, stably,
@@ -265,8 +250,7 @@ template <typename Key>
 /// buffer's `Current()` holds the sorted items. The library chooses how by
 /// the segments' lengths. Queued on \a stream.
 template <typename Key, typename Value, typename Offsets>
-[[nodiscard]] StageStatus segmentedStableSortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, cubapi::DoubleBuffer<Key>& keys,
-                                                   cubapi::DoubleBuffer<Value>& values, std::uint32_t items, std::uint32_t segments, Offsets begin, Offsets end)
+[[nodiscard]] StageStatus segmentedStableSortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, cubapi::DoubleBuffer<Key>& keys, cubapi::DoubleBuffer<Value>& values, std::uint32_t items, std::uint32_t segments, Offsets begin, Offsets end)
 {
   detail::requireItems(items);
   detail::requireItems(segments);
@@ -275,9 +259,7 @@ template <typename Key, typename Value, typename Offsets>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) {
-    return cubapi::DeviceSegmentedSort::StableSortPairs(temporary, bytes, keys, values, static_cast<int>(items), static_cast<int>(segments), begin, end, native);
-  });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSegmentedSort::StableSortPairs(temporary, bytes, keys, values, static_cast<int>(items), static_cast<int>(segments), begin, end, native); });
 }
 
 /// What a sweep to a fixed point ended with.
@@ -297,8 +279,7 @@ struct SweepResult {
 /// changing passes is a broken invariant of the caller's -- its fixed point
 /// is known to be that close -- and throws std::logic_error.
 template <std::size_t Flags, typename Sweep>
-[[nodiscard]] SweepResult<Flags> sweepToFixedPoint(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, std::uint32_t maxChangingSweeps,
-                                                   const Sweep& sweep)
+[[nodiscard]] SweepResult<Flags> sweepToFixedPoint(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, std::uint32_t maxChangingSweeps, const Sweep& sweep)
 {
   static_assert(Flags >= 1U, "a sweep needs its change flag");
   SweepResult<Flags> result;

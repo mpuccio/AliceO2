@@ -74,8 +74,7 @@ struct LocalCluster {
 /// patterns of the group and invalid ones as it goes. Throws
 /// std::runtime_error for a pattern ID beyond \a dictionary; patterns that
 /// run out before a cluster's fail gsl::span's bounds check.
-[[nodiscard]] std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns,
-                                                      const o2::itsmft::TopologyDictionary& dictionary);
+[[nodiscard]] std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary);
 
 /// How long a detector's readout frames are.
 struct ReadoutFrames {
@@ -86,8 +85,7 @@ struct ReadoutFrames {
 /// the timeframe's first orbit, which a cluster's time is measured from.
 /// Throws std::runtime_error if a ROF does not cover its clusters exactly and
 /// in order, or starts before the timeframe.
-[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames,
-                                              std::uint32_t tfFirstOrbit);
+[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit);
 
 /// The readout frames as \a rofs lay them out: O2 writes one record per frame
 /// of the timeframe, empty or not, so their spacing is the frame length. That
@@ -103,8 +101,7 @@ namespace detail
 /// `toClusters` for any format's readout frames, our sensor's origin at
 /// \a xOrigin in ALICE's local x.
 template <typename ROFRecord>
-[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const ROFRecord> rofs, ReadoutFrames frames,
-                                              std::uint32_t tfFirstOrbit, double xOrigin)
+[[nodiscard]] std::vector<Cluster> toClusters(std::span<const LocalCluster> local, std::span<const ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit, double xOrigin)
 {
   if (frames.lengthBC <= 0) {
     throw std::runtime_error("readout frame length not set");

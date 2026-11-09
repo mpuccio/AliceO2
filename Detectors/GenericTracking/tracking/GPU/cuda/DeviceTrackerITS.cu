@@ -27,9 +27,6 @@
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 {
 
-std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block)
-{
-  return std::make_unique<DeviceTrackerImpl<detectors::ITS, o2::base::MatLayerCylSet>>(runtime, block);
-}
+std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceTrackerImpl<detectors::ITS, o2::base::MatLayerCylSet>>(runtime, block); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

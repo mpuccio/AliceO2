@@ -154,12 +154,14 @@ ReferenceSegment referenceSegment(const ReferenceDual& curvature, const Referenc
   const ReferenceDual sine = ReferenceDual{1.} / referenceSqrt(ReferenceDual{1.} + cotangent * cotangent);
   const ReferenceDual cosine = cotangent * sine;
   const ReferenceDual index = ReferenceDual{1.} / (angleCotangent * sine * sine + cosine * cosine);
-  return {.bendingAngle = ReferenceDual{2.} * halfAngle,
-          .transverseArcLength = arc,
-          .cotangentTheta = cotangent,
-          .sineTheta = sine,
-          .cosineTheta = cosine,
-          .index = index};
+  return {
+    .bendingAngle = ReferenceDual{2.} * halfAngle,
+    .transverseArcLength = arc,
+    .cotangentTheta = cotangent,
+    .sineTheta = sine,
+    .cosineTheta = cosine,
+    .index = index,
+  };
 }
 
 struct ReferenceGeometry {
@@ -195,18 +197,14 @@ ReferenceGeometry referenceGeometry(const std::array<PairPoint, 3>& measurements
   const ReferenceDual theta01 = referenceAtan2(first.transverseArcLength, dz01);
   const ReferenceDual theta12 = referenceAtan2(second.transverseArcLength, dz12);
   const ReferenceDual phi = ReferenceDual{0.5} * (first.bendingAngle * first.index + second.bendingAngle * second.index);
-  const ReferenceDual theta =
-    theta12 - theta01 + (ReferenceDual{1.} - second.index) * second.cotangentTheta - (ReferenceDual{1.} - first.index) * first.cotangentTheta;
-  const ReferenceDual rhoPhi =
-    ReferenceDual{-0.5} * (first.transverseArcLength * first.index / first.sineTheta + second.transverseArcLength * second.index / second.sineTheta);
+  const ReferenceDual theta = theta12 - theta01 + (ReferenceDual{1.} - second.index) * second.cotangentTheta - (ReferenceDual{1.} - first.index) * first.cotangentTheta;
+  const ReferenceDual rhoPhi = ReferenceDual{-0.5} * (first.transverseArcLength * first.index / first.sineTheta + second.transverseArcLength * second.index / second.sineTheta);
   ReferenceDual rhoTheta;
   const double maximumHalfSine = 0.5 * std::abs(transverseCurvature.value) * std::max(length01.value, length12.value);
   if (maximumHalfSine < 1.e-4) {
     rhoTheta = transverseCurvature * (length12 * length12 * second.cosineTheta - length01 * length01 * first.cosineTheta) / ReferenceDual{12.};
   } else {
-    rhoTheta = ((ReferenceDual{1.} - first.index) * first.cotangentTheta / first.sineTheta -
-                (ReferenceDual{1.} - second.index) * second.cotangentTheta / second.sineTheta) /
-               transverseCurvature;
+    rhoTheta = ((ReferenceDual{1.} - first.index) * first.cotangentTheta / first.sineTheta - (ReferenceDual{1.} - second.index) * second.cotangentTheta / second.sineTheta) / transverseCurvature;
   }
   return {.theta = theta, .phi = phi, .rhoTheta = rhoTheta, .rhoPhi = rhoPhi};
 }
@@ -226,9 +224,11 @@ ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar a
   const Scalar dz = points[2].z - points[0].z;
   const Scalar transverse2 = dx * dx + dy * dy;
   const Scalar sineTheta2 = transverse2 / (transverse2 + dz * dz);
-  ReferenceFactor result{.psi = {.theta = static_cast<Scalar>(geometry.theta.value), .phi = static_cast<Scalar>(geometry.phi.value)},
-                         .rho = {.theta = static_cast<Scalar>(geometry.rhoTheta.value), .phi = static_cast<Scalar>(geometry.rhoPhi.value)},
-                         .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / sineTheta2}};
+  ReferenceFactor result{
+    .psi = {.theta = static_cast<Scalar>(geometry.theta.value), .phi = static_cast<Scalar>(geometry.phi.value)},
+    .rho = {.theta = static_cast<Scalar>(geometry.rhoTheta.value), .phi = static_cast<Scalar>(geometry.rhoPhi.value)},
+    .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / sineTheta2},
+  };
   for (std::size_t hit = 0; hit < points.size(); ++hit) {
     const Scalar inverseR = 1.F / points[hit].r;
     const Scalar radialX = points[hit].x * inverseR;
@@ -236,17 +236,12 @@ ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar a
     const Scalar tangentX = -points[hit].y * inverseR;
     const Scalar tangentY = points[hit].x * inverseR;
     const std::size_t coordinate = 3U * hit;
-    const Scalar thetaX =
-      static_cast<Scalar>(geometry.theta.derivative[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate]);
-    const Scalar thetaY =
-      static_cast<Scalar>(geometry.theta.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 1U]);
-    const Scalar thetaZ =
-      static_cast<Scalar>(geometry.theta.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 2U]);
+    const Scalar thetaX = static_cast<Scalar>(geometry.theta.derivative[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate]);
+    const Scalar thetaY = static_cast<Scalar>(geometry.theta.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 1U]);
+    const Scalar thetaZ = static_cast<Scalar>(geometry.theta.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 2U]);
     const Scalar phiX = static_cast<Scalar>(geometry.phi.derivative[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate]);
-    const Scalar phiY =
-      static_cast<Scalar>(geometry.phi.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 1U]);
-    const Scalar phiZ =
-      static_cast<Scalar>(geometry.phi.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 2U]);
+    const Scalar phiY = static_cast<Scalar>(geometry.phi.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 1U]);
+    const Scalar phiZ = static_cast<Scalar>(geometry.phi.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 2U]);
     const Scalar thetaRadial = thetaX * radialX + thetaY * radialY;
     const Scalar phiRadial = phiX * radialX + phiY * radialY;
     const Scalar thetaTangent = thetaX * tangentX + thetaY * tangentY;
@@ -311,8 +306,7 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
         gradient[2U * triplet + angle] = {dX * radialX + dY * radialY, -dX * radialY + dY * radialX, dZ};
       }
     }
-    const std::array<double, 3> variance{static_cast<double>(points[hit].varR), static_cast<double>(points[hit].varRPhi),
-                                         static_cast<double>(points[hit].varZ)};
+    const std::array<double, 3> variance{static_cast<double>(points[hit].varR), static_cast<double>(points[hit].varRPhi), static_cast<double>(points[hit].varZ)};
     for (std::size_t row = 0; row < 4U; ++row) {
       for (std::size_t column = 0; column < 4U; ++column) {
         for (std::size_t axis = 0; axis < 3U; ++axis) {
@@ -360,19 +354,18 @@ PairPoint helixPoint(double curvature, double arc, double cotangentTheta)
   const double turn = curvature * arc;
   const double x = std::sin(turn) / curvature;
   const double y = (1. - std::cos(turn)) / curvature;
-  return {.x = static_cast<Scalar>(x),
-          .y = static_cast<Scalar>(y),
-          .z = static_cast<Scalar>(cotangentTheta * arc),
-          .r = static_cast<Scalar>(std::hypot(x, y)),
-          .varZ = 4.e-6F,
-          .varR = 2.e-6F,
-          .varRPhi = 3.e-6F};
+  return {
+    .x = static_cast<Scalar>(x),
+    .y = static_cast<Scalar>(y),
+    .z = static_cast<Scalar>(cotangentTheta * arc),
+    .r = static_cast<Scalar>(std::hypot(x, y)),
+    .varZ = 4.e-6F,
+    .varR = 2.e-6F,
+    .varRPhi = 3.e-6F,
+  };
 }
 
-std::array<PairPoint, 3> helixPoints(double curvature, double cotangentTheta, const std::array<double, 3>& arcs)
-{
-  return {helixPoint(curvature, arcs[0], cotangentTheta), helixPoint(curvature, arcs[1], cotangentTheta), helixPoint(curvature, arcs[2], cotangentTheta)};
-}
+std::array<PairPoint, 3> helixPoints(double curvature, double cotangentTheta, const std::array<double, 3>& arcs) { return {helixPoint(curvature, arcs[0], cotangentTheta), helixPoint(curvature, arcs[1], cotangentTheta), helixPoint(curvature, arcs[2], cotangentTheta)}; }
 
 void checkClose(Scalar actual, Scalar expected, Scalar relativeTolerance, Scalar absoluteTolerance = 0.F)
 {
@@ -519,8 +512,7 @@ BOOST_AUTO_TEST_CASE(AdjacentFitOfAnExactHelix)
 {
   constexpr double kCurvature = 0.008;
   constexpr double kCotangent = 1.2;
-  const std::array<PairPoint, 4> points{helixPoint(kCurvature, 3., kCotangent), helixPoint(kCurvature, 7., kCotangent), helixPoint(kCurvature, 12., kCotangent),
-                                        helixPoint(kCurvature, 18., kCotangent)};
+  const std::array<PairPoint, 4> points{helixPoint(kCurvature, 3., kCotangent), helixPoint(kCurvature, 7., kCotangent), helixPoint(kCurvature, 12., kCotangent), helixPoint(kCurvature, 18., kCotangent)};
   TripletFitResult adjacent;
   BOOST_REQUIRE(fitAdjacentTriplets(points[0], points[1], points[2], points[3], 2.e-6F, 2.e-6F, adjacent));
   TripletFitResult first;

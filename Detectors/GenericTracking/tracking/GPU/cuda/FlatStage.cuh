@@ -299,8 +299,7 @@ struct AddCounts {
 /// scope: a run of several chunks holds its records twice until that scope
 /// closes. Statuses as a `GpuStage` run's.
 template <template <template <class> class> class S, typename Adapter>
-[[nodiscard]] StageStatus runFlat(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const std::uint32_t* listed, std::uint32_t listedCount,
-                                  Adapter adapter, DeviceStageOutput<S>& output, FlatRunReport& report, const FlatOptions& options = {})
+[[nodiscard]] StageStatus runFlat(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const std::uint32_t* listed, std::uint32_t listedCount, Adapter adapter, DeviceStageOutput<S>& output, FlatRunReport& report, const FlatOptions& options = {})
 {
   using Index = typename DeviceStageOutput<S>::Index;
   using Record = typename DeviceStageOutput<S>::Record;
@@ -308,8 +307,7 @@ template <template <template <class> class> class S, typename Adapter>
   const Index elements = output.elementCount();
   // CUB's item counts are ints: past them the run ends with kIndexOverflow,
   // as a `GpuStage` run's.
-  if (std::size_t{elements} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
-      std::size_t{listedCount} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+  if (std::size_t{elements} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max()) || std::size_t{listedCount} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
     return StageStatus::kIndexOverflow;
   }
   auto* counts = output.counts().data();
@@ -320,8 +318,7 @@ template <template <template <class> class> class S, typename Adapter>
   DeviceSpan<std::uint32_t> candidateCounts;
   DeviceSpan<std::uint32_t> offsets;
   DeviceSpan<detail::FlatWords> words;
-  if (!candidateCounts.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) || !offsets.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) ||
-      !words.allocate(arena, 1U, ArenaEnd::kScratch)) {
+  if (!candidateCounts.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) || !offsets.allocate(arena, std::size_t{listedCount} + 1U, ArenaEnd::kScratch) || !words.allocate(arena, 1U, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
   detail::FlatWords* const device = words.data();
@@ -397,8 +394,7 @@ template <template <template <class> class> class S, typename Adapter>
     DeviceSpan<CandidatePair> pairs;
     DeviceSpan<std::uint32_t> runBounds;
     const std::size_t boundCount = std::max<std::size_t>(sourceCount, 1U);
-    if (!pairs.allocate(arena, std::max<std::size_t>(b - a, 1U), ArenaEnd::kScratch) || !runBounds.allocate(arena, 2U * boundCount, ArenaEnd::kScratch) ||
-        !adapter.beginChunk(arena, sourceBegin, sourceCount, b - a)) {
+    if (!pairs.allocate(arena, std::max<std::size_t>(b - a, 1U), ArenaEnd::kScratch) || !runBounds.allocate(arena, 2U * boundCount, ArenaEnd::kScratch) || !adapter.beginChunk(arena, sourceBegin, sourceCount, b - a)) {
       return StageStatus::kOutOfMemory;
     }
     std::uint32_t* const runStart = runBounds.data();
@@ -414,8 +410,7 @@ template <template <template <class> class> class S, typename Adapter>
     DeviceSpan<std::uint32_t> selected;
     std::uint32_t selectedCount = 0U;
     if (b > a) {
-      status = algorithms::selectIndices(runtime, arena, stream, b - a, detail::TestPairs<Adapter>{adapter, pairs.data()}, selected, selectedCount,
-                                         ArenaEnd::kScratch);
+      status = algorithms::selectIndices(runtime, arena, stream, b - a, detail::TestPairs<Adapter>{adapter, pairs.data()}, selected, selectedCount, ArenaEnd::kScratch);
       if (status != StageStatus::kComplete) {
         return status;
       }
@@ -425,12 +420,8 @@ template <template <template <class> class> class S, typename Adapter>
     if (!accepted.allocate(arena, selectedCount, ArenaEnd::kBase)) {
       return StageStatus::kOutOfMemory;
     }
-    algorithms::forEach(runtime, stream, selectedCount,
-                        detail::EmitPairs<S, Adapter>{adapter, listed, pairs.data(), selectedCount > 0U ? selected.data() : nullptr, selectedCount, sourceBegin,
-                                                      accepted.view(), runStart, runEnd});
-    algorithms::forEach(runtime, stream, sourceCount,
-                        detail::AddCounts{listed, sourceBegin, runStart, runEnd, counts, &device->overflow,
-                                          static_cast<std::uint32_t>(DeviceStageOutput<S>::kMaxPerElement)});
+    algorithms::forEach(runtime, stream, selectedCount, detail::EmitPairs<S, Adapter>{adapter, listed, pairs.data(), selectedCount > 0U ? selected.data() : nullptr, selectedCount, sourceBegin, accepted.view(), runStart, runEnd});
+    algorithms::forEach(runtime, stream, sourceCount, detail::AddCounts{listed, sourceBegin, runStart, runEnd, counts, &device->overflow, static_cast<std::uint32_t>(DeviceStageOutput<S>::kMaxPerElement)});
     chunks.adopt(accepted);
     a = b;
     if (total == 0U) {

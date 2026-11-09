@@ -97,22 +97,19 @@ template <DetectorLayout Det>
 {
   auto sensors = placeChips<Det>();
   if (sensors.size() != static_cast<std::size_t>(Det::nSensors)) {
-    throw std::runtime_error(std::string{Det::name} + ": " + std::to_string(sensors.size()) + " chips in the geometry, " + std::to_string(Det::nSensors) +
-                             " in the layout");
+    throw std::runtime_error(std::string{Det::name} + ": " + std::to_string(sensors.size()) + " chips in the geometry, " + std::to_string(Det::nSensors) + " in the layout");
   }
   std::vector<int> counts(static_cast<std::size_t>(Detector<Det>::nLayers), 0);
   for (const auto& sensor : sensors) {
     if (sensor.layer >= counts.size()) {
-      throw std::runtime_error(std::string{Det::name} + ": a chip on layer " + std::to_string(sensor.layer) + ", beyond the layout's " +
-                               std::to_string(Detector<Det>::nLayers) + " layers");
+      throw std::runtime_error(std::string{Det::name} + ": a chip on layer " + std::to_string(sensor.layer) + ", beyond the layout's " + std::to_string(Detector<Det>::nLayers) + " layers");
     }
     ++counts[sensor.layer];
   }
   for (std::size_t layer = 0; layer < counts.size(); ++layer) {
     const int stated = Detector<Det>::sensorCount(static_cast<LayerID>(layer));
     if (counts[layer] != stated) {
-      throw std::runtime_error(std::string{Det::name} + ": layer " + std::to_string(layer) + " has " + std::to_string(counts[layer]) +
-                               " chips in the geometry, " + std::to_string(stated) + " in the layout");
+      throw std::runtime_error(std::string{Det::name} + ": layer " + std::to_string(layer) + " has " + std::to_string(counts[layer]) + " chips in the geometry, " + std::to_string(stated) + " in the layout");
     }
   }
   return sensors;

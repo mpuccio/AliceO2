@@ -138,8 +138,7 @@ bool matchesHost(const StageOutput<S>& host, const StageOutput<S>& device)
   return comparison.identical();
 #else
   constexpr double kTolerance = 1.e-4;
-  return comparison.sameElements && comparison.elementsWithOtherCount == 0U && comparison.elementsReordered == 0U &&
-         std::ranges::all_of(comparison.maxAbsDifference, [&](double difference) { return difference <= kTolerance; });
+  return comparison.sameElements && comparison.elementsWithOtherCount == 0U && comparison.elementsReordered == 0U && std::ranges::all_of(comparison.maxAbsDifference, [&](double difference) { return difference <= kTolerance; });
 #endif
 }
 
@@ -175,12 +174,7 @@ struct Options {
   bool followEnd = false;
 };
 
-std::string describe(const Options& options)
-{
-  return std::string{options.source == VertexSource::kBeamLine ? "beam line" : "vertex list"} + ", width " + std::to_string(options.width) + ", shared " +
-         std::to_string(options.sharedInnermost) + (options.extension ? ", follow" : ", no follow") +
-         (options.kinkSigma > 1. ? ", kink allowance " + std::to_string(options.kinkSigma) + " sigma" : "") + (options.followEnd ? ", end again" : "");
-}
+std::string describe(const Options& options) { return std::string{options.source == VertexSource::kBeamLine ? "beam line" : "vertex list"} + ", width " + std::to_string(options.width) + ", shared " + std::to_string(options.sharedInnermost) + (options.extension ? ", follow" : ", no follow") + (options.kinkSigma > 1. ? ", kink allowance " + std::to_string(options.kinkSigma) + " sigma" : "") + (options.followEnd ? ", end again" : ""); }
 
 std::unique_ptr<Host> makeHost(const Options& options)
 {
@@ -211,16 +205,9 @@ std::vector<IterationParameters<Det>> parametersOf(const Host& host)
   return parameters;
 }
 
-void configure(DeviceTracker<Det, UniformMaterial>& device, const Host& host)
-{
-  BOOST_REQUIRE((device.configureRun(parametersOf(host), trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
-}
+void configure(DeviceTracker<Det, UniformMaterial>& device, const Host& host) { BOOST_REQUIRE((device.configureRun(parametersOf(host), trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete)); }
 
-[[maybe_unused]] bool sameProposal(const FollowProposal<maxChainLayers<Det>>& lhs, const FollowProposal<maxChainLayers<Det>>& rhs)
-{
-  return lhs.outwardCount == rhs.outwardCount && lhs.inwardCount == rhs.inwardCount && std::ranges::equal(lhs.outward, rhs.outward) &&
-         std::ranges::equal(lhs.inward, rhs.inward) && lhs.replacedEnd == rhs.replacedEnd;
-}
+[[maybe_unused]] bool sameProposal(const FollowProposal<maxChainLayers<Det>>& lhs, const FollowProposal<maxChainLayers<Det>>& rhs) { return lhs.outwardCount == rhs.outwardCount && lhs.inwardCount == rhs.inwardCount && std::ranges::equal(lhs.outward, rhs.outward) && std::ranges::equal(lhs.inward, rhs.inward) && lhs.replacedEnd == rhs.replacedEnd; }
 
 /// The same for tracks: byte for byte in the deterministic build, the states field
 /// by field. With fast math a chi2's last bits may reorder ties, so the same
@@ -290,8 +277,7 @@ Totals compare(DeviceTracker<Det, UniformMaterial>& device, const Options& optio
 {
   const Fixture fixture{hits(options.kinkSigma > 1.), kDurationNS};
   const auto vertexList = trackVertices();
-  const std::span<const VertexSeed> vertices =
-    options.source == VertexSource::kVertexList ? std::span<const VertexSeed>{vertexList} : std::span<const VertexSeed>{};
+  const std::span<const VertexSeed> vertices = options.source == VertexSource::kVertexList ? std::span<const VertexSeed>{vertexList} : std::span<const VertexSeed>{};
   const auto tracker = makeHost(options);
   configure(device, *tracker);
   const auto plan = tracker->planTimeframe(*fixture.frame, vertices, options.width, 0.);
@@ -313,8 +299,7 @@ Totals compare(DeviceTracker<Det, UniformMaterial>& device, const Options& optio
     BOOST_TEST_CONTEXT("iteration " << iteration.iteration)
     {
       // The records of every slice, gathered in slice order: the host's appended ones.
-      const auto records = study::compareColumns<SelectionRecordOf<maxChainLayers<Det>>::RecordT>(selection.records(), selection.recordCount(),
-                                                                                                  std::as_const(onDevice.records).view(), onDevice.records.size());
+      const auto records = study::compareColumns<SelectionRecordOf<maxChainLayers<Det>>::RecordT>(selection.records(), selection.recordCount(), std::as_const(onDevice.records).view(), onDevice.records.size());
 #ifdef GPUCA_DETERMINISTIC_MODE
       BOOST_TEST(records.identical());
       BOOST_TEST(std::ranges::equal(selection.ranked(), onDevice.ranked));
@@ -336,8 +321,7 @@ Totals compare(DeviceTracker<Det, UniformMaterial>& device, const Options& optio
     totals.gathered += onDevice.records.size();
     totals.tracks += onDevice.tracks.size();
     totals.rounds += report.rounds;
-    totals.extended += static_cast<std::size_t>(
-      std::ranges::count_if(onDevice.proposals, [](const auto& proposal) { return proposal.outwardCount + proposal.inwardCount != 0U; }));
+    totals.extended += static_cast<std::size_t>(std::ranges::count_if(onDevice.proposals, [](const auto& proposal) { return proposal.outwardCount + proposal.inwardCount != 0U; }));
     ++totals.iterations;
   });
   tracker->setSliceObserver([&](const Host& host, const Host::SliceObservation& slice) {
@@ -428,10 +412,7 @@ BOOST_AUTO_TEST_CASE(EverySliceAndIterationMatchesTheHostTracker)
       if (options.kinkSigma > 1.) {
         BOOST_TEST(totals.extended > 0U);
       }
-      BOOST_TEST_MESSAGE(device->backend() << " " << describe(options) << ": " << totals.slices << " slices, " << totals.tracklets << " tracklets, "
-                                           << totals.triplets << " triplets, " << totals.neighbours << " neighbours, "
-                                           << totals.roads << " roads, " << totals.records << " records, " << totals.rounds << " rounds, " << totals.tracks
-                                           << " tracks, " << totals.extended << " extended");
+      BOOST_TEST_MESSAGE(device->backend() << " " << describe(options) << ": " << totals.slices << " slices, " << totals.tracklets << " tracklets, " << totals.triplets << " triplets, " << totals.neighbours << " neighbours, " << totals.roads << " roads, " << totals.records << " records, " << totals.rounds << " rounds, " << totals.tracks << " tracks, " << totals.extended << " extended");
     }
   }
 }
@@ -518,8 +499,7 @@ BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
     BOOST_TEST_CONTEXT(describe(options))
     {
       const Fixture fixture{hits(options.kinkSigma > 1.), kDurationNS};
-      const std::span<const VertexSeed> vertices =
-        options.source == VertexSource::kVertexList ? std::span<const VertexSeed>{vertexList} : std::span<const VertexSeed>{};
+      const std::span<const VertexSeed> vertices = options.source == VertexSource::kVertexList ? std::span<const VertexSeed>{vertexList} : std::span<const VertexSeed>{};
       const auto host = makeHost(options);
       configure(*tracker, *host);
       const auto plan = host->planTimeframe(*fixture.frame, vertices, options.width, 0.);
@@ -543,7 +523,10 @@ namespace
 /// lifecycle tests.
 struct Configured {
   explicit Configured(std::size_t arenaBytes = kArenaBytes)
-    : runtime(device_test::runtime()), tracker(kernels().makeToyBarrel8Tracker(*runtime, block(arenaBytes))), fixture(hits(), kDurationNS), host(makeHost({}))
+    : runtime(device_test::runtime()),
+      tracker(kernels().makeToyBarrel8Tracker(*runtime, block(arenaBytes))),
+      fixture(hits(), kDurationNS),
+      host(makeHost({}))
   {
     parameters = parametersOf(*host);
     plan = host->planTimeframe(*fixture.frame, {}, 13, 0.);
@@ -665,8 +648,10 @@ std::vector<Hit> hitsWithLonelyRows()
   result.reserve(result.size() + kLonely);
   for (std::size_t i = 0; i < kLonely; ++i) {
     const auto k = static_cast<double>(i);
-    result.push_back({.point = helixAt(std::fmod(0.37 * k, 2 * std::numbers::pi_v<double>), 0.02 * std::sin(k), 5., static_cast<LayerID>(kLayers - 1U)),
-                      .timeNS = 1000. + (99. * k / static_cast<double>(kLonely))});
+    result.push_back({
+      .point = helixAt(std::fmod(0.37 * k, 2 * std::numbers::pi_v<double>), 0.02 * std::sin(k), 5., static_cast<LayerID>(kLayers - 1U)),
+      .timeNS = 1000. + (99. * k / static_cast<double>(kLonely)),
+    });
   }
   return result;
 }
@@ -693,8 +678,7 @@ std::vector<Hit> collisionHits()
   for (std::size_t track = 0; track < kTracksPerCollision * kCollisionsNS.size(); ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
-    const auto one =
-      sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kCollisionsNS[track / kTracksPerCollision]);
+    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kCollisionsNS[track / kTracksPerCollision]);
     result.insert(result.end(), one.begin(), one.end());
   }
   return result;
@@ -837,8 +821,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   BOOST_CHECK_THROW(static_cast<void>(tracker->replacePlan(trackingPlan)), std::logic_error);
   static_cast<void>(tracker->endIteration(nullptr));
   BOOST_CHECK_THROW(static_cast<void>(tracker->replacePlan(hostPlan)), std::invalid_argument);
-  BOOST_CHECK_THROW(static_cast<void>(tracker->findVertices(host->iterationCount() + 1U, VertexerSettings{}, Fixture::kBeamConstraint, found)),
-                    std::invalid_argument);
+  BOOST_CHECK_THROW(static_cast<void>(tracker->findVertices(host->iterationCount() + 1U, VertexerSettings{}, Fixture::kBeamConstraint, found)), std::invalid_argument);
 }
 
 BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
@@ -851,8 +834,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
   const auto pool = std::make_shared<BoundedMemoryResource>();
 
   // The second iteration alone on the host: its mask from a free one.
-  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint,
-                                      scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 2);
+  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 2);
   static const UniformMaterial none{};
   alone->setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::size_t> aloneTracklets;
@@ -941,8 +923,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
   }
   BOOST_TEST(failedEnds > 0U);
   BOOST_TEST(checkedAfter > 0U);
-  BOOST_TEST_MESSAGE(device->backend() << ": ends need " << slicePeak << " to " << endPeak << " bytes; " << failedEnds << " arenas failed the end, "
-                                       << checkedAfter << " then ran the next iteration");
+  BOOST_TEST_MESSAGE(device->backend() << ": ends need " << slicePeak << " to " << endPeak << " bytes; " << failedEnds << " arenas failed the end, " << checkedAfter << " then ran the next iteration");
 }
 
 } // namespace o2::gtrk

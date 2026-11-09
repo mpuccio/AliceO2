@@ -91,11 +91,11 @@ struct RecoSettings {
   /// The rest are the vertexer's knobs (VertexStage.h, VertexerSettings).
   bool vertexer = false;
   double vertexerMinPtGeV = 0.5;
-  double vertexerMaxChi2RZ = 5.;    ///< a triplet's r-z line chi2 cut, 0 for none
-  double vertexerMaxDcaCM = 0.02;   ///< its circle's transverse distance to the beam axis [cm], 0 for none
-  int vertexerWindowUM = 150;       ///< a peak's window [um]
-  int vertexerClaimUM = 2000;       ///< the half-width a vertex claims around its peak [um]
-  int vertexerMinContributors = 4;  ///< the least candidates a peak's window holds
+  double vertexerMaxChi2RZ = 5.;   ///< a triplet's r-z line chi2 cut, 0 for none
+  double vertexerMaxDcaCM = 0.02;  ///< its circle's transverse distance to the beam axis [cm], 0 for none
+  int vertexerWindowUM = 150;      ///< a peak's window [um]
+  int vertexerClaimUM = 2000;      ///< the half-width a vertex claims around its peak [um]
+  int vertexerMinContributors = 4; ///< the least candidates a peak's window holds
   /// The least in a frame where none holds vertexerMinContributors: that
   /// frame's rounds run again at this minimum; 0, none, by default.
   int vertexerAloneMinContributors = 0;
@@ -277,10 +277,7 @@ struct RecoSettings {
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 template <int N>
 struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, RecoSettings> {
-  static constexpr std::string_view getParamName()
-  {
-    return N == o2::detectors::DetID::ITS ? "GTRKRecoITS" : (N == o2::detectors::DetID::MFT ? "GTRKRecoMFT" : "GTRKRecoTRK");
-  }
+  static constexpr std::string_view getParamName() { return N == o2::detectors::DetID::ITS ? "GTRKRecoITS" : (N == o2::detectors::DetID::MFT ? "GTRKRecoMFT" : "GTRKRecoTRK"); }
   O2ParamDef(RecoParam, getParamName().data());
 };
 

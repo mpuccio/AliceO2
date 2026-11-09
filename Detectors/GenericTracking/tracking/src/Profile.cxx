@@ -269,9 +269,7 @@ void Trace::write(std::ostream& out) const
   // tid s + 1 arena slot s.
   bool first = true;
   const auto emit = [&](const Event& event, std::size_t tid, std::string_view category) {
-    out << (first ? "\n" : ",\n")
-        << std::format(R"({{"name":"{}","cat":"{}","ph":"X","pid":1,"tid":{},"ts":{:.3f},"dur":{:.3f}}})", info(event.phase).name, category, tid,
-                       static_cast<double>(event.begin - origin) * 1.e-3, static_cast<double>(event.end - event.begin) * 1.e-3);
+    out << (first ? "\n" : ",\n") << std::format(R"({{"name":"{}","cat":"{}","ph":"X","pid":1,"tid":{},"ts":{:.3f},"dur":{:.3f}}})", info(event.phase).name, category, tid, static_cast<double>(event.begin - origin) * 1.e-3, static_cast<double>(event.end - event.begin) * 1.e-3);
     first = false;
   };
   const auto name = [&](std::size_t tid, std::string_view label) {
@@ -298,7 +296,8 @@ void Trace::write(std::ostream& out) const
 Context* current() noexcept { return tCurrent; }
 
 Activation::Activation(Profile& profile, BoundedMemoryResource* pool, Trace* trace)
-  : mContext{.profile = &profile, .pool = pool, .trace = trace}, mOuter{tCurrent}
+  : mContext{.profile = &profile, .pool = pool, .trace = trace},
+    mOuter{tCurrent}
 {
   tCurrent = &mContext;
 }

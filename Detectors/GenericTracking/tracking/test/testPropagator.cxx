@@ -334,11 +334,9 @@ BOOST_AUTO_TEST_CASE(TheOtherCrossingRulesTakeTheSensorsCrossing)
       Scalar step[kNBoundParams] = {};
       defaultDifferenceSteps(step);
       Scalar reference[kJacobianSize] = {};
-      BOOST_TEST_REQUIRE((jacobianFiniteDifference<CrossingRule::kNearerCentre>(prop, st, source, target, PropagationDirection::kBackward, step, reference) ==
-                          PropagationStatus::kOk));
+      BOOST_TEST_REQUIRE((jacobianFiniteDifference<CrossingRule::kNearerCentre>(prop, st, source, target, PropagationDirection::kBackward, step, reference) == PropagationStatus::kOk));
       SolenoidJacobian solenoid;
-      BOOST_TEST_REQUIRE(
-        (jacobianAnalytic<Scalar, CrossingRule::kNearerCentre>(prop, st, source, target, PropagationDirection::kBackward, solenoid) == PropagationStatus::kOk));
+      BOOST_TEST_REQUIRE((jacobianAnalytic<Scalar, CrossingRule::kNearerCentre>(prop, st, source, target, PropagationDirection::kBackward, solenoid) == PropagationStatus::kOk));
       Scalar analytic[kJacobianSize] = {};
       expandJacobian(solenoid, analytic);
       for (int i = 0; i < kJacobianSize; ++i) {

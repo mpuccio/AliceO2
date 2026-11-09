@@ -43,18 +43,12 @@ inline constexpr std::int64_t kPSPerBCNumerator = 10'000'000'000;
 inline constexpr std::int64_t kPSPerBCDenominator = 400'789;
 
 /// \a bc bunch crossings in picoseconds, rounded down, \a bc >= 0.
-GPUhdi() constexpr std::int64_t psOfBC(std::int64_t bc)
-{
-  return (bc * kPSPerBCNumerator) / kPSPerBCDenominator;
-}
+GPUhdi() constexpr std::int64_t psOfBC(std::int64_t bc) { return (bc * kPSPerBCNumerator) / kPSPerBCDenominator; }
 
 /// The bunch crossings whose `psOfBC` is \a ps, \a ps >= 0: exact for every
 /// value `psOfBC` returns, which lies less than a picosecond -- far less than
 /// a BC -- below the exact time.
-GPUhdi() constexpr std::int64_t bcOfPS(std::int64_t ps)
-{
-  return ((ps * kPSPerBCDenominator) + kPSPerBCNumerator - 1) / kPSPerBCNumerator;
-}
+GPUhdi() constexpr std::int64_t bcOfPS(std::int64_t ps) { return ((ps * kPSPerBCDenominator) + kPSPerBCNumerator - 1) / kPSPerBCNumerator; }
 
 /// A time box `[start, start + width)` in picoseconds, O2's `its::TimeEstBC`.
 struct TimeEstPS {

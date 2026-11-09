@@ -40,7 +40,7 @@ struct ToyBarrel8 {
     .halfY = 1.0,
     .halfThickness = 0.005,
     .pitchX = 0.0025, // 25 um -> 400 rows
-    .pitchY = 0.0025  //          800 columns
+    .pitchY = 0.0025, //          800 columns
   };
 
   static constexpr std::array<BarrelLayerSpec, 8> barrelSpecs{{

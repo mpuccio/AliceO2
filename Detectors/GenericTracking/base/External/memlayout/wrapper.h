@@ -94,7 +94,15 @@ struct Dummy {
 // subsumption the specialisations are ordered by: the const one's constraint
 // contains the random-access one.
 template <class It>
-concept random_access_like_type = requires(It it, size_t n) { it + n; it - n; it - it; it[n]; ++it; --it; *it; };
+concept random_access_like_type = requires(It it, size_t n) {
+  it + n;
+  it - n;
+  it - it;
+  it[n];
+  ++it;
+  --it;
+  *it;
+};
 
 template <class It>
 concept writable_iterator_type = requires(It it) { *it = Dummy{}; };
@@ -231,15 +239,10 @@ struct End {
 enum class Layout { aos = 0,
                     soa = 1 };
 
-template <
-  template <template <class> class> class Struct,
-  template <class> class Container,
-  Layout L = Layout::soa>
+template <template <template <class> class> class Struct, template <class> class Container, Layout L = Layout::soa>
 struct Wrapper;
 
-template <
-  template <template <class> class> class Struct,
-  template <class> class Container>
+template <template <template <class> class> class Struct, template <class> class Container>
 struct Wrapper<Struct, Container, Layout::aos> : public Container<Struct<value>> {
   static constexpr Layout layout_type = Layout::aos;
   using Base = Container<Struct<value>>;
@@ -318,9 +321,7 @@ struct Wrapper<Struct, const_pointer, Layout::aos> {
   constexpr Wrapper<Struct, const_reference> operator->() const { return operator[](0); }
 };
 
-template <
-  template <template <class> class> class Struct,
-  template <class> class Container>
+template <template <template <class> class> class Struct, template <class> class Container>
 struct Wrapper<Struct, Container, Layout::soa> : public Struct<Container> {
   static constexpr Layout layout_type = Layout::soa;
   using Base = Struct<Container>;
@@ -353,9 +354,7 @@ struct Wrapper<Struct, Container, Layout::soa> : public Struct<Container> {
   constexpr Wrapper<Struct, const_iterator> cend() const { return Base::apply(End<Struct<const_iterator>>{}); }
 };
 
-template <
-  template <template <class> class> class Struct,
-  template <class> class Container>
+template <template <template <class> class> class Struct, template <class> class Container>
   requires random_access_like_type<Container<Dummy>>
 struct Wrapper<Struct, Container, Layout::soa> : public Struct<Container> {
   using iterator_category = std::iterator_traits<Container<Dummy>>::iterator_category;
@@ -400,9 +399,7 @@ struct Wrapper<Struct, Container, Layout::soa> : public Struct<Container> {
   MEMLAYOUT_HOST_DEVICE constexpr Wrapper& operator-=(ptrdiff_t i) { return *this = *this - i; }
 };
 
-template <
-  template <template <class> class> class Struct,
-  template <class> class Container>
+template <template <template <class> class> class Struct, template <class> class Container>
   requires const_random_access_like_type<Container<Dummy>>
 struct Wrapper<Struct, Container, Layout::soa> : public Struct<Container> {
   using iterator_category = std::iterator_traits<Container<Dummy>>::iterator_category;
@@ -517,11 +514,8 @@ struct Wrapper<Struct, const_reference, Layout::soa> : public Struct<const_refer
 #define MEMLAYOUT_EXPAND2(...) MEMLAYOUT_EXPAND1(MEMLAYOUT_EXPAND1(MEMLAYOUT_EXPAND1(__VA_ARGS__)))
 #define MEMLAYOUT_EXPAND1(...) __VA_ARGS__
 
-#define MEMLAYOUT_FOR_EACH(macro, ...) \
-  __VA_OPT__(MEMLAYOUT_EXPAND(MEMLAYOUT_FOR_EACH_HELPER(macro, __VA_ARGS__)))
-#define MEMLAYOUT_FOR_EACH_HELPER(macro, a1, ...) \
-  macro(a1)                                       \
-    __VA_OPT__(, MEMLAYOUT_FOR_EACH_AGAIN MEMLAYOUT_PARENS(macro, __VA_ARGS__))
+#define MEMLAYOUT_FOR_EACH(macro, ...) __VA_OPT__(MEMLAYOUT_EXPAND(MEMLAYOUT_FOR_EACH_HELPER(macro, __VA_ARGS__)))
+#define MEMLAYOUT_FOR_EACH_HELPER(macro, a1, ...) macro(a1) __VA_OPT__(, MEMLAYOUT_FOR_EACH_AGAIN MEMLAYOUT_PARENS(macro, __VA_ARGS__))
 #define MEMLAYOUT_FOR_EACH_AGAIN() MEMLAYOUT_FOR_EACH_HELPER
 
 // per-member transforms: bare name for the unary case, `f(m, other.m)` for binary

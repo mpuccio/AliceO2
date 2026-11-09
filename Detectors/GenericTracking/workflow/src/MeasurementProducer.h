@@ -100,8 +100,7 @@ class MeasurementProducerTask : public o2::framework::Task
     if (matcher == o2::framework::ConcreteDataMatcher(Conditions<Det>::origin(), "SHAPEBAND", 0)) {
       mShapeBand = static_cast<const ClusterShapeBand*>(obj);
       if (!mShapeBand->fits(static_cast<std::size_t>(Detector<Det>::nBarrelLayers))) {
-        throw std::runtime_error(
-          std::format("{}'s cluster-shape band from the CCDB is not one of its {} barrel layers", Det::name, Detector<Det>::nBarrelLayers));
+        throw std::runtime_error(std::format("{}'s cluster-shape band from the CCDB is not one of its {} barrel layers", Det::name, Detector<Det>::nBarrelLayers));
       }
       LOGP(info, "{}'s {} from the CCDB", Det::name, mShapeBand->describe());
       return;
@@ -164,8 +163,7 @@ class MeasurementProducerTask : public o2::framework::Task
     const auto localVariance = [systematic2](float sigma) { return (sigma * sigma) + systematic2; };
     const auto start = std::chrono::steady_clock::now();
 
-    auto offsets =
-      pc.outputs().make<std::uint32_t>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), kColGridOffsets}, static_cast<std::size_t>(grid.bucketCount()) + 1U);
+    auto offsets = pc.outputs().make<std::uint32_t>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), kColGridOffsets}, static_cast<std::size_t>(grid.bucketCount()) + 1U);
     MeasurementGridBuilder builder{std::span<std::uint32_t>{offsets.data(), offsets.size()}};
 
     std::vector<std::uint32_t> buckets(n);
@@ -176,17 +174,13 @@ class MeasurementProducerTask : public o2::framework::Task
     std::vector<ClusterShapeBand::Interval> slopes(band != nullptr ? n : 0U);
     for (std::size_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[i];
-      const auto point =
-        gridPoint<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal), mBeamLine.x, mBeamLine.y);
-      const auto variances =
-        pointVariances<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), point, localVariance(cluster.sigmaXLocal), 0.F,
-                            localVariance(cluster.sigmaYLocal));
+      const auto point = gridPoint<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal), mBeamLine.x, mBeamLine.y);
+      const auto variances = pointVariances<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), point, localVariance(cluster.sigmaXLocal), 0.F, localVariance(cluster.sigmaYLocal));
       // Every frame's record where its layer's frames have theirs, every
       // lengthBC from BC 0: the boxes, the blocks and the slices' reach follow them.
       const auto& frames = mFrames[point.layer];
       if (bcOfPS(cluster.timePS) % frames.lengthBC != 0 || bcOfPS(cluster.widthPS) != frames.lengthBC) {
-        LOGP(fatal, "a {} cluster's readout frame record [{}, {}) ps on layer {} is not one of the layer's frames of {} BC", Det::name, cluster.timePS,
-             static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS, point.layer, frames.lengthBC);
+        LOGP(fatal, "a {} cluster's readout frame record [{}, {}) ps on layer {} is not one of the layer's frames of {} BC", Det::name, cluster.timePS, static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS, point.layer, frames.lengthBC);
         return;
       }
       boxes[i] = measurementTimeBox(cluster, point.layer, param, frames);
@@ -199,34 +193,34 @@ class MeasurementProducerTask : public o2::framework::Task
     }
     builder.prefixSum();
 
-    auto columns = makeMeasurementColumns<gsl::span>([&]<class T>(std::type_identity<T>, MeasurementColumn column) {
-      return pc.outputs().make<T>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(column)}, n);
-    });
+    auto columns = makeMeasurementColumns<gsl::span>([&]<class T>(std::type_identity<T>, MeasurementColumn column) { return pc.outputs().make<T>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(column)}, n); });
 
     for (std::size_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[i];
       const auto at = builder.place(buckets[i]);
       const auto slope = band != nullptr ? slopes[i] : ClusterShapeBand::kEvery;
       writeMeasurement(columns, at,
-                       Measurement{.loc0 = cluster.xLocal,
-                                   .loc1 = cluster.yLocal,
-                                   .timePS = boxes[i].start,
-                                   .widthPS = boxes[i].width,
-                                   .varLoc0 = localVariance(cluster.sigmaXLocal),
-                                   .covLoc01 = 0.F,
-                                   .varLoc1 = localVariance(cluster.sigmaYLocal),
-                                   .clusterIndex = static_cast<std::uint32_t>(i),
-                                   .surface = cluster.chipID,
-                                   .x = positions[i][0],
-                                   .y = positions[i][1],
-                                   .z = positions[i][2],
-                                   .r = positions[i][3],
-                                   .phi = positions[i][4],
-                                   .varZ = positions[i][5],
-                                   .varR = positions[i][6],
-                                   .varRPhi = positions[i][7],
-                                   .slopeLow = slope.first,
-                                   .slopeHigh = slope.second});
+                       Measurement{
+                         .loc0 = cluster.xLocal,
+                         .loc1 = cluster.yLocal,
+                         .timePS = boxes[i].start,
+                         .widthPS = boxes[i].width,
+                         .varLoc0 = localVariance(cluster.sigmaXLocal),
+                         .covLoc01 = 0.F,
+                         .varLoc1 = localVariance(cluster.sigmaYLocal),
+                         .clusterIndex = static_cast<std::uint32_t>(i),
+                         .surface = cluster.chipID,
+                         .x = positions[i][0],
+                         .y = positions[i][1],
+                         .z = positions[i][2],
+                         .r = positions[i][3],
+                         .phi = positions[i][4],
+                         .varZ = positions[i][5],
+                         .varR = positions[i][6],
+                         .varRPhi = positions[i][7],
+                         .slopeLow = slope.first,
+                         .slopeHigh = slope.second,
+                       });
     }
     builder.finish();
 
@@ -272,11 +266,13 @@ o2::framework::DataProcessorSpec getMeasurementProducerSpec()
     inputs.emplace_back("shapeBand", origin, "SHAPEBAND", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterShapeBand"));
   }
 
-  return DataProcessorSpec{.name = deviceName<Det>("measurement-producer"),
-                           .inputs = inputs,
-                           .outputs = outputs,
-                           .algorithm = AlgorithmSpec{adaptFromTask<MeasurementProducerTask<Det>>(conditions, shapes)},
-                           .options = Options{}};
+  return DataProcessorSpec{
+    .name = deviceName<Det>("measurement-producer"),
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<MeasurementProducerTask<Det>>(conditions, shapes)},
+    .options = Options{},
+  };
 }
 
 } // namespace o2::gtrk::workflow

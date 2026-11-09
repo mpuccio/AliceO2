@@ -184,8 +184,7 @@ struct GatherTracklets {
     return status;
   }
 
-  algorithms::forEach(runtime, stream, count,
-                      detail::TrackletLinkLambdaKeys{.link = view.link, .lambda = view.lambda, .slots = values.Current(), .keys = linkLambdaKeys[0].data()});
+  algorithms::forEach(runtime, stream, count, detail::TrackletLinkLambdaKeys{.link = view.link, .lambda = view.lambda, .slots = values.Current(), .keys = linkLambdaKeys[0].data()});
   cubapi::DoubleBuffer<std::uint64_t> secondKeys{linkLambdaKeys[0].data(), linkLambdaKeys[1].data()};
   status = algorithms::segmentedStableSortPairs(runtime, arena, stream, secondKeys, values, count, segments, offsets, offsets + 1);
   if (status != StageStatus::kComplete) {
@@ -202,8 +201,7 @@ struct GatherTracklets {
     std::size_t next = 0U;
     ((to = static_cast<std::remove_reference_t<decltype(to)>>(buffers[next++])), ...);
   });
-  algorithms::forEach(runtime, stream, count,
-                      detail::GatherTracklets{.from = std::as_const(tracklets).view(), .indices = values.Current(), .to = DeviceColumns<TrackletT>::View{gathered}});
+  algorithms::forEach(runtime, stream, count, detail::GatherTracklets{.from = std::as_const(tracklets).view(), .indices = values.Current(), .to = DeviceColumns<TrackletT>::View{gathered}});
   std::array<DeviceCopy, kColumns> copies{};
   std::size_t next = 0U;
   device_storage_detail::forEachColumnPair(DeviceColumns<TrackletT>::ConstView{gathered}, view, [&](auto* to, const auto* from) {
@@ -220,20 +218,15 @@ struct GatherTracklets {
 /// length, in arena order. \a permutation gets \a count entries, of which the
 /// first \a size are the order.
 template <DetectorLayout Det>
-[[nodiscard]] StageStatus permutation(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletConstView tracklets, Index count,
-                                      const IterationParameters<Det>* parameters, const LayerRowMap<Det>* sources, DeviceSpan<Index>& permutation, Index& size,
-                                      const Index* offsets, TrackletPathBounds paths)
+[[nodiscard]] StageStatus permutation(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletConstView tracklets, Index count, const IterationParameters<Det>* parameters, const LayerRowMap<Det>* sources, DeviceSpan<Index>& permutation, Index& size, const Index* offsets, TrackletPathBounds paths)
 {
-  return algorithms::selectIndices(
-    runtime, arena, stream, count,
-    detail::EligibleFirst<Det>{.tracklets = tracklets, .parameters = parameters, .sources = sources, .offsets = offsets, .paths = paths}, permutation, size);
+  return algorithms::selectIndices(runtime, arena, stream, count, detail::EligibleFirst<Det>{.tracklets = tracklets, .parameters = parameters, .sources = sources, .offsets = offsets, .paths = paths}, permutation, size);
 }
 
 /// The triplets by their second tracklet: \a offsets, `trackletCount + 1`
 /// of them, delimit the triplet indices in \a indices, in arena order within
 /// each tracklet.
-[[nodiscard]] inline StageStatus endIndex(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TripletConstView triplets, Index tripletCount,
-                                          Index trackletCount, DeviceSpan<Index>& offsets, DeviceSpan<Index>& indices)
+[[nodiscard]] inline StageStatus endIndex(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TripletConstView triplets, Index tripletCount, Index trackletCount, DeviceSpan<Index>& offsets, DeviceSpan<Index>& indices)
 {
   const std::size_t offsetCount = std::size_t{trackletCount} + 1U;
   if (!offsets.allocate(arena, offsetCount) || !indices.allocate(arena, tripletCount)) {
@@ -248,14 +241,12 @@ template <DetectorLayout Det>
   DeviceSpan<Index> sortedKeys;
   DeviceSpan<Index> values;
   DeviceSpan<Index> perTracklet;
-  if (!keys.allocate(arena, tripletCount, ArenaEnd::kScratch) || !sortedKeys.allocate(arena, tripletCount, ArenaEnd::kScratch) ||
-      !values.allocate(arena, tripletCount, ArenaEnd::kScratch) || !perTracklet.allocate(arena, offsetCount, ArenaEnd::kScratch)) {
+  if (!keys.allocate(arena, tripletCount, ArenaEnd::kScratch) || !sortedKeys.allocate(arena, tripletCount, ArenaEnd::kScratch) || !values.allocate(arena, tripletCount, ArenaEnd::kScratch) || !perTracklet.allocate(arena, offsetCount, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
   runtime.fill(perTracklet.data(), 0U, offsetCount * sizeof(Index), stream);
   algorithms::forEach(runtime, stream, tripletCount, detail::EndIndexKeys{triplets, keys.data(), values.data(), perTracklet.data()});
-  const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(values).data(),
-                                                   indices.data(), tripletCount, algorithms::keyBits(trackletCount));
+  const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(values).data(), indices.data(), tripletCount, algorithms::keyBits(trackletCount));
   if (sorted != StageStatus::kComplete) {
     return sorted;
   }
@@ -265,11 +256,7 @@ template <DetectorLayout Det>
 
 /// The triplets whose predecessor range is not empty, in arena order, from
 /// the neighbour stage's `tripletCount + 1` offsets.
-[[nodiscard]] inline StageStatus chained(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Index* neighbourOffsets, Index tripletCount,
-                                         DeviceSpan<Index>& chained, Index& size)
-{
-  return algorithms::selectIndices(runtime, arena, stream, tripletCount, detail::HasPredecessors{.neighbourOffsets = neighbourOffsets}, chained, size);
-}
+[[nodiscard]] inline StageStatus chained(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Index* neighbourOffsets, Index tripletCount, DeviceSpan<Index>& chained, Index& size) { return algorithms::selectIndices(runtime, arena, stream, tripletCount, detail::HasPredecessors{.neighbourOffsets = neighbourOffsets}, chained, size); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE::glue
 

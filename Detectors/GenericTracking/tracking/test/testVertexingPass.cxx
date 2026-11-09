@@ -60,8 +60,7 @@ std::vector<Hit> hits()
   for (std::size_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
-    const auto one =
-      sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kStartNS[track / kTracksPerCollision]);
+    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kStartNS[track / kTracksPerCollision]);
     BOOST_REQUIRE(one.size() == kLayers);
     result.insert(result.end(), one.begin(), one.end());
   }
@@ -124,9 +123,11 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
   tracks.reserve(result.tracks->size());
   const auto view = result.tracks->view();
   for (std::size_t i = 0; i < result.tracks->size(); ++i) {
-    tracks.push_back({.iteration = view.iteration[i],
-                      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
-                      .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i])});
+    tracks.push_back({
+      .iteration = view.iteration[i],
+      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
+      .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i]),
+    });
   }
   return tracks;
 }
@@ -223,8 +224,7 @@ BOOST_AUTO_TEST_CASE(TheListDoesNotDependOnTheSlices)
         BOOST_TEST(std::bit_cast<std::uint32_t>(sliced.found.vertices[v].varZ) == std::bit_cast<std::uint32_t>(whole.found.vertices[v].varZ));
         BOOST_TEST(sliced.found.contributors[v] == whole.found.contributors[v]);
       }
-      BOOST_TEST(
-        std::ranges::equal(sliced.claims, whole.claims, [](const TripletClaim& a, const TripletClaim& b) { return a.rows == b.rows && a.vertex == b.vertex; }));
+      BOOST_TEST(std::ranges::equal(sliced.claims, whole.claims, [](const TripletClaim& a, const TripletClaim& b) { return a.rows == b.rows && a.vertex == b.vertex; }));
     }
   }
 }

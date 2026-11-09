@@ -141,8 +141,7 @@ template <DetectorLayout Det>
 }
 
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletFirstTerms<Det> tripletFirstTerms(const IterationParameters<Det>& parameters, LayerID middleLayer,
-                                                                                  const PairPoint& first, const PairPoint& middle)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletFirstTerms<Det> tripletFirstTerms(const IterationParameters<Det>& parameters, LayerID middleLayer, const PairPoint& first, const PairPoint& middle)
 {
   TripletFirstTerms<Det> terms;
   terms.chord = pairChord(first, middle).chord;
@@ -161,9 +160,7 @@ template <DetectorLayout Det>
   // The middle layer's own term takes the iteration's kink allowance, so the
   // window holds the kinked triplets too (1 without one).
   Scalar scattering = middleScattering(parameters.scattering, parameters.pairCut, middleLayer, terms.cosine) * parameters.graphKinkScale2;
-  visitPassivesBetween(
-    parameters.scattering, parameters.pairCut, first, middle, terms.cosine, [&](Scalar passive, Scalar t) { scattering += passive * t * t; },
-    parameters.scattering.into(middleLayer));
+  visitPassivesBetween(parameters.scattering, parameters.pairCut, first, middle, terms.cosine, [&](Scalar passive, Scalar t) { scattering += passive * t * t; }, parameters.scattering.into(middleLayer));
   terms.scattering = scattering;
   if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
@@ -206,8 +203,7 @@ template <DetectorLayout Det>
 /// \a first is the first tracklet's part (`tripletFirstTerms`), the same for
 /// every out-link of `b`; this adds the link's.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t secondLink,
-                                                                       const TripletFirstTerms<Det>& first, const TripletTargetBounds& target)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t secondLink, const TripletFirstTerms<Det>& first, const TripletTargetBounds& target)
 {
   const auto& bounds = parameters.tripletBounds[secondLink];
   if (!first.valid || !(bounds.lengthMin > 0.F)) {
@@ -227,18 +223,14 @@ template <DetectorLayout Det>
 
 /// The same for one link from the points, the first tracklet's part made here.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t secondLink, LayerID middleLayer,
-                                                                       const PairPoint& first, const PairPoint& middle, const TripletTargetBounds& target)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t secondLink, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const TripletTargetBounds& target)
 {
   return tripletLambdaHalfWidth(parameters, secondLink, tripletFirstTerms(parameters, middleLayer, first, middle), target);
 }
 
 /// The first and the third measurement's boxes overlap: with the links' two
 /// pairs, the three boxes share a time.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletTimeCompatible(const TimedPoint& first, const TimedPoint& third)
-{
-  return first.time.isCompatible(third.time);
-}
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletTimeCompatible(const TimedPoint& first, const TimedPoint& third) { return first.time.isCompatible(third.time); }
 
 /// The circle through the three measurements curves at most as the softest
 /// track of the iteration, within `n` sigma.
@@ -252,9 +244,7 @@ template <DetectorLayout Det>
 /// the middle layer's scattering: the kink allowance (1 for the nominal cut).
 /// \a chords are the points' (`tripletChords`).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCurvatureCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer,
-                                                                         const TripletChords& chords, const PairPoint& first, const PairPoint& middle,
-                                                                         const PairPoint& third, Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCurvatureCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TripletChords& chords, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar middleScale = 1.F)
 {
   const Scalar dxFirst = middle.x - first.x;
   const Scalar dyFirst = middle.y - first.y;
@@ -277,15 +267,13 @@ template <DetectorLayout Det>
 
   const Scalar dz = third.z - first.z;
   const Scalar cosine2 = (chordWhole * chordWhole) / ((chordWhole * chordWhole) + (dz * dz)); // cos^2(lambda)
-  const Scalar scattering =
-    tripletScattering(parameters.scattering, parameters.pairCut, middleLayer, first, middle, third, o2::gpu::CAMath::Sqrt(cosine2), middleScale) / cosine2;
+  const Scalar scattering = tripletScattering(parameters.scattering, parameters.pairCut, middleLayer, first, middle, third, o2::gpu::CAMath::Sqrt(cosine2), middleScale) / cosine2;
   const Scalar ux = dxWhole / chordWhole;
   const Scalar uy = dyWhole / chordWhole;
   const Scalar inFirst = 1.F / chordFirst;
   const Scalar inSecond = 1.F / chordSecond;
   const Scalar inMiddle = inFirst + inSecond;
-  const Scalar angleVariance = scattering + (detail::varianceAcross(first, ux, uy) * inFirst * inFirst) +
-                               (detail::varianceAcross(middle, ux, uy) * inMiddle * inMiddle) + (detail::varianceAcross(third, ux, uy) * inSecond * inSecond);
+  const Scalar angleVariance = scattering + (detail::varianceAcross(first, ux, uy) * inFirst * inFirst) + (detail::varianceAcross(middle, ux, uy) * inMiddle * inMiddle) + (detail::varianceAcross(third, ux, uy) * inSecond * inSecond);
   const Scalar scale = 2.F / chordWhole;
   const Scalar nSigma = parameters.pairCut.nSigma;
   return excess * excess <= nSigma * nSigma * scale * scale * angleVariance;
@@ -293,9 +281,7 @@ template <DetectorLayout Det>
 
 /// The same, the chords made here.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCurvatureCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer,
-                                                                         const PairPoint& first, const PairPoint& middle, const PairPoint& third,
-                                                                         Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCurvatureCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar middleScale = 1.F)
 {
   return tripletCurvatureCompatible(parameters, middleLayer, tripletChords(first, middle, third), first, middle, third, middleScale);
 }
@@ -311,9 +297,7 @@ namespace detail
 /// the first fit take pT_min's variance, as a track at pT_min needs; this
 /// takes from a stiff-looking triplet the allowance only a soft track needs.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletOwnMomentumCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer,
-                                                                           const PairPoint& first, const PairPoint& middle, const PairPoint& third,
-                                                                           Scalar middleScale, const TripletFitResult& fit, const KinkTerms& terms)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletOwnMomentumCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar middleScale, const TripletFitResult& fit, const KinkTerms& terms)
 {
   const PairCut& nominal = parameters.pairCut;
   const Scalar raised = o2::gpu::CAMath::Abs(fit.curvature) + (nominal.nSigma * o2::gpu::CAMath::Sqrt(fit.varCurvature));
@@ -330,9 +314,7 @@ template <DetectorLayout Det>
   cut.invBetaMomentum2 = own;
   TripletFitFactor factor;
   TripletFitResult refit;
-  return makeTripletFitFactor(terms, first, middle, third,
-                              tripletScattering(parameters.scattering, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale), factor) &&
-         fitTriplet(factor, refit) && refit.chi2 <= nominal.nSigma * nominal.nSigma;
+  return makeTripletFitFactor(terms, first, middle, third, tripletScattering(parameters.scattering, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale), factor) && fitTriplet(factor, refit) && refit.chi2 <= nominal.nSigma * nominal.nSigma;
 }
 
 /// The curvature test and the fit with the middle layer's scattering times
@@ -342,10 +324,7 @@ template <DetectorLayout Det>
 /// `makeKinkTerms`' result) and the other reuses them. Both read the points'
 /// \a chords.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletSpatiallyCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer,
-                                                                         const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third,
-                                                                         const TripletChords& chords, Scalar middleScale, TripletFitResult& fit,
-                                                                         KinkTerms& terms, bool& made, bool& valid)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletSpatiallyCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, const TripletChords& chords, Scalar middleScale, TripletFitResult& fit, KinkTerms& terms, bool& made, bool& valid)
 {
   if (!tripletCurvatureCompatible(parameters, middleLayer, chords, first.point, middle.point, third.point, middleScale)) {
     countWork(WorkCounter::kTripletCurvature);
@@ -390,9 +369,7 @@ template <DetectorLayout Det>
 /// the kinked fit, its variance enlarged. Without an allowance there is no
 /// second try.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first,
-                                                                const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit, KinkTerms& terms,
-                                                                bool& kinked)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit, KinkTerms& terms, bool& kinked)
 {
   kinked = false;
   if (!tripletTimeCompatible(first, third)) {

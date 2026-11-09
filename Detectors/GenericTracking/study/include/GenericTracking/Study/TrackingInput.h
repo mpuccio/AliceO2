@@ -66,8 +66,7 @@ struct TrackingInput {
 /// Write \a view's \a rows rows, \a offsets, \a vertices, \a beamLine,
 /// \a frames and \a depths to \a path; the caller writes the parameters to
 /// `<path>.ini` with `writeParameters`. Throws std::runtime_error.
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets,
-                        std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths);
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths);
 
 /// Every configurable parameter to \a path as INI, as
 /// `ConfigurableParam::writeINI` writes it, but GTRKReco<DET>'s floating-point
