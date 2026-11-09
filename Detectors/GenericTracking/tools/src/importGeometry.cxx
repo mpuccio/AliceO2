@@ -95,7 +95,7 @@ double checkTRKPixels(std::span<const Sensor> sensors)
     const int subDet = disc ? ft3.getSubDetID(id) : geometry.getSubDetID(id);
     const int layer = disc ? ft3.getLayer(id) : geometry.getLayer(id); // within the sub-detector
     const auto& spec = Geometry<detectors::TRKFT3>::layerSpec(sensors[chip].layer);
-    const int nRows = subDet == 0 ? o2::trk::constants::VD::petal::layer::nRows[static_cast<std::size_t>(layer)] : o2::trk::constants::moduleMLOT::chip::nRows;
+    const int nRows = subDet == 0 ? Segmentation::getNRowsVD(layer) : o2::trk::constants::moduleMLOT::chip::nRows;
     const int nCols = subDet == 0 ? o2::trk::constants::VD::petal::layer::nCols : o2::trk::constants::moduleMLOT::chip::nCols;
     for (const auto [row, col] : std::array<std::array<int, 2>, 5>{{{0, 0}, {nRows - 1, 0}, {0, nCols - 1}, {nRows - 1, nCols - 1}, {nRows / 2, nCols / 2}}}) {
       float xRow = 0.F;

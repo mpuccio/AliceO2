@@ -69,11 +69,10 @@ namespace
 
 // TRKFT3.h restates O2's TRK sensors; here they are held to O2's, to the bit.
 namespace specs = o2::trk::constants;
+// The four-petal VD widths are derived from these radii and gaps. O2 now
+// computes widths at run time from the loaded geometry's petal count.
 static_assert(detectors::trkft3::kVDRadius == specs::VD::petal::layer::radii);
 static_assert(detectors::trkft3::kVDPetalGap == specs::VD::petal::layer::gaps);
-static_assert(exactlyEqual(detectors::trkft3::vdWidth(0), specs::VD::petal::layer::width[0]));
-static_assert(exactlyEqual(detectors::trkft3::vdWidth(1), specs::VD::petal::layer::width[1]));
-static_assert(exactlyEqual(detectors::trkft3::vdWidth(2), specs::VD::petal::layer::width[2]));
 static_assert(exactlyEqual(detectors::trkft3::kVDLength, specs::VD::petal::layer::length));
 static_assert(exactlyEqual(detectors::trkft3::kVDThickness, specs::VD::silicon::thickness));
 static_assert(exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchX) && exactlyEqual(detectors::trkft3::kVDPitch, specs::VD::petal::layer::pitchZ));
