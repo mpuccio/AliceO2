@@ -9,7 +9,6 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-
 /// @file   GPUWorkflowGenericTracking.cxx
 /// @brief  GenericTracking's ITS and MFT tracking inside the GPU reconstruction, after the TPC's, in its pool
 
