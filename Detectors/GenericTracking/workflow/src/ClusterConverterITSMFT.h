@@ -16,6 +16,8 @@
 #ifndef GTRK_WORKFLOW_CLUSTERCONVERTERITSMFT_H_
 #define GTRK_WORKFLOW_CLUSTERCONVERTERITSMFT_H_
 
+#include "ITSMFTInput.h"
+
 #include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Clustering/Cluster.h"
 #include "GenericTracking/Workflow/Conditions.h"
@@ -46,15 +48,18 @@ namespace o2::gtrk::workflow
 /// O2's compact clusters of the ITS or the MFT, as the O2 cluster reader
 /// publishes them, turned into GTRK/<DET>CLUSTERS for the measurement producer
 /// and GTRK/<DET>CLUSMCTR for the MC truth. The order is O2's, so a
-/// measurement's cluster index is O2's cluster index.
+/// measurement's cluster index addresses streams concatenated in layer order.
 template <DetectorLayout Det>
 class ClusterConverterTask : public o2::framework::Task
 {
  public:
-  explicit ClusterConverterTask(bool useMC) : mUseMC(useMC) {}
+  ClusterConverterTask(bool useMC, bool staggered) : mUseMC(useMC), mStreams(staggered ? Detector<Det>::nLayers : 1) {}
 
   void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final
   {
+    if (matcher == o2::framework::ConcreteDataMatcher(Conditions<Det>::origin(), "ALPIDEPARAM", 0)) {
+      return; // the CCDB fetch updates the singleton
+    }
     if (matcher == o2::framework::ConcreteDataMatcher(Conditions<Det>::origin(), "CLUSDICT", 0)) {
       mDictionary = static_cast<const o2::itsmft::TopologyDictionary*>(obj);
       LOGP(info, "{} topology dictionary from the CCDB: {} patterns", Det::name, mDictionary->getSize());
@@ -64,52 +69,61 @@ class ClusterConverterTask : public o2::framework::Task
   void run(o2::framework::ProcessingContext& pc) final
   {
     pc.inputs().get<o2::itsmft::TopologyDictionary*>("dictionary"); // delivers a new one through finaliseCCDB
-    const auto compact = pc.inputs().get<gsl::span<o2::itsmft::CompClusterExt>>("compclusters");
-    const auto patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
-    const auto rofs = pc.inputs().get<gsl::span<o2::itsmft::ROFRecord>>("rofs");
-    const auto& timing = pc.services().get<o2::framework::TimingInfo>();
+    using AlpideParam = o2::itsmft::DPLAlpideParam<DetIDOf<Det>::value>;
+    pc.inputs().get<AlpideParam*>("alpideParam");
+    const auto input = readITSMFTInput(pc, mUseMC, mStreams);
+    const auto& param = AlpideParam::Instance();
+    const auto orbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
 
-    std::vector<Cluster> clusters;
-    if (!rofs.empty()) {
-      const auto local = alice::localClusters(std::span{compact.data(), compact.size()}, std::span{patterns.data(), patterns.size()}, *mDictionary);
-      const std::span<const o2::itsmft::ROFRecord> frames{rofs.data(), rofs.size()};
-      clusters = alice::toClusters(local, frames, alice::readoutFrames(frames), timing.firstTForbit);
+    std::vector<FrameTiming> timings;
+    timings.reserve(Detector<Det>::nLayers);
+    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+      timings.push_back({.lengthBC = param.getROFLengthInBC(layer), .firstStartBC = param.getROFDelayInBC(layer) + param.getROFBiasInBC(layer)});
+      if (mStreams == 1 && timings.back() != timings.front()) {
+        throw std::runtime_error("staggered ITS/MFT timing needs per-layer cluster input (--enable-its-staggering or --enable-mft-staggering)");
+      }
     }
-    LOGP(info, "{}: {} clusters in {} readout frames for the timeframe at orbit {}", Det::name, clusters.size(), rofs.size(), timing.firstTForbit);
+    const auto clusters = convertITSMFTInput(input, *mDictionary, timings, orbit);
+    std::size_t rofCount = 0U;
+    for (const auto& stream : input.streams()) {
+      rofCount += stream.rofs.size();
+    }
+    LOGP(info, "{}: {} clusters in {} readout frames from {} streams for the timeframe at orbit {}", Det::name, clusters.size(), rofCount, mStreams, orbit);
     pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kClusters), 0}, clusters);
 
     if (mUseMC) {
-      const auto labels = pc.inputs().get<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>("labels");
-      if (labels->getIndexedSize() != clusters.size() && !clusters.empty()) {
-        LOGP(fatal, "{}: {} labelled clusters for {} clusters", Det::name, labels->getIndexedSize(), clusters.size());
-      }
       auto& flat = pc.outputs().make<o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>>(o2::framework::Output{gDataOrigin, description<Det>(kClustersMCTruth), 0});
-      labels->flatten_to(flat);
+      concatenateLabels(input).flatten_to(flat);
     }
   }
 
  private:
   bool mUseMC;
+  int mStreams;
   const o2::itsmft::TopologyDictionary* mDictionary = nullptr; ///< the CCDB cache's, from the run's ITS/MFT Calib/ClusterDictionary
 };
 
 /// The converter's device for the ITS or the MFT.
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC)
+o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC, bool staggered)
 {
   using namespace o2::framework;
   const auto origin = Conditions<Det>::origin();
-  std::vector<InputSpec> inputs{InputSpec{"compclusters", origin, "COMPCLUSTERS", 0, Lifetime::Timeframe}, InputSpec{"patterns", origin, "PATTERNS", 0, Lifetime::Timeframe}, InputSpec{"rofs", origin, "CLUSTERSROF", 0, Lifetime::Timeframe}, InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
+  const int streams = staggered ? Detector<Det>::nLayers : 1;
+  std::vector<InputSpec> inputs;
+  addITSMFTClusterInputs(inputs, origin, useMC, streams);
+  const auto detector = origin.template as<std::string>();
+  inputs.emplace_back("dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(detector + "/Calib/ClusterDictionary"));
+  inputs.emplace_back("alpideParam", origin, "ALPIDEPARAM", 0, Lifetime::Condition, ccdbParamSpec(detector + "/Config/AlpideParam"));
   std::vector<OutputSpec> outputs{OutputSpec{gDataOrigin, description<Det>(kClusters), 0, Lifetime::Timeframe}};
   if (useMC) {
-    inputs.emplace_back("labels", origin, "CLUSTERSMCTR", 0, Lifetime::Timeframe);
     outputs.emplace_back(gDataOrigin, description<Det>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
   return DataProcessorSpec{
     .name = deviceName<Det>("cluster-converter"),
     .inputs = inputs,
     .outputs = outputs,
-    .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC)},
+    .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC, staggered)},
     .options = Options{},
   };
 }

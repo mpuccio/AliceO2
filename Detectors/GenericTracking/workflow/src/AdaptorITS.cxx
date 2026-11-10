@@ -14,6 +14,6 @@
 namespace o2::gtrk
 {
 
-template o2::framework::DataProcessorSpec workflow::getAdaptorSpec<detectors::ITS>(bool useMC);
+template o2::framework::DataProcessorSpec workflow::getAdaptorSpec<detectors::ITS>(bool useMC, bool staggered);
 
 } // namespace o2::gtrk

@@ -17,6 +17,7 @@
 #define GTRK_WORKFLOW_RECOWORKFLOW_H_
 
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
+#include "GenericTracking/Workflow/ITSMFTOptions.h"
 #include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/Workflow/TrackerSpec.h"
 
@@ -44,6 +45,7 @@ inline void addRecoOptions(std::vector<o2::framework::ConfigParamSpec>& options,
   options.push_back(ConfigParamSpec{"clusters-from-upstream", VariantType::Bool, false, {"the clusters from the workflow before this one in the pipe, not O2's readers"}});
   options.push_back(ConfigParamSpec{"vertices-from-upstream", VariantType::Bool, false, {"the native vertex seeds (GTRK/<DET>VERTICES) from the workflow before this one in the pipe"}});
   if (o2Format) {
+    o2::itsmft::DPLAlpideParamInitializer::addConfigOption(options);
     options.push_back(ConfigParamSpec{"disable-adaptor", VariantType::Bool, false, {"only the native tracks and vertices (GTRK/<DET>...), not O2's formats nor their files"}});
     options.push_back(ConfigParamSpec{"disable-root-output", VariantType::Bool, false, {"O2's formats without O2's writers"}});
     options.push_back(ConfigParamSpec{"tracking-in-gpu-reco",
@@ -79,7 +81,7 @@ template <DetectorLayout Det>
   if (!context.options().get<bool>("clusters-from-upstream")) {
     specs.insert(specs.end(), readers.begin(), readers.end());
   }
-  specs.push_back(getClusterConverterSpec<Det>(useMC));
+  specs.push_back(getClusterConverterSpec<Det>(useMC, staggeredInput<Det>(context)));
   specs.push_back(getMeasurementProducerSpec<Det>());
   const bool inGPUReco = trackingInGPUReco(context);
   if (inGPUReco && context.options().get<bool>("vertices-from-upstream")) {

@@ -36,9 +36,9 @@ std::vector<Sensor> alice::placeChips<detectors::MFT>()
 }
 
 template <>
-o2::framework::DataProcessorSpec workflow::getClusterConverterSpec<detectors::MFT>(bool useMC)
+o2::framework::DataProcessorSpec workflow::getClusterConverterSpec<detectors::MFT>(bool useMC, bool staggered)
 {
-  return workflow::getITSMFTClusterConverterSpec<detectors::MFT>(useMC);
+  return workflow::getITSMFTClusterConverterSpec<detectors::MFT>(useMC, staggered);
 }
 
 template o2::framework::DataProcessorSpec workflow::getMeasurementProducerSpec<detectors::MFT>();

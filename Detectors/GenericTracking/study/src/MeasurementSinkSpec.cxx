@@ -9,6 +9,7 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
+#include "DataFormatsITSMFT/ClusterID.h"
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
 #include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/MeasurementSinkSpec.h"
@@ -3638,7 +3639,7 @@ class MeasurementSinkTask : public Task
         tracksOfRow[view.clusters[track].index[i]].push_back(static_cast<std::uint32_t>(track));
       }
     }
-    const auto theirs = mO2Tracks->read(static_cast<long long>(mTimeframe));
+    const auto theirs = o2Clusters(frame);
     constexpr auto kMaxClusters = static_cast<std::size_t>(Detector<Det>::nLayers) + 1U;
     std::array<std::size_t, kMaxClusters> o2Total{};
     std::array<std::size_t, kMaxClusters> o2Found{};
@@ -3842,12 +3843,36 @@ class MeasurementSinkTask : public Task
     return rowOfCluster;
   }
 
+  /// Decode O2's per-layer references to the converter's dense cluster order.
+  /// Monolithic references (stream zero) already are dense indices.
+  [[nodiscard]] TrackClusters o2Clusters(const Frame& frame) const
+  {
+    auto tracks = mO2Tracks->read(static_cast<long long>(mTimeframe));
+    std::array<std::uint32_t, Detector<Det>::nLayers + 1U> offsets{};
+    for (Frame::Index row = 0U; row < frame.size(); ++row) {
+      ++offsets[mInterface.geometry().sensor(frame.measurement(row).surface).layer + 1U];
+    }
+    std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
+    for (auto& track : tracks) {
+      for (auto& cluster : track) {
+        const auto layer = static_cast<std::size_t>(o2::itsmft::clusID2Layer(static_cast<int>(cluster)));
+        if (layer == 0U) {
+          continue;
+        }
+        const auto index = static_cast<std::uint32_t>(o2::itsmft::clusID2Index(static_cast<int>(cluster)));
+        cluster = layer + 1U < offsets.size() && index < offsets[layer + 1U] - offsets[layer]
+                    ? offsets[layer] + index : std::numeric_limits<std::uint32_t>::max();
+      }
+    }
+    return tracks;
+  }
+
   /// O2's tracks of this timeframe as our measurement rows: O2's tracks name
-  /// O2's cluster indices, which are our measurements' clusterIndex.
+  /// cluster references, decoded to our measurements' clusterIndex.
   [[nodiscard]] TrackRows o2TrackRows(const Frame& frame) const
   {
     const auto rowOfCluster = rowsOfClusters(frame);
-    const auto clusters = mO2Tracks->read(static_cast<long long>(mTimeframe));
+    const auto clusters = o2Clusters(frame);
     TrackRows theirs;
     theirs.reserve(clusters.size());
     for (const auto& track : clusters) {

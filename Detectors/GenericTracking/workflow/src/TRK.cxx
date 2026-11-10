@@ -56,9 +56,11 @@
 #include <filesystem>
 #include <format>
 #include <initializer_list>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk::alice
@@ -246,12 +248,24 @@ class TrkClusterConverterTask : public Task
   [[nodiscard]] static o2::header::DataOrigin originOf(int layer) { return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"}; }
   [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(int layer) { return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers); }
 
-  TrkClusterConverterTask(bool useMC, TrkDictionaryConditions dictionaries) : mUseMC(useMC), mDictionaries(dictionaries) {}
+  TrkClusterConverterTask(bool useMC, TrkDictionaryConditions dictionaries, std::shared_ptr<o2::base::GRPGeomRequest> geometryRequest)
+    : mUseMC(useMC), mDictionaries(dictionaries), mGeometryRequest(std::move(geometryRequest)) {}
 
-  void finaliseCCDB(ConcreteDataMatcher& matcher, void* obj) final { mDictionaries.finaliseCCDB(matcher, obj); }
+  void init(InitContext&) final { o2::base::GRPGeomHelper::instance().setRequest(mGeometryRequest); }
+
+  void finaliseCCDB(ConcreteDataMatcher& matcher, void* obj) final
+  {
+    if (!o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
+      mDictionaries.finaliseCCDB(matcher, obj);
+    }
+  }
 
   void run(ProcessingContext& pc) final
   {
+    o2::base::GRPGeomHelper::instance().checkUpdates(pc);
+    // Dictionary coordinates use the VD segmentation's petal count, which
+    // GeometryTGeo derives from the loaded geometry in this device's process.
+    o2::trk::GeometryTGeo::Instance();
     TrkDictionaryConditions::checkUpdates(pc);
     const auto& timing = pc.services().get<o2::framework::TimingInfo>();
     std::vector<Cluster> clusters;
@@ -299,12 +313,13 @@ class TrkClusterConverterTask : public Task
  private:
   bool mUseMC;
   TrkDictionaryConditions mDictionaries;
+  std::shared_ptr<o2::base::GRPGeomRequest> mGeometryRequest;
 };
 
 } // namespace
 
 template <>
-DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(bool useMC)
+DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(bool useMC, bool /*staggered*/)
 {
   std::vector<InputSpec> inputs;
   std::vector<OutputSpec> outputs{OutputSpec{gDataOrigin, description<detectors::TRKFT3>(kClusters), 0, Lifetime::Timeframe}};
@@ -322,11 +337,12 @@ DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(bool useMC)
     outputs.emplace_back(gDataOrigin, description<detectors::TRKFT3>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
   const TrkDictionaryConditions dictionaries(inputs);
+  auto geometryRequest = std::make_shared<o2::base::GRPGeomRequest>(false, false, false, false, false, o2::base::GRPGeomRequest::Aligned, inputs);
   return DataProcessorSpec{
     .name = deviceName<detectors::TRKFT3>("cluster-converter"),
     .inputs = inputs,
     .outputs = outputs,
-    .algorithm = AlgorithmSpec{adaptFromTask<TrkClusterConverterTask>(useMC, dictionaries)},
+    .algorithm = AlgorithmSpec{adaptFromTask<TrkClusterConverterTask>(useMC, dictionaries, geometryRequest)},
     .options = Options{},
   };
 }

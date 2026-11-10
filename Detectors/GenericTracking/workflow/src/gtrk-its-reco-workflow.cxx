@@ -65,10 +65,11 @@ WorkflowSpec defineDataProcessing(const ConfigContext& context)
   namespace gw = o2::gtrk::workflow;
   using Det = o2::gtrk::detectors::ITS;
   const bool useMC = !context.options().get<bool>("disable-mc");
-  auto specs = gw::trackingChain<Det>(context, {o2::itsmft::getITSClusterReaderSpec(useMC, false, true, false)});
+  const bool staggered = gw::staggeredInput<Det>(context);
+  auto specs = gw::trackingChain<Det>(context, {o2::itsmft::getITSClusterReaderSpec(useMC, staggered, true, false)});
   // The adaptor reads the tracks: after the GPU reconstruction when the tracking runs inside it.
   if (!context.options().get<bool>("disable-adaptor") && !gw::trackingInGPUReco(context)) {
-    specs.push_back(gw::getAdaptorSpec<Det>(useMC));
+    specs.push_back(gw::getAdaptorSpec<Det>(useMC, staggered));
     if (!context.options().get<bool>("disable-root-output")) {
       specs.push_back(o2::its::getTrackWriterSpec(useMC));
       specs.push_back(o2::globaltracking::getIRFrameWriterSpec("irfr:ITS/IRFRAMES/0", "o2_its_irframe.root", "irframe-writer-its"));

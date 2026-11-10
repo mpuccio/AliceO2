@@ -157,24 +157,20 @@ class Conditions<Det, WithMaterial, Holder>
     return false;
   }
 
-  /// The readout frames of the run's `DPLAlpideParam`, as O2's ITS tracker
-  /// takes them (`ITSTrackingInterface::updateTimeDependentParams`): frame `k`
-  /// at `k * length + delay + bias` BC, one per layer, every layer the same.
-  /// Throws std::runtime_error for staggered frames: the converter reads one
-  /// ROF stream.
+  /// Frame k starts at k * length + delay + bias BC, independently per layer.
   [[nodiscard]] std::vector<FrameTiming> frameTiming() const
   {
     const auto& param = AlpideParam::Instance();
-    const FrameTiming result{.lengthBC = param.getROFLengthInBC(0), .firstStartBC = param.getROFDelayInBC(0) + param.getROFBiasInBC(0)};
-    for (int layer = 1; layer < AlpideParam::getNLayers(); ++layer) {
-      if (param.getROFLengthInBC(layer) != result.lengthBC || param.getROFDelayInBC(layer) + param.getROFBiasInBC(layer) != result.firstStartBC) {
-        throw std::runtime_error(std::format("{}'s readout frames are staggered (layer {}): not read yet", Det::name, layer));
+    std::vector<FrameTiming> result;
+    result.reserve(Detector<Det>::nLayers);
+    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+      const auto length = param.getROFLengthInBC(layer);
+      if (length <= 0) {
+        throw std::runtime_error(std::format("{} layer {}: AlpideParam gives readout frames of {} BC", Det::name, layer, length));
       }
+      result.push_back({.lengthBC = length, .firstStartBC = param.getROFDelayInBC(layer) + param.getROFBiasInBC(layer)});
     }
-    if (result.lengthBC <= 0) {
-      throw std::runtime_error(std::format("{}'s AlpideParam gives readout frames of {} BC", Det::name, result.lengthBC));
-    }
-    return std::vector<FrameTiming>(static_cast<std::size_t>(Detector<Det>::nLayers), result);
+    return result;
   }
 
   /// The run's orbits per timeframe, its GRPECS's, as O2's ITS tracking

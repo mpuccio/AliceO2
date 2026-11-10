@@ -24,10 +24,9 @@ namespace o2::gtrk::workflow
 {
 
 /// Defined in the detector's own unit (ITS.cxx, MFT.cxx, TRK.cxx). The ITS's
-/// and MFT's readout frames must not be staggered: only subspecification 0 is
-/// read.
+/// and MFT's staggered input has one stream per layer, concatenated in layer order.
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getClusterConverterSpec(bool useMC);
+o2::framework::DataProcessorSpec getClusterConverterSpec(bool useMC, bool staggered = false);
 
 } // namespace o2::gtrk::workflow
 

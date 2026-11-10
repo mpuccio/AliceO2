@@ -37,6 +37,7 @@
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
 #include "GenericTracking/Study/MeasurementSinkSpec.h"
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
+#include "GenericTracking/Workflow/ITSMFTOptions.h"
 #include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/Workflow/TrackerSpec.h"
 
@@ -54,6 +55,7 @@ namespace o2::gtrk::study
 /// Every study workflow's options.
 inline void addStudyOptions(std::vector<o2::framework::ConfigParamSpec>& options)
 {
+  o2::itsmft::DPLAlpideParamInitializer::addConfigOption(options);
   using o2::framework::ConfigParamSpec;
   using o2::framework::VariantType;
   options.push_back(ConfigParamSpec{"disable-mc", VariantType::Bool, false, {"do not propagate MC labels"}});
@@ -86,7 +88,7 @@ template <DetectorLayout Det>
   if (!context.options().get<bool>("clusters-from-upstream")) {
     specs.insert(specs.end(), readers.begin(), readers.end());
   }
-  specs.push_back(gw::getClusterConverterSpec<Det>(useMC));
+  specs.push_back(gw::getClusterConverterSpec<Det>(useMC, gw::staggeredInput<Det>(context)));
   specs.push_back(gw::getMeasurementProducerSpec<Det>());
   specs.push_back(getMeasurementSinkSpec<Det>(useMC, mcVertices, products));
   if (products != TrackerProducts::kNone) {

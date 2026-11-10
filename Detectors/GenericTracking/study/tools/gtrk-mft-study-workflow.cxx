@@ -40,7 +40,7 @@ WorkflowSpec defineDataProcessing(const ConfigContext& context)
   o2::conf::ConfigurableParam::updateFromString(context.options().get<std::string>("configKeyValues"));
 
   const bool useMC = !context.options().get<bool>("disable-mc");
-  auto specs = o2::gtrk::study::studyChain<o2::gtrk::detectors::MFT>(context, {o2::itsmft::getMFTClusterReaderSpec(useMC, false, true, false)});
+  auto specs = o2::gtrk::study::studyChain<o2::gtrk::detectors::MFT>(context, {o2::itsmft::getMFTClusterReaderSpec(useMC, o2::gtrk::workflow::staggeredInput<o2::gtrk::detectors::MFT>(context), true, false)});
 
   const o2::raw::HBFUtilsInitializer hbfIni(context, specs);
 

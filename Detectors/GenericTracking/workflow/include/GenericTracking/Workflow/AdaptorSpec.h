@@ -25,8 +25,10 @@ namespace o2::gtrk::workflow
 
 /// The adaptor of \a Det (the ITS or the MFT); with \a useMC the track labels
 /// from the clusters' (and, for the ITS, the vertices' outputs, without truth).
+/// With staggered input, subscribe to each layer and publish composed O2 cluster
+/// references; GTRK measurement indices remain dense in layer-stream order.
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC);
+o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC, bool staggered = false);
 
 } // namespace o2::gtrk::workflow
 
