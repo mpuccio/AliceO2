@@ -88,7 +88,7 @@ template <DetectorLayout Det>
     throw std::invalid_argument("--tracking-in-gpu-reco takes no native vertex seeds (--vertices-from-upstream)");
   }
   if (!inGPUReco) {
-    specs.push_back(getTrackerSpec<Det>(context.options().get<bool>("vertices-from-upstream")));
+    specs.push_back(getTrackerSpec<Det>(context.options().get<bool>("vertices-from-upstream"), useMC));
   }
   return specs;
 }

@@ -680,14 +680,29 @@ struct RoundStorage {
 } // namespace
 } // namespace detail
 
+/// Download only contributor identities; vertex finding stays on the device.
+struct ClaimRows {
+  const Index* sortedTriplets;
+  const std::int32_t* claims;
+  TrackletConstView tracklets;
+  TripletConstView triplets;
+  TripletClaim* output;
+
+  GPUdi() void operator()(Index i) const
+  {
+    output[i] = {.rows = tripletRows(tracklets, triplets, sortedTriplets[i]), .vertex = claims[i]};
+  }
+};
+
 /// The vertices of the pass's \a tripletCount triplets on \a measurements,
 /// \a rows of them, into \a result (`DeviceTracker::findVertices`); \a pass
 /// the pass's parameters on the device, for the candidates' errors; the
 /// vertices of \a owned's frames, a slice's, as `Vertexer::find` finds them.
 /// Its arrays on the base end, in the caller's scope; kOutOfMemory if the
 /// arena refuses.
+/// With \a keptClaims, append the claimed triplets in the output vertex order.
 template <DetectorLayout Det>
-[[nodiscard]] StageStatus findVertices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, MeasurementView measurements, Index rows, TrackletConstView tracklets, TripletConstView triplets, Index tripletCount, const IterationParameters<Det>* pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, const OwnedFrames& owned, VertexerResult& result)
+[[nodiscard]] StageStatus findVertices(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, MeasurementView measurements, Index rows, TrackletConstView tracklets, TripletConstView triplets, Index tripletCount, const IterationParameters<Det>* pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, const OwnedFrames& owned, VertexerResult& result, std::vector<TripletClaim>* keptClaims)
 {
   using namespace detail;
   result = {};
@@ -1059,12 +1074,24 @@ template <DetectorLayout Det>
     download(selectedScatterSum, scatterSum.data(), vertexSlots, stream);
     download(selectedCount, members.data(), vertexSlots, stream);
   }
+  std::vector<TripletClaim> downloadedClaims;
+  DeviceSpan<TripletClaim> claimRows;
+  if (keptClaims != nullptr) {
+    if (!claimRows.allocate(arena, count)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(runtime, stream, count, ClaimRows{std::as_const(sortedTriplets).data(), std::as_const(claims).data(), tracklets, triplets, claimRows.data()});
+    downloadedClaims.resize(count);
+    download(claimRows, downloadedClaims.data(), count, stream);
+  }
   stream.synchronize();
+  std::vector<std::int32_t> vertexOfSlot(keptClaims == nullptr ? 0U : vertexSlots, VertexerResult::kNone);
   std::uint32_t mostInFrame = 0U;
   for (Index f = 0; f < frames; ++f) {
     struct Found {
       VertexSeed seed;
       Index contributors = 0U;
+      std::size_t slot = 0U;
     };
     std::vector<Found> inFrame;
     for (std::size_t r = 0; r < found; ++r) {
@@ -1080,13 +1107,22 @@ template <DetectorLayout Det>
         .earliestPS = earliest[at],
         .latestPS = latest[at],
       };
-      inFrame.push_back({.seed = vertexSeedOf(sums, beamSpot), .contributors = contributors[at]});
+      inFrame.push_back({.seed = vertexSeedOf(sums, beamSpot), .contributors = contributors[at], .slot = at});
     }
     mostInFrame = std::max(mostInFrame, static_cast<std::uint32_t>(inFrame.size()));
     std::ranges::stable_sort(inFrame, {}, [](const Found& vertex) { return vertex.seed.z; });
     for (const auto& vertex : inFrame) {
+      if (keptClaims != nullptr) {
+        vertexOfSlot[vertex.slot] = static_cast<std::int32_t>(result.vertices.size());
+      }
       result.vertices.push_back(vertex.seed);
       result.contributors.push_back(vertex.contributors);
+    }
+  }
+  for (auto claim : downloadedClaims) {
+    if (claim.vertex >= 0) {
+      claim.vertex = vertexOfSlot[static_cast<std::size_t>(claim.vertex)];
+      keptClaims->push_back(claim);
     }
   }
   result.rounds = mostInFrame + 1U;

@@ -37,14 +37,14 @@ using TrackRecord = typename TrackRefit<Det>::Tracks::Record;
 /// The device; with \a withVertices the native vertex seeds (kVertices) are
 /// an input.
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices);
+o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices, bool useMC = false);
 
 class GPURecoTracking;
 
 /// \a Det's tracking inside the GPU reconstruction (GPURecoTracking.h), the
 /// same timeframe as the device's.
 template <DetectorLayout Det>
-std::unique_ptr<GPURecoTracking> makeGPURecoTrackingOf();
+std::unique_ptr<GPURecoTracking> makeGPURecoTrackingOf(bool useMC);
 
 } // namespace o2::gtrk::workflow
 

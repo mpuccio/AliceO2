@@ -764,7 +764,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
 
   // The host: the pass's list, and the tracking from it.
   VertexingPass<Det, UniformMaterial> pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
-  const auto expected = pass.find(*fixture.frame, 13, 0);
+  const auto expected = pass.find(*fixture.frame, 13, 0, true);
   BOOST_REQUIRE(expected.status == StageStatus::kComplete);
   BOOST_REQUIRE(expected.found.vertices.size() == kCollisionsNS.size());
   const auto host = makeHost({.source = VertexSource::kVertexList});
@@ -786,7 +786,8 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   const auto empty = planTimeframe<Det>(*fixture.frame, parameters, windows, host->beamLine(), {}, 13, 0);
   BOOST_REQUIRE((tracker->beginTimeframe(*fixture.frame, empty) == StageStatus::kComplete));
   VertexerResult found;
-  BOOST_REQUIRE((tracker->findVertices(host->iterationCount(), VertexerSettings{}, Fixture::kBeamConstraint, found) == StageStatus::kComplete));
+  std::vector<TripletClaim> claims;
+  BOOST_REQUIRE((tracker->findVertices(host->iterationCount(), VertexerSettings{}, Fixture::kBeamConstraint, found, &claims) == StageStatus::kComplete));
   BOOST_REQUIRE(found.vertices.size() == expected.found.vertices.size());
   BOOST_TEST(found.candidates == expected.found.candidates);
   for (std::size_t v = 0; v < found.vertices.size(); ++v) {
@@ -797,6 +798,18 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
       BOOST_TEST(found.contributors[v] == expected.found.contributors[v]);
       BOOST_TEST(std::abs(found.vertices[v].z - expected.found.vertices[v].z) < 1.e-5F);
     }
+  }
+
+  // Contributor identities must survive both vertex sorting and slice offsets.
+  auto expectedClaims = expected.claims;
+  std::erase_if(expectedClaims, [](const TripletClaim& claim) { return claim.vertex < 0; });
+  const auto order = [](const TripletClaim& claim) { return std::pair{claim.vertex, claim.rows}; };
+  std::ranges::sort(expectedClaims, {}, order);
+  std::ranges::sort(claims, {}, order);
+  BOOST_REQUIRE(claims.size() == expectedClaims.size());
+  for (std::size_t c = 0; c < claims.size(); ++c) {
+    BOOST_TEST(claims[c].vertex == expectedClaims[c].vertex);
+    BOOST_TEST(claims[c].rows == expectedClaims[c].rows, boost::test_tools::per_element());
   }
 
   // The tracking's plan with the device's list replaces the empty one.

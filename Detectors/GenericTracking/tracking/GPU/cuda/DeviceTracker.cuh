@@ -641,7 +641,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mStream.synchronize();
   }
 
-  [[nodiscard]] StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) final
+  [[nodiscard]] StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, std::vector<TripletClaim>* claims) final
   {
     requireNoIteration("findVertices");
     if (pass >= mIterationCount) {
@@ -649,6 +649,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     }
     // Slice by slice, each its own frames' vertices; the lists in time order.
     result = {};
+    if (claims != nullptr) {
+      claims->clear();
+    }
     const auto& slices = mPlan->slices;
     StageStatus status = StageStatus::kComplete;
     for (std::size_t slice = 0; slice < slices.size() && status == StageStatus::kComplete; ++slice) {
@@ -658,14 +661,20 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       DeviceStageOutput<TripletT> triplets;
       status = tripletStages(pass, pass, slice, tracklets, permutation, triplets);
       VertexerResult found;
+      const auto claimBegin = claims == nullptr ? 0U : claims->size();
       if (status == StageStatus::kComplete) {
-        status = vertex_glue::findVertices<Det>(*mRuntime, mArena, mStream, std::as_const(mColumns).view(), static_cast<Index>(mRows), constView(tracklets), constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot, ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found);
+        status = vertex_glue::findVertices<Det>(*mRuntime, mArena, mStream, std::as_const(mColumns).view(), static_cast<Index>(mRows), constView(tracklets), constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot, ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found, claims);
       }
       // A complete vertexer has synchronised after its last readback.
       if (status != StageStatus::kComplete) {
         mStream.synchronize();
       }
       closeFrom(Scope::kSlice);
+      if (claims != nullptr) {
+        for (std::size_t c = claimBegin; c < claims->size(); ++c) {
+          (*claims)[c].vertex += static_cast<std::int32_t>(result.vertices.size());
+        }
+      }
       appendVertices(result, found);
     }
     return status;

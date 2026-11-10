@@ -21,7 +21,7 @@
 namespace o2::gtrk
 {
 
-template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::ITS>(bool withVertices);
-template std::unique_ptr<workflow::GPURecoTracking> workflow::makeGPURecoTrackingOf<detectors::ITS>();
+template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::ITS>(bool withVertices, bool useMC);
+template std::unique_ptr<workflow::GPURecoTracking> workflow::makeGPURecoTrackingOf<detectors::ITS>(bool useMC);
 
 } // namespace o2::gtrk

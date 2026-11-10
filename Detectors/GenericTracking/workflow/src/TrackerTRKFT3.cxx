@@ -20,6 +20,6 @@
 namespace o2::gtrk
 {
 
-template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::TRKFT3>(bool withVertices);
+template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::TRKFT3>(bool withVertices, bool useMC);
 
 } // namespace o2::gtrk

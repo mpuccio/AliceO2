@@ -73,7 +73,7 @@ class GPURecoTracking
 
 /// The tracking of \a detector, "its" or "mft"; std::invalid_argument for
 /// another.
-[[nodiscard]] std::unique_ptr<GPURecoTracking> makeGPURecoTracking(std::string_view detector);
+[[nodiscard]] std::unique_ptr<GPURecoTracking> makeGPURecoTracking(std::string_view detector, bool useMC = false);
 
 } // namespace o2::gtrk::workflow
 

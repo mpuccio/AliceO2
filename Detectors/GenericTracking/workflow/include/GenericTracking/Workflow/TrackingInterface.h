@@ -289,6 +289,7 @@ class TrackingInterface
     std::span<const VertexSeed> seeds;
     const VertexerResult* found = nullptr;            ///< the own vertexer's list and contributors, host or device; none without it
     const typename Vertexing::Result* pass = nullptr; ///< the own vertexer's on the host, with its claims; none without it or on a GPU
+    std::span<const TripletClaim> claims;             ///< the own vertexer's claimed triplets when requested
     double seconds = 0.;
     double planSeconds = 0.; ///< the initial device plan, before upload and vertex finding
     bool dropped = false;    ///< out of memory, dropped (dropTFUponFailure): no tracking
@@ -308,19 +309,19 @@ class TrackingInterface
       if (!beginDeviceTimeframe()) {
         return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
       }
-      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param), mDeviceFound, mDeviceReport);
+      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param), mDeviceFound, mDeviceReport, keepClaims ? &mDeviceClaims : nullptr);
       const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (status != StageStatus::kComplete) {
         return {.seconds = seconds, .planSeconds = planSeconds, .dropped = dropOrFail(status, "the vertexing pass")};
       }
-      return {.seeds = mDeviceFound.vertices, .found = &mDeviceFound, .seconds = seconds, .planSeconds = planSeconds};
+      return {.seeds = mDeviceFound.vertices, .found = &mDeviceFound, .claims = keepClaims ? std::span<const TripletClaim>{mDeviceClaims} : std::span<const TripletClaim>{}, .seconds = seconds, .planSeconds = planSeconds};
     }
     mPass.emplace(mVertexing->find(frame, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), param.sliceHaloPS, keepClaims));
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (mPass->status != StageStatus::kComplete) {
       return {.pass = &*mPass, .seconds = seconds, .dropped = dropOrFail(mPass->status, "the vertexing pass")};
     }
-    return {.seeds = mPass->found.vertices, .found = &mPass->found, .pass = &*mPass, .seconds = seconds};
+    return {.seeds = mPass->found.vertices, .found = &mPass->found, .pass = &*mPass, .claims = mPass->claims, .seconds = seconds};
   }
 
   /// The tracker's run on \a frame from \a seeds. Valid until endTimeframe.
@@ -363,6 +364,7 @@ class TrackingInterface
       mDevicePlan = {};
       mDeviceTrackingPlan = {};
       mDeviceFound = {};
+      mDeviceClaims.clear();
       mDeviceTimeframe = false;
       mVertexed = false;
     }
@@ -553,6 +555,7 @@ class TrackingInterface
   /// tracks downloaded into the pool, the calls' report.
   TimeframePlan<Det> mDevicePlan;
   TimeframePlan<Det> mDeviceTrackingPlan;
+  std::vector<TripletClaim> mDeviceClaims; ///< optional MC contributor identities
   VertexerResult mDeviceFound;
   std::shared_ptr<BoundedMemoryResource> mDevicePool;
   typename TrackRefit<Det>::Tracks mDeviceTracks;

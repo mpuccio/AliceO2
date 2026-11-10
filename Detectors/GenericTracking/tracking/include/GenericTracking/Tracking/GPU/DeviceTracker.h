@@ -235,10 +235,10 @@ class DeviceTracker
   /// (`OwnedFrames`), \a beamSpot giving the vertices' transverse spread.
   /// The vertices, sorted by
   /// time and each frame's by z, and their contributors into \a result, as
-  /// `VertexingPass::find` gives them; its counts too, but no per-triplet
-  /// claims and no beam estimate. Not with an
+  /// `VertexingPass::find` gives them; its counts too, and optionally their
+  /// claimed triplets in \a claims; no beam estimate. Not with an
   /// iteration open; the used mask and the tracks stay as they are.
-  [[nodiscard]] virtual StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) = 0;
+  [[nodiscard]] virtual StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, std::vector<TripletClaim>* claims = nullptr) = 0;
 
   /// Replace the open timeframe's plan with \a plan, of the same frame and
   /// the same run (std::invalid_argument before anything changes
@@ -269,7 +269,7 @@ class DeviceTracker
   /// the pass, iteration \a pass, into \a result (findVertices). The
   /// timeframe stays open for trackTimeframe; \a frame and \a plan must
   /// outlive it.
-  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report)
+  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report, std::vector<TripletClaim>* claims = nullptr)
   {
     report = {};
     auto start = Clock::now();
@@ -279,7 +279,7 @@ class DeviceTracker
       return status;
     }
     start = Clock::now();
-    status = findVertices(pass, settings, beamSpot, result);
+    status = findVertices(pass, settings, beamSpot, result, claims);
     report.vertexSeconds = since(start);
     return status;
   }

@@ -60,7 +60,7 @@ namespace o2::gtrk::workflow
 {
 
 /// The tracking device's products made in \a pc's outputs, empty, published on
-/// every way out: (tracks, vertices, contributors), DPL's vectors.
+/// every way out: (tracks, vertices, contributors, claims), DPL's vectors.
 template <DetectorLayout Det>
 [[nodiscard]] auto makeTrackerProducts(o2::framework::ProcessingContext& pc)
 {
@@ -70,7 +70,9 @@ template <DetectorLayout Det>
   auto& tracks = pc.outputs().make<std::vector<TrackRecord<Det>>>(Output{gDataOrigin, description<Det>(kTracks), 0});
   auto& vertices = pc.outputs().make<std::vector<VertexSeed>>(Output{gDataOrigin, description<Det>(kVertexSeeds), 0});
   auto& contributors = pc.outputs().make<std::vector<std::uint32_t>>(Output{gDataOrigin, description<Det>(kVertexContributors), 0});
-  return std::tie(tracks, vertices, contributors);
+  static_assert(o2::framework::is_messageable<TripletClaim>::value);
+  auto& claims = pc.outputs().make<std::vector<TripletClaim>>(Output{gDataOrigin, description<Det>(kVertexClaims), 0});
+  return std::tie(tracks, vertices, contributors, claims);
 }
 
 /// The products' output specs.
@@ -78,7 +80,7 @@ template <DetectorLayout Det>
 [[nodiscard]] std::vector<o2::framework::OutputSpec> trackerOutputs()
 {
   using o2::framework::Lifetime;
-  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}};
+  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexClaims), 0, Lifetime::Timeframe}};
 }
 
 /// One timeframe of \a Det's tracking, on \a interface's host or device
@@ -86,11 +88,11 @@ template <DetectorLayout Det>
 /// tracks, the products. The tracking device's run, and the GPU
 /// reconstruction's (GPURecoTracking.h).
 template <DetectorLayout Det, class RunConditions>
-void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>& interface, RunConditions& conditions, bool withVertices)
+void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>& interface, RunConditions& conditions, bool withVertices, bool useMC)
 {
   conditions.checkUpdates(pc);
   const auto orbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
-  auto [tracks, vertices, contributors] = makeTrackerProducts<Det>(pc);
+  auto [tracks, vertices, contributors, claims] = makeTrackerProducts<Det>(pc);
   const auto ended = interface.endTimeframeOnExit();
 
   const auto input = readTimeframe<Det>(pc, withVertices);
@@ -105,7 +107,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   }
 
   const TimeFrame<Det> frame{measurementView(input.columns), interface.grid(), input.offsets};
-  const auto found = interface.vertices(frame, input.seeds, false);
+  const auto found = interface.vertices(frame, input.seeds, useMC);
   if (found.dropped) {
     return;
   }
@@ -117,6 +119,11 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   if (found.found != nullptr) {
     vertices.assign(found.found->vertices.begin(), found.found->vertices.end());
     contributors.assign(found.found->contributors.begin(), found.found->contributors.end());
+    for (const auto& claim : found.claims) {
+      if (claim.vertex >= 0) {
+        claims.push_back(claim);
+      }
+    }
   }
   const auto& result = *tracked.result.tracks;
   tracks.reserve(result.size());
@@ -153,8 +160,9 @@ class TrackerTask : public o2::framework::Task
  public:
   using RunConditions = Conditions<Det, true>;
 
-  TrackerTask(bool withVertices, std::shared_ptr<RunConditions> conditions)
+  TrackerTask(bool withVertices, bool useMC, std::shared_ptr<RunConditions> conditions)
     : mWithVertices(withVertices),
+      mUseMC(useMC),
       mInterface(withVertices),
       mConditions(std::move(conditions))
   {
@@ -176,18 +184,19 @@ class TrackerTask : public o2::framework::Task
 
   void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final { mConditions->finaliseCCDB(matcher, obj); }
 
-  void run(o2::framework::ProcessingContext& pc) final { trackTimeframe<Det>(pc, mInterface, *mConditions, mWithVertices); }
+  void run(o2::framework::ProcessingContext& pc) final { trackTimeframe<Det>(pc, mInterface, *mConditions, mWithVertices, mUseMC); }
 
   void endOfStream(o2::framework::EndOfStreamContext& /*ec*/) final { reportDropped<Det>(mInterface); }
 
  private:
   bool mWithVertices = false;
+  bool mUseMC = false;
   TrackingInterface<Det> mInterface;
   std::shared_ptr<RunConditions> mConditions; ///< the run's field, geometry, MeanVertex and material LUT (Conditions.h)
 };
 
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
+o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices, bool useMC)
 {
   using namespace o2::framework;
   auto inputs = measurementInputs<Det>(withVertices);
@@ -196,7 +205,7 @@ o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
     .name = deviceName<Det>("tracker"),
     .inputs = inputs,
     .outputs = trackerOutputs<Det>(),
-    .algorithm = AlgorithmSpec{adaptFromTask<TrackerTask<Det>>(withVertices, conditions)},
+    .algorithm = AlgorithmSpec{adaptFromTask<TrackerTask<Det>>(withVertices, useMC, conditions)},
     .options = Options{{"gtrk-gpu-backend", VariantType::String, "", {"the GPU backend to track on, cuda or hip; the host if empty"}}, {"gtrk-gpu-device", VariantType::Int, 0, {"the GPU backend's device index"}}, {"gtrk-gpu-arena-mb", VariantType::Int, 0, {"the device tracker's arena in O2's GPU pool [MB]; required with a GPU backend"}}},
   };
 }
@@ -212,7 +221,7 @@ class GPURecoTrackingOf final : public GPURecoTracking
 
   /// No native seeds: the vertex list, where an iteration needs one, is the
   /// own vertexer's.
-  GPURecoTrackingOf() : mInterface(false) {}
+  explicit GPURecoTrackingOf(bool useMC) : mUseMC(useMC), mInterface(false) {}
 
   void appendInputs(std::vector<o2::framework::InputSpec>& inputs) final
   {
@@ -245,7 +254,7 @@ class GPURecoTrackingOf final : public GPURecoTracking
     // Given back after the timeframe's end, which detaches the tracker.
     const auto borrowed = mInterface.context().borrow(tag());
     mInterface.useBlock(borrowed->block());
-    trackTimeframe<Det>(pc, mInterface, *mConditions, false);
+    trackTimeframe<Det>(pc, mInterface, *mConditions, false, mUseMC);
     LOGP(info, "{}: the GPU reconstruction's pool lent {:.1f} MB, the arena's peak {:.1f} MB", Det::name, static_cast<double>(borrowed->block().bytes) / 1.e6, static_cast<double>(mInterface.lastArenaPeakBytes()) / 1.e6);
   }
 
@@ -266,14 +275,15 @@ class GPURecoTrackingOf final : public GPURecoTracking
     return packed;
   }
 
+  bool mUseMC = false;
   TrackingInterface<Det> mInterface;
   std::unique_ptr<RunConditions> mConditions; ///< the detector's own conditions; the run-wide ones are the GPU reconstruction's
 };
 
 template <DetectorLayout Det>
-std::unique_ptr<GPURecoTracking> makeGPURecoTrackingOf()
+std::unique_ptr<GPURecoTracking> makeGPURecoTrackingOf(bool useMC)
 {
-  return std::make_unique<GPURecoTrackingOf<Det>>();
+  return std::make_unique<GPURecoTrackingOf<Det>>(useMC);
 }
 
 } // namespace o2::gtrk::workflow

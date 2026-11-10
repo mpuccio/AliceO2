@@ -102,6 +102,10 @@ inline constexpr std::string_view kVertexSeeds{"VTX"};
 /// Each of those vertices' contributors, a std::uint32_t per vertex.
 inline constexpr std::string_view kVertexContributors{"VTXCONTR"};
 
+/// MC contributor identities: TripletClaim records with measurement rows and
+/// indices into kVertexSeeds. Empty when MC propagation is disabled.
+inline constexpr std::string_view kVertexClaims{"VTXCLAIMS"};
+
 /// Detector \a Det's name in lower case: "its", "mft", "trk".
 template <DetectorLayout Det>
 [[nodiscard]] std::string detectorName()

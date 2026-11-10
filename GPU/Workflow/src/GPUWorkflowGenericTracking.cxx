@@ -22,10 +22,10 @@ namespace o2::gpu
 void GPURecoWorkflowSpec::createGenericTracking()
 {
   if (mSpecConfig.runGenericTrackingITS) {
-    mGenericTracking.push_back(o2::gtrk::workflow::makeGPURecoTracking("its"));
+    mGenericTracking.push_back(o2::gtrk::workflow::makeGPURecoTracking("its", mSpecConfig.processMC));
   }
   if (mSpecConfig.runGenericTrackingMFT) {
-    mGenericTracking.push_back(o2::gtrk::workflow::makeGPURecoTracking("mft"));
+    mGenericTracking.push_back(o2::gtrk::workflow::makeGPURecoTracking("mft", mSpecConfig.processMC));
   }
 }
 

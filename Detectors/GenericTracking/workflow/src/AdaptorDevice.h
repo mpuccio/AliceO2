@@ -24,6 +24,7 @@
 #define GTRK_WORKFLOW_ADAPTORDEVICE_H_
 
 #include "AdaptorHelpers.h"
+#include "GenericTracking/Workflow/VertexLabel.h"
 
 #include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Detectors/ITS.h"
@@ -251,19 +252,45 @@ class AdaptorTask : public o2::framework::Task
     // ITS's order: by the time's lower edge, the tracker's order within.
     std::ranges::stable_sort(converted, {}, [](const Converted& c) { return c.track.getTimeStamp().getTimeStamp() - c.track.getTimeStamp().getTimeStampError(); });
 
+    // Keep each vertex's MC truth beside it through the output ordering.
+    struct ConvertedVertex {
+      o2::its::Vertex vertex;
+      VertexTruth truth;
+    };
+    std::vector<ConvertedVertex> convertedVertices;
     // The own vertexer's vertices, at the beam line's x and y.
     const auto shipped = pc.inputs().get<MeasurementGeometry<Det>>("measurementGeometry");
     const auto seeds = pc.inputs().get<gsl::span<VertexSeed>>("vertices");
     const auto contributors = pc.inputs().get<gsl::span<std::uint32_t>>("contributors");
+    if (contributors.size() != seeds.size()) {
+      throw std::runtime_error("vertex seeds and contributor counts differ in size");
+    }
+    std::vector<VertexTruth> truth;
+    if (mUseMC) {
+      const auto claims = pc.inputs().get<gsl::span<TripletClaim>>("vertexClaims");
+      truth = vertexTruth({claims.data(), claims.size()}, {contributors.data(), contributors.size()}, [&](std::uint32_t row) {
+        if (row >= clusterIndex.size()) {
+          throw std::runtime_error("vertex MC claim refers to a missing measurement");
+        }
+        const auto labels = input.labels(clusterIndex[row]);
+        return std::span<const o2::MCCompLabel>{labels.data(), labels.size()};
+      });
+    }
+    convertedVertices.reserve(seeds.size());
     for (std::size_t v = 0; v < seeds.size(); ++v) {
       const auto& seed = seeds[v];
       const std::array<float, o2::its::Vertex::kNCov> cov{seed.varTransverse, 0.F, seed.varTransverse, 0.F, 0.F, seed.varZ};
-      auto& vertex = vertices.emplace_back(o2::math_utils::Point3D<float>(static_cast<float>(shipped.beamLine.x), static_cast<float>(shipped.beamLine.y), seed.z), cov, static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())), 0.F);
+      auto& convertedVertex = convertedVertices.emplace_back();
+      convertedVertex.truth = mUseMC ? truth[v] : VertexTruth{};
+      auto& vertex = convertedVertex.vertex;
+      vertex = o2::its::Vertex(o2::math_utils::Point3D<float>(static_cast<float>(shipped.beamLine.x), static_cast<float>(shipped.beamLine.y), seed.z), cov, static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())), 0.F);
       const auto lower = bcOfPS(seed.timePS);
       vertex.setTimeStamp(o2::its::TimeEstBC(static_cast<std::uint32_t>(lower), static_cast<std::uint32_t>(bcOfPS(static_cast<std::int64_t>(seed.timePS) + seed.widthPS) - lower)));
     }
     // By frame, as the frame records count them, then by time and contributors.
-    std::ranges::stable_sort(vertices, [&](const o2::its::Vertex& a, const o2::its::Vertex& b) {
+    std::ranges::stable_sort(convertedVertices, [&](const ConvertedVertex& ca, const ConvertedVertex& cb) {
+      const auto& a = ca.vertex;
+      const auto& b = cb.vertex;
       const auto frameA = vertexFrame(a);
       const auto frameB = vertexFrame(b);
       if (frameA != frameB) {
@@ -271,6 +298,11 @@ class AdaptorTask : public o2::framework::Task
       }
       return a.getTimeStamp().lower() != b.getTimeStamp().lower() ? a.getTimeStamp().lower() < b.getTimeStamp().lower() : a.getNContributors() > b.getNContributors();
     });
+
+    vertices.reserve(convertedVertices.size());
+    for (const auto& convertedVertex : convertedVertices) {
+      vertices.push_back(convertedVertex.vertex);
+    }
 
     // The clock's frames of the timeframe, as ITS's (`setBCData`), and more
     // if a track or vertex lies beyond them.
@@ -326,9 +358,14 @@ class AdaptorTask : public o2::framework::Task
       for (const auto& c : converted) {
         trackLabels.push_back(c.label);
       }
-      // No vertex truth: the products do not say which clusters contributed.
-      pc.outputs().make<std::vector<o2::MCCompLabel>>(Output{origin, "VERTICESMCTR", 0}, vertices.size());
-      pc.outputs().make<std::vector<float>>(Output{origin, "VERTICESMCPUR", 0}, vertices.size(), 0.F);
+      auto& vertexLabels = pc.outputs().make<std::vector<o2::MCCompLabel>>(Output{origin, "VERTICESMCTR", 0});
+      auto& vertexPurities = pc.outputs().make<std::vector<float>>(Output{origin, "VERTICESMCPUR", 0});
+      vertexLabels.reserve(convertedVertices.size());
+      vertexPurities.reserve(convertedVertices.size());
+      for (const auto& convertedVertex : convertedVertices) {
+        vertexLabels.push_back(convertedVertex.truth.label);
+        vertexPurities.push_back(convertedVertex.truth.purity);
+      }
     }
     LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} in a frame turned by pi), {} vertices, {} readout frames", Det::name, orbit, tracks.size(), records.size() - fitted.size(), turned, vertices.size(), trackROFs.size());
   }
@@ -347,8 +384,7 @@ class AdaptorTask : public o2::framework::Task
     const auto length = timings[clock].lengthBC;
     const auto delay = AlpideParam::Instance().getROFDelayInBC(static_cast<int>(clock));
     const o2::itsmft::tracking::ROFTimingLayer rofTiming{
-      .mROFLength = static_cast<BC>(length), .mROFDelay = static_cast<BC>(delay),
-      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<int>(clock)))};
+      .mROFLength = static_cast<BC>(length), .mROFDelay = static_cast<BC>(delay), .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<int>(clock)))};
 
     struct Converted {
       o2::mft::TrackMFT track;
@@ -465,6 +501,7 @@ o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC, bool staggered)
   if (useMC) {
     outputs.emplace_back(origin, "TRACKSMCTR", 0, Lifetime::Timeframe);
     if constexpr (kITS) {
+      inputs.emplace_back("vertexClaims", gDataOrigin, description<Det>(kVertexClaims), 0, Lifetime::Timeframe);
       outputs.emplace_back(origin, "VERTICESMCTR", 0, Lifetime::Timeframe);
       outputs.emplace_back(origin, "VERTICESMCPUR", 0, Lifetime::Timeframe);
     }

@@ -23,13 +23,13 @@
 namespace o2::gtrk::workflow
 {
 
-std::unique_ptr<GPURecoTracking> makeGPURecoTracking(std::string_view detector)
+std::unique_ptr<GPURecoTracking> makeGPURecoTracking(std::string_view detector, bool useMC)
 {
   if (detector == "its") {
-    return makeGPURecoTrackingOf<detectors::ITS>();
+    return makeGPURecoTrackingOf<detectors::ITS>(useMC);
   }
   if (detector == "mft") {
-    return makeGPURecoTrackingOf<detectors::MFT>();
+    return makeGPURecoTrackingOf<detectors::MFT>(useMC);
   }
   throw std::invalid_argument("GenericTracking: no tracking inside the GPU reconstruction for " + std::string{detector});
 }
