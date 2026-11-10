@@ -31,6 +31,7 @@
 #include "GenericTracking/Workflow/DataSpecs.h"
 #include "GenericTracking/Workflow/GPURecoTracking.h"
 #include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/ITSROFSelection.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/Workflow/TrackerSpec.h"
 #include "GenericTracking/Workflow/TrackingInterface.h"
@@ -60,7 +61,7 @@ namespace o2::gtrk::workflow
 {
 
 /// The tracking device's products made in \a pc's outputs, empty, published on
-/// every way out: (tracks, vertices, contributors, claims), DPL's vectors.
+/// every way out: (tracks, vertices, contributors, claims, selectedROFs), DPL's vectors.
 template <DetectorLayout Det>
 [[nodiscard]] auto makeTrackerProducts(o2::framework::ProcessingContext& pc)
 {
@@ -72,7 +73,8 @@ template <DetectorLayout Det>
   auto& contributors = pc.outputs().make<std::vector<std::uint32_t>>(Output{gDataOrigin, description<Det>(kVertexContributors), 0});
   static_assert(o2::framework::is_messageable<TripletClaim>::value);
   auto& claims = pc.outputs().make<std::vector<TripletClaim>>(Output{gDataOrigin, description<Det>(kVertexClaims), 0});
-  return std::tie(tracks, vertices, contributors, claims);
+  auto& selectedROFs = pc.outputs().make<std::vector<std::uint8_t>>(Output{gDataOrigin, description<Det>(kSelectedROFs), 0});
+  return std::tie(tracks, vertices, contributors, claims, selectedROFs);
 }
 
 /// The products' output specs.
@@ -80,7 +82,7 @@ template <DetectorLayout Det>
 [[nodiscard]] std::vector<o2::framework::OutputSpec> trackerOutputs()
 {
   using o2::framework::Lifetime;
-  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexClaims), 0, Lifetime::Timeframe}};
+  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexClaims), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kSelectedROFs), 0, Lifetime::Timeframe}};
 }
 
 /// One timeframe of \a Det's tracking, on \a interface's host or device
@@ -92,7 +94,11 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
 {
   conditions.checkUpdates(pc);
   const auto orbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
-  auto [tracks, vertices, contributors, claims] = makeTrackerProducts<Det>(pc);
+  auto [tracks, vertices, contributors, claims, selectedROFs] = makeTrackerProducts<Det>(pc);
+  // Keep copied inputs alive until device work is synchronized on every
+  // exit, including an allocation failure during upload or vertexing.
+  std::optional<ITSROFSelection::Measurements> beforeVertices, afterVertices;
+  std::vector<VertexSeed> trackingSeeds;
   const auto ended = interface.endTimeframeOnExit();
 
   const auto input = readTimeframe<Det>(pc, withVertices);
@@ -106,30 +112,81 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     return;
   }
 
-  const TimeFrame<Det> frame{measurementView(input.columns), interface.grid(), input.offsets};
-  const auto found = interface.vertices(frame, input.seeds, useMC);
+  std::unique_ptr<ITSROFSelection> selection;
+  auto measurements = measurementView(input.columns);
+  auto offsets = input.offsets;
+  std::span<const std::uint32_t> originalRows;
+  if constexpr (std::same_as<Det, detectors::ITS>) {
+    selection = std::make_unique<ITSROFSelection>(pc, conditions.frameTiming(), conditions.orbitsPerTimeframe());
+    beforeVertices = selection->filter(measurements, offsets);
+    if (beforeVertices) {
+      measurements = measurementView(beforeVertices->columns);
+      offsets = beforeVertices->offsets;
+      originalRows = beforeVertices->originalRows;
+    }
+    if (offsets.back() == 0U) {
+      const auto mask = selection->clockMask();
+      selectedROFs.assign(mask.begin(), mask.end());
+      return;
+    }
+  }
+  const TimeFrame<Det> vertexFrame{measurements, interface.grid(), offsets};
+  const auto found = interface.vertices(vertexFrame, input.seeds, useMC);
   if (found.dropped) {
     return;
   }
-  const auto tracked = interface.track(frame, found.seeds);
+  // Snapshot before a vertex-multiplicity cut can end the vertexing pass
+  // and rebuild the tracking input. Publish nothing if tracking then fails.
+  std::vector<VertexSeed> foundVertices;
+  std::vector<std::uint32_t> foundContributors;
+  std::vector<TripletClaim> foundClaims;
+  trackingSeeds.assign(found.seeds.begin(), found.seeds.end());
+  if (found.found != nullptr) {
+    foundVertices = found.found->vertices;
+    foundContributors = found.found->contributors;
+    for (auto claim : found.claims) {
+      if (claim.vertex >= 0) {
+        if (!originalRows.empty()) {
+          for (auto& row : claim.rows) {
+            row = originalRows[row];
+          }
+        }
+        foundClaims.push_back(claim);
+      }
+    }
+  }
+  if (selection && selection->selectWithVertices(foundVertices, foundContributors)) {
+    afterVertices = selection->filter(measurements, offsets, originalRows);
+    if (afterVertices) {
+      interface.endTimeframe();
+      measurements = measurementView(afterVertices->columns);
+      offsets = afterVertices->offsets;
+      originalRows = afterVertices->originalRows;
+    }
+  }
+  const TimeFrame<Det> frame{measurements, interface.grid(), offsets};
+  const auto tracked = interface.track(frame, trackingSeeds);
   if (tracked.dropped) {
     return;
   }
-  // The vertices with the tracks only: a dropped timeframe publishes nothing.
-  if (found.found != nullptr) {
-    vertices.assign(found.found->vertices.begin(), found.found->vertices.end());
-    contributors.assign(found.found->contributors.begin(), found.found->contributors.end());
-    for (const auto& claim : found.claims) {
-      if (claim.vertex >= 0) {
-        claims.push_back(claim);
-      }
-    }
+  vertices.assign(foundVertices.begin(), foundVertices.end());
+  contributors.assign(foundContributors.begin(), foundContributors.end());
+  claims.assign(foundClaims.begin(), foundClaims.end());
+  if (selection) {
+    const auto mask = selection->clockMask();
+    selectedROFs.assign(mask.begin(), mask.end());
   }
   const auto& result = *tracked.result.tracks;
   tracks.reserve(result.size());
   std::size_t failed = 0U;
   for (std::size_t track = 0; track < result.size(); ++track) {
-    tracks.push_back(result.read(track));
+    auto record = result.read(track);
+    if (!originalRows.empty()) {
+      for (std::uint8_t c = 0; c < record.count; ++c) {
+        record.clusters.index[c] = originalRows[record.clusters.index[c]];
+      }
+    }
+    tracks.push_back(record);
     failed += tracks.back().status == PropagationStatus::kOk ? 0U : 1U;
   }
   LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} with a failed refit), {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit, tracks.size(), failed, vertices.size(), tracked.seconds, found.seconds);
@@ -200,6 +257,9 @@ o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices, bool useMC)
 {
   using namespace o2::framework;
   auto inputs = measurementInputs<Det>(withVertices);
+  if constexpr (std::same_as<Det, detectors::ITS>) {
+    ITSROFSelection::addInputs(inputs);
+  }
   auto conditions = std::make_shared<Conditions<Det, true>>(inputs);
   return DataProcessorSpec{
     .name = deviceName<Det>("tracker"),
@@ -226,6 +286,9 @@ class GPURecoTrackingOf final : public GPURecoTracking
   void appendInputs(std::vector<o2::framework::InputSpec>& inputs) final
   {
     auto own = measurementInputs<Det>(false);
+    if constexpr (std::same_as<Det, detectors::ITS>) {
+      ITSROFSelection::addInputs(own);
+    }
     mConditions = std::make_unique<RunConditions>(own);
     inputs.insert(inputs.end(), own.begin(), own.end());
   }

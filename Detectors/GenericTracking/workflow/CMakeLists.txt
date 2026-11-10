@@ -15,11 +15,11 @@
 # unit, ALICE 3's (TRK.cxx) with the upgrades, and the tracking device
 # (TrackerDevice.h), one unit per detector, each instantiating the tracker.
 set(sources src/Clusters.cxx src/Placement.cxx src/RecoParam.cxx src/ITS.cxx src/MFT.cxx src/TrackerITS.cxx src/TrackerMFT.cxx src/AdaptorITS.cxx
-            src/AdaptorMFT.cxx src/GPURecoTracking.cxx)
+            src/AdaptorMFT.cxx src/GPURecoTracking.cxx src/ITSROFSelection.cxx)
 set(trackerUnits src/TrackerITS.cxx src/TrackerMFT.cxx)
 set(publicLibraries O2::GTrkTracking O2::Framework O2::CommonUtils O2::DataFormatsCalibration O2::DetectorsBase
                     O2::DataFormatsITSMFT O2::ITSBase O2::MFTBase O2::DetectorsRaw ROOT::Core)
-set(privateLibraries O2::ITSMFTBase O2::ITSMFTTracking O2::DataFormatsITS O2::DataFormatsMFT O2::SimulationDataFormat O2::CommonConstants
+set(privateLibraries O2::ITStracking O2::DataFormatsTRD O2::ITSMFTBase O2::ITSMFTTracking O2::DataFormatsITS O2::DataFormatsMFT O2::SimulationDataFormat O2::CommonConstants
                      O2::MathUtils O2::ReconstructionDataFormats ROOT::Geom ROOT::RIO ROOT::Tree)
 if(ENABLE_UPGRADES)
   list(APPEND sources src/TRK.cxx src/TrackerTRKFT3.cxx)

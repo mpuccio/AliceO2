@@ -269,6 +269,10 @@ struct RecoSettings {
   /// empty products and is counted, instead of failing the run. Off, the
   /// default, as ITS's DropTFUponFailure: the run fails.
   bool dropTFUponFailure = false;
+
+  /// ITS ROF selection uses native fastMultConfig. Trigger input: 0 none,
+  /// 1 ITS physics triggers, 2 TRD tracklet triggers. Other detectors ignore it.
+  int selectWithTriggers = 0;
 };
 
 /// Detector \a N's settings (`o2::detectors::DetID`): `GTRKReco<DET>`.

@@ -108,6 +108,9 @@ void publishConfiguration(o2::framework::ProcessingContext& pc, bool& published)
   TMap md;
   md.SetOwnerKeyValue();
   md.Add(new TObjString(name.c_str()), new TObjString(o2::conf::ConfigurableParam::asJSON(name).c_str()));
+  if constexpr (std::same_as<Det, detectors::ITS>) {
+    md.Add(new TObjString("fastMultConfig"), new TObjString(o2::conf::ConfigurableParam::asJSON("fastMultConfig").c_str()));
+  }
   pc.outputs().snapshot(o2::framework::Output{"META", metaDescription<Det>(), 0}, md);
 }
 
@@ -177,6 +180,7 @@ class AdaptorTask : public o2::framework::Task
     using o2::framework::Output;
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
     const auto& origin = detectorOrigin<Det>();
+    const auto selectedROFs = pc.inputs().get<gsl::span<std::uint8_t>>("selectedROFs");
     auto& irFrames = pc.outputs().make<std::vector<o2::dataformats::IRFrame>>(Output{origin, "IRFRAMES", 0});
     auto& clusterIds = pc.outputs().make<std::vector<int>>(Output{origin, "TRACKCLSID", 0});
     auto& tracks = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{origin, "TRACKS", 0});
@@ -338,9 +342,10 @@ class AdaptorTask : public o2::framework::Task
       trackROFs[i].setFirstEntry(entries[i]);
       trackROFs[i].setNEntries(entries[i + 1] - entries[i]);
       trackROFs[i].setFlags(vertexROFs[i].getFlags());
-      // Every frame is processed: no multiplicity selection here.
-      auto& irFrame = irFrames.emplace_back(trackROFs[i].getBCData(), trackROFs[i].getBCData() + (length - 1));
-      irFrame.info = static_cast<std::uint64_t>(trackROFs[i].getNEntries());
+      if (i < selectedROFs.size() && selectedROFs[i] != 0U) {
+        auto& irFrame = irFrames.emplace_back(trackROFs[i].getBCData(), trackROFs[i].getBCData() + (length - 1));
+        irFrame.info = static_cast<std::uint64_t>(trackROFs[i].getNEntries());
+      }
     }
     std::ranges::fill(entries, 0);
     for (const auto& vertex : vertices) {
@@ -490,6 +495,7 @@ o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC, bool staggered)
   if constexpr (kITS) {
     inputs.emplace_back("measurementGeometry", gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
     inputs.emplace_back("vertices", gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe);
+    inputs.emplace_back("selectedROFs", gDataOrigin, description<Det>(kSelectedROFs), 0, Lifetime::Timeframe);
     inputs.emplace_back("contributors", gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe);
     outputs.emplace_back(origin, "ITSTrackROF", 0, Lifetime::Timeframe);
     outputs.emplace_back(origin, "VERTICES", 0, Lifetime::Timeframe);

@@ -106,6 +106,10 @@ inline constexpr std::string_view kVertexContributors{"VTXCONTR"};
 /// indices into kVertexSeeds. Empty when MC propagation is disabled.
 inline constexpr std::string_view kVertexClaims{"VTXCLAIMS"};
 
+/// ITS clock-ROF acceptance after cluster/random and vertex multiplicity cuts.
+/// One uint8_t per clock ROF; empty for a dropped/empty timeframe.
+inline constexpr std::string_view kSelectedROFs{"ROFSEL"};
+
 /// Detector \a Det's name in lower case: "its", "mft", "trk".
 template <DetectorLayout Det>
 [[nodiscard]] std::string detectorName()

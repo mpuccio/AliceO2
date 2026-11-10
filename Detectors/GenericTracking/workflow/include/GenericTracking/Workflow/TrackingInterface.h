@@ -497,9 +497,9 @@ class TrackingInterface
   [[nodiscard]] Tracked trackOnDevice(const Frame& frame, std::span<const VertexSeed> seeds, std::int32_t blocksPerSlice, std::chrono::steady_clock::time_point start)
   {
     const auto& param = recoParam<Det>();
-    const bool replaced = mVertexing != nullptr;
+    const bool replaced = mVertexed;
     const std::size_t iterations = mTracker->iterationCount();
-    mDeviceTrackingPlan = replaced ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS) : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
+    mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS) : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (!beginDeviceTimeframe()) {
