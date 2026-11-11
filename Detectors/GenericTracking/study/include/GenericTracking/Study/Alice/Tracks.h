@@ -11,7 +11,7 @@
 
 /// \file Tracks.h
 /// \brief O2's ITS and MFT tracks, as the clusters they hold, their MC labels'
-///        fake flags and, for the ITS, their states at the innermost cluster.
+///        fake flags, fitted kinematics and ITS innermost-cluster states.
 ///
 /// All a comparison with our tracks needs, because both trackers read the
 /// same clusters in the same order (Clusters.h): a track is its list of O2
@@ -34,6 +34,8 @@ class TTree;
 namespace o2::gtrk::study
 {
 
+struct TrackKinematics;
+
 /// One timeframe's tracks, each as its cluster indices.
 using TrackClusters = std::vector<std::vector<std::uint32_t>>;
 
@@ -55,6 +57,10 @@ class TrackFile
 
   /// Whether each track's own MC label is flagged fake, as O2's tracker set it.
   [[nodiscard]] std::vector<bool> fakeFlags(long long entry);
+
+  /// Fitted inward kinematics in the same order as read(). Native outputs
+  /// contain accepted tracks; fitValid checks finite, positive momentum.
+  [[nodiscard]] std::vector<TrackKinematics> kinematics(long long entry);
 
   /// Every ITS track's state at its innermost cluster. Throws
   /// std::runtime_error for the MFT, whose tracks are parameterised in z.

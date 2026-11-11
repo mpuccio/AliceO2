@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/Study/Alice/Tracks.h"
+#include "GenericTracking/Study/TrackingQA.h"
 
 #include "DataFormatsITS/TrackITS.h"
 #include "DataFormatsMFT/TrackMFT.h"
@@ -18,8 +19,10 @@
 #include <TFile.h>
 #include <TTree.h>
 
+#include <cmath>
 #include <format>
 #include <stdexcept>
+#include <type_traits>
 
 namespace o2::gtrk::study
 {
@@ -60,6 +63,34 @@ TrackClusters readEntry(TTree& tree, long long entry, const char* trackBranch, c
   tree.GetEntry(entry);
   auto result = clustersOf(tracks, indices, range);
   tree.ResetBranchAddresses();
+  return result;
+}
+
+template <typename Track>
+std::vector<TrackKinematics> readKinematics(TTree& tree, long long entry, const char* branch)
+{
+  std::vector<Track> tracks;
+  auto* pointer = &tracks;
+  tree.SetBranchAddress(branch, &pointer);
+  tree.GetEntry(entry);
+  tree.ResetBranchAddresses();
+  std::vector<TrackKinematics> result;
+  result.reserve(tracks.size());
+  for (const auto& track : tracks) {
+    const auto pt = static_cast<float>(track.getPt());
+    const auto eta = static_cast<float>(track.getEta());
+    const auto phi = static_cast<float>(track.getPhi());
+    float chi2 = 0.F;
+    int ndf = 0;
+    if constexpr (std::is_same_v<Track, o2::its::TrackITS>) {
+      chi2 = track.getChi2();
+      ndf = 2 * track.getNumberOfClusters() - 5;
+    } else {
+      chi2 = static_cast<float>(track.getTrackChi2());
+      ndf = track.getNDF();
+    }
+    result.push_back({.pt = pt, .eta = eta, .phi = phi, .chi2 = chi2, .ndf = ndf, .fitValid = std::isfinite(pt) && pt > 0.F && std::isfinite(eta) && std::isfinite(phi)});
+  }
   return result;
 }
 
@@ -105,6 +136,16 @@ std::vector<bool> TrackFile::fakeFlags(long long entry)
     result.push_back(label.isFake());
   }
   return result;
+}
+
+std::vector<TrackKinematics> TrackFile::kinematics(long long entry)
+{
+  if (entry >= mTree->GetEntries()) {
+    return {};
+  }
+  return mChips == Chips::kITS
+           ? readKinematics<o2::its::TrackITS>(*mTree, entry, "ITSTrack")
+           : readKinematics<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack");
 }
 
 std::vector<o2::track::TrackParCov> TrackFile::innerStates(long long entry)

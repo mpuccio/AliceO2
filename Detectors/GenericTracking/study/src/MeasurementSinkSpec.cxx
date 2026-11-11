@@ -3238,7 +3238,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), comparisonSettings<Det>(), mKinematics ? mKinematics->getNEvents(0) : 0U);
+      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), comparisonSettings<Det>(), mKinematics ? mKinematics->getNEvents(0) : 0U, std::is_same_v<Det, detectors::TRKFT3> ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
     }
     mQAOutput->Close();
     mQAOutput.reset();
@@ -3399,6 +3399,7 @@ class MeasurementSinkTask : public Task
     // Each signal particle's outward leg in its MC hits (TrackingQA.h), its
     // event's segments ordered by track once.
     std::unordered_map<std::uint64_t, std::uint8_t> outward;
+    std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
     std::unordered_map<std::uint64_t, std::vector<float>> legMomenta; // --species-oracle
     if (mHits) {
       std::unordered_map<int, std::vector<std::uint64_t>> byEvent;
@@ -3429,6 +3430,13 @@ class MeasurementSinkTask : public Task
           const auto& truth = particles.at(id);
           const auto leg = outwardLeg(crossings, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)});
           outward[id] = outwardLayers(leg);
+          if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+            if (outward[id] >= comparisonSettings<Det>().minLayers) {
+              for (const auto& crossing : leg) {
+                outwardMasks[id] |= std::uint64_t{1} << crossing.layer;
+              }
+            }
+          }
           if (mSpeciesOracle && (std::abs(truth.pdg) == 11 || (std::abs(truth.pdg) == 211 && id % 16U == 0U))) {
             legMomenta[id] = momentaAlongLeg(leg);
           }
@@ -3443,6 +3451,13 @@ class MeasurementSinkTask : public Task
       }
       const auto& helix = label->second.helix;
       auto& extra = extras[id];
+      if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+        if (const auto mask = outwardMasks.find(id); mask != outwardMasks.end()) {
+          extra.expectedLayerMask = mask->second;
+        }
+      } else {
+        extra.expectedLayerMask = (std::uint64_t{1} << Detector<Det>::nLayers) - 1U;
+      }
       if (const auto leg = outward.find(id); leg != outward.end()) {
         extra.outwardLayers = leg->second;
       }
@@ -3481,6 +3496,11 @@ class MeasurementSinkTask : public Task
       }
     }
     stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), comparisonSettings<Det>()));
+    if (theirs != nullptr) {
+      const auto nativeKinematics = mO2Tracks->kinematics(static_cast<long long>(mTimeframe));
+      const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, nullptr, 1, comparisonSettings<Det>());
+      streamTracks(*mQAOutput, nativeQA.tracks, "tracksO2");
+    }
     streamResolution(*mQAOutput, resolution);
     streamOracle(*mQAOutput, oracle);
     if (!legMomenta.empty()) {

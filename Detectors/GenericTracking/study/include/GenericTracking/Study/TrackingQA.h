@@ -150,7 +150,8 @@ struct ParticleExtras {
   /// own part, a FitLoss, kOther if the fit takes it; kQANotObserved
   /// otherwise.
   std::uint8_t raisedFit = kQANotObserved;
-  std::uint8_t outwardLayers = 0U; ///< the layers of its MC hits' outward leg (`outwardLayers`)
+  std::uint8_t outwardLayers = 0U;      ///< the layers of its MC hits' outward leg (`outwardLayers`)
+  std::uint64_t expectedLayerMask = 0U; ///< full-length reference: detector layers, or ALICE3 outward MC traversal
 };
 
 /// A findable particle of the `particles` tree.
@@ -235,6 +236,8 @@ struct QATrack {
   float chi2 = 0.F; ///< the fit's; TMath::Prob(chi2, ndf) is its probability
   std::int32_t ndf = 0;
   bool fitValid = true;
+  std::uint64_t expectedLayerMask = 0U;                  ///< zero when a full-length reference is unavailable
+  std::uint64_t layerMask = 0U;                          ///< distinct reconstructed detector layers
   std::uint64_t mcParticle = kNoTrackParticle;           ///< source/event/track identity, local to this timeframe
   float ptGen = std::numeric_limits<float>::quiet_NaN(); ///< generated momentum at production [GeV]
   float etaGen = std::numeric_limits<float>::quiet_NaN();
@@ -352,13 +355,18 @@ using SeededBy = std::unordered_map<std::uint64_t, std::uint64_t>;
 /// \a qa's records into \a output's `particles` and `tracks` trees.
 void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa);
 
+/// Write the same track schema for a comparison tracker, without duplicating
+/// the generated-particle tree. Truth and clone rules are those of trackingQA().
+void streamTracks(o2::utils::TreeStreamRedirector& output, std::span<const QATrack> tracks, const char* tree = "tracks");
+
 /// \a entries into \a output's `resolution` tree.
 void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const QAResolution> entries);
 
 /// The run's one entry of the `run` tree: what the macro's axes need,
 /// \a settings' findable rules (`minLayers`, `minPtGeV`, `minOutwardLayers`)
-/// for its definitions, and the run's MC \a events.
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events);
+/// for its definitions, and the run's MC \a events. A nonzero fullLengthMask
+/// requires all detector layers; zero denotes per-particle MC traversal masks.
+void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask = 0U);
 
 } // namespace o2::gtrk::study
 

@@ -224,7 +224,13 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       .fitValid = k.fitValid,
       .mcParticle = particle,
     };
+    for (const auto row : tracks[track]) {
+      record.layerMask |= std::uint64_t{1} << rows[row].layer;
+    }
     if (!record.fake) {
+      if (const auto extra = extras.find(particle); extra != extras.end()) {
+        record.expectedLayerMask = extra->second.expectedLayerMask;
+      }
       if (const auto generated = truth.find(particle); generated != truth.end()) {
         record.ptGen = generated->second.pt;
         record.etaGen = generated->second.eta;
@@ -289,8 +295,13 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
     const auto& e = p.extras;
     output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "outwardLayers=" << e.outwardLayers << "\n";
   }
-  for (const auto& t : qa.tracks) {
-    output << "tracks" << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "fitValid=" << t.fitValid << "mcParticle=" << t.mcParticle << "ptGen=" << t.ptGen << "etaGen=" << t.etaGen << "origin=" << t.origin << "dInvPtRel=" << t.invPtResidual << "\n";
+  streamTracks(output, qa.tracks);
+}
+
+void streamTracks(o2::utils::TreeStreamRedirector& output, std::span<const QATrack> tracks, const char* tree)
+{
+  for (const auto& t : tracks) {
+    output << tree << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "expectedLayerMask=" << t.expectedLayerMask << "layerMask=" << t.layerMask << "fitValid=" << t.fitValid << "mcParticle=" << t.mcParticle << "ptGen=" << t.ptGen << "etaGen=" << t.etaGen << "origin=" << t.origin << "dInvPtRel=" << t.invPtResidual << "\n";
   }
 }
 
@@ -316,6 +327,6 @@ void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMo
   }
 }
 
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "\n"; }
+void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "\n"; }
 
 } // namespace o2::gtrk::study
