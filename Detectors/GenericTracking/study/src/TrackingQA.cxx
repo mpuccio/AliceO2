@@ -221,8 +221,18 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       .fake = particle == kNoTrackParticle,
       .chi2 = k.chi2,
       .ndf = k.ndf,
+      .fitValid = k.fitValid,
+      .mcParticle = particle,
     };
     if (!record.fake) {
+      if (const auto generated = truth.find(particle); generated != truth.end()) {
+        record.ptGen = generated->second.pt;
+        record.etaGen = generated->second.eta;
+        record.origin = static_cast<std::uint8_t>(generated->second.origin);
+        if (record.fitValid && std::isfinite(k.pt) && k.pt > 0.F && std::isfinite(record.ptGen) && record.ptGen > 0.F) {
+          record.invPtResidual = static_cast<float>((static_cast<double>(record.ptGen) / static_cast<double>(k.pt)) - 1.);
+        }
+      }
       auto& mask = foundBy[particle];
       record.clone = mask != 0U;
       mask |= std::uint64_t{1} << k.iteration;
@@ -280,7 +290,7 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
     output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "outwardLayers=" << e.outwardLayers << "\n";
   }
   for (const auto& t : qa.tracks) {
-    output << "tracks" << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "\n";
+    output << "tracks" << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "fitValid=" << t.fitValid << "mcParticle=" << t.mcParticle << "ptGen=" << t.ptGen << "etaGen=" << t.etaGen << "origin=" << t.origin << "dInvPtRel=" << t.invPtResidual << "\n";
   }
 }
 

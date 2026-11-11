@@ -25,7 +25,9 @@
 ///              (StageFunnel.h); its PDG codes, decay geometry, layers,
 ///              the funnel's verdict and the other tracker's
 ///              (`QAParticle`)
-///   tracks:    the fit's pT, eta and phi, its iteration, fake and clone
+///   tracks:    the fit's pT, eta and phi, its iteration, fake and clone;
+///              fit status, generated pT/eta, origin and relative inverse-pT
+///              residual for matched tracks, without requiring hit files
 ///
 /// Every efficiency follows from the two; for iteration i, `bit` = 1 << i:
 ///
@@ -95,6 +97,7 @@ struct TrackKinematics {
   std::uint8_t iteration = 0U;
   float chi2 = 0.F;
   std::int32_t ndf = 0;
+  bool fitValid = true; ///< the refit's propagation status is kOk
 };
 
 /// Iterations a particle's `foundBy` holds.
@@ -231,6 +234,12 @@ struct QATrack {
   bool clone = false;
   float chi2 = 0.F; ///< the fit's; TMath::Prob(chi2, ndf) is its probability
   std::int32_t ndf = 0;
+  bool fitValid = true;
+  std::uint64_t mcParticle = kNoTrackParticle;           ///< source/event/track identity, local to this timeframe
+  float ptGen = std::numeric_limits<float>::quiet_NaN(); ///< generated momentum at production [GeV]
+  float etaGen = std::numeric_limits<float>::quiet_NaN();
+  std::uint8_t origin = 0xFFU;                                   ///< ParticleOrigin; unknown for unlabelled tracks
+  float invPtResidual = std::numeric_limits<float>::quiet_NaN(); ///< (1/pT - 1/pTgen) * pTgen
 };
 
 /// A good track against its particle's MC crossing of its innermost

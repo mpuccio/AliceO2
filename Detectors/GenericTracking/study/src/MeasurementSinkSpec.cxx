@@ -3348,6 +3348,7 @@ class MeasurementSinkTask : public Task
         .iteration = view.iteration[track],
         .chi2 = view.chi2[track],
         .ndf = view.ndf[track],
+        .fitValid = view.status[track] == PropagationStatus::kOk,
       };
       // A good track against its particle's crossing, with the hits.
       const auto particle = goodParticle(rows, ours[track]);
