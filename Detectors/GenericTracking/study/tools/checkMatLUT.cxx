@@ -534,7 +534,14 @@ void write(const std::string& path, const std::vector<Step>& steps)
 template <o2::gtrk::DetectorLayout Det>
 int runFor(const Options& options)
 {
-  o2::base::GeometryManager::loadGeometry(options.geometry.empty() ? options.sim + "/sgn_geometry.root" : options.geometry);
+  // O2 exports the ideal geometry before applying alignment, then transports
+  // with the aligned geometry (O2MCApplicationBase::MisalignGeometry).
+  auto geometryPath = options.geometry;
+  if (geometryPath.empty()) {
+    const auto aligned = options.sim + "/sgn_geometry-aligned.root";
+    geometryPath = std::filesystem::exists(aligned) ? aligned : options.sim + "/sgn_geometry.root";
+  }
+  o2::base::GeometryManager::loadGeometry(geometryPath);
   const auto geometry = std::make_unique<const o2::gtrk::Geometry<Det>>(o2::gtrk::alice::placeChecked<Det>());
   const std::unique_ptr<o2::base::MatLayerCylSet> lut{o2::base::MatLayerCylSet::loadFromFile(options.lut)};
   if (!lut) {
@@ -577,9 +584,9 @@ int run(int argc, char** argv)
   description.add_options()                                                                                                                            //
     ("help,h", "this message")                                                                                                                         //
     ("detector,d", bpo::value(&options.detector)->default_value(options.detector), "ITS, MFT or TRKFT3")                                               //
-    ("sim", bpo::value(&options.sim), "the simulation's directory: sgn_Hits*.root, sgn_Kine.root, sgn_geometry.root")                                  //
+    ("sim", bpo::value(&options.sim), "the simulation's directory: sgn_Hits*.root, sgn_Kine.root, sgn_geometry[-aligned].root")                        //
     ("lut", bpo::value(&options.lut), "the material LUT")                                                                                              //
-    ("geometry", bpo::value(&options.geometry), "the geometry, if not <sim>/sgn_geometry.root (the hits' own transport geometry)")                     //
+    ("geometry", bpo::value(&options.geometry), "override geometry; default <sim>/sgn_geometry-aligned.root if present, otherwise sgn_geometry.root")  //
     ("output,o", bpo::value(&options.output), "write the steps to this ROOT file")                                                                     //
     ("events,n", bpo::value(&options.events)->default_value(options.events), "the first MC events")                                                    //
     ("min-pt", bpo::value(&options.minPt)->default_value(options.minPt), "the particles' pT floor [GeV]")                                              //
