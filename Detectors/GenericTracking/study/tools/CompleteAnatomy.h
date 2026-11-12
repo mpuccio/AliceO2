@@ -4342,7 +4342,11 @@ class CompleteAnatomy
       // The road fit, its last step nominal and allowed.
       const RowChain<Det> chain{.frame = &frame, .rows = road.data()};
       const auto count = static_cast<int>(road.size());
-      const auto plain = fitOutward(propagator, geometry, material, chain, count, parameters.roadChi2MaxByNdf, nominalBudget);
+      auto plainParameters = parameters;
+      plainParameters.kinkScale2 = 1.F;
+      plainParameters.maxKinks = nominalBudget.max;
+      plainParameters.kinkChi2Min = nominalBudget.gate;
+      const auto plain = fitRoad(plainParameters, propagator, geometry, material, chain, count);
       const auto allowed = fitRoad(parameters, propagator, geometry, material, chain, count);
       if (plain.status != RoadFitStatus::kAccepted && allowed.status == RoadFitStatus::kAccepted) {
         need |= kLastStep;

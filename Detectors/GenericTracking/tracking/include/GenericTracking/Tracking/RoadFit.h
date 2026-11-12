@@ -133,7 +133,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det, typename Material>
 [[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
 {
-  const auto inward = fitInward(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
+  const auto inward = fitInwardReference(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, parameters.fitReference, kinkBudget(parameters));
   if (inward.status != PropagationStatus::kOk) {
     return false;
   }

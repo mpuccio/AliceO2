@@ -182,17 +182,11 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
 /// The reference, not the filtered state. A Kalman filter that linearises
 /// about its own estimate is an *extended* filter, and its linearisation point
 /// carries whatever error the filter currently has; linearising about a
-/// reference trajectory - O2 does this with the `linRef` overload of
-/// `PropagatorImpl::PropagateToXBxByBz` - keeps F and Q independent of the
-/// measurements. For a two-pass fit that is a correctness property rather than
-/// a refinement: the outward and inward passes then see *identical* F and Q
-/// for the same physical step, which is what lets them be combined.
-///
-/// Unlike O2 we do not also transport the state through the reference. O2
-/// writes `state = ref + F (state - ref)` because its exact propagation is a
-/// stepped field integration and doing it once for the reference is a real
-/// saving. Ours is a closed form, so linearising the state would trade
-/// accuracy for a speed-up we do not need.
+/// reference trajectory allows the fitter to evaluate transport independently
+/// of its measurement updates. The caller chooses the linearisation state;
+/// this routine returns the exact propagated reference and its Jacobian.
+/// The reference filter uses them for the affine prediction
+/// f(reference) + F (state - reference).
 ///
 /// The derivation, for a uniform Bz. With `b = Bz * B2C` and `kp = (q/p) b`,
 /// the turn angle is `psi = kp * s` - **independent of theta**, because the

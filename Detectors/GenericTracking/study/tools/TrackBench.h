@@ -51,6 +51,7 @@
 #include "DetectorsBase/MatLayerCylSet.h"
 
 #include <TGeoManager.h>
+#include <iomanip>
 
 #include "FitInputs.h"
 #include <boost/program_options.hpp>
@@ -139,6 +140,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string trace;
   std::string json;
   std::string tracksOut;
+  std::string fitResults;
   std::string clonesOut;   ///< --clones-out
   std::string rowsOut;     ///< --rows-out
   std::string fakesOut;    ///< --fakes-out
@@ -543,6 +545,57 @@ void writeTracks(const std::string& path, const typename TrackRefit<Det>::Tracks
       out << ' ' << columns.clusterIndex[view.clusters[track].index[at]];
     }
     out << std::format(" chi2 {:.6g}\n", static_cast<double>(view.chi2[track]));
+  }
+}
+
+/// Per-track fit output for comparisons, outside the measured tracking loop.
+/// Particle IDs include source/event/track; the caller supplies the TF identity.
+template <DetectorLayout Det>
+void writeFitResults(const std::string& path, const typename TrackRefit<Det>::Tracks& tracks, const TimeFrame<Det>& frame, const study::TrackingTruth* truth)
+{
+  std::ofstream out{path};
+  if (!out) {
+    throw std::runtime_error("cannot write " + path);
+  }
+  out << "track,iteration,status,count,layerMask,chi2,ndf,kinks,good,particle,ptGen,etaGen,physicalPrimary";
+  for (int i = 0; i < kNBoundParams; ++i) {
+    out << ",par" << i;
+  }
+  for (int i = 0; i < kBoundCovSize; ++i) {
+    out << ",cov" << i;
+  }
+  out << ",clusters\n" << std::setprecision(std::numeric_limits<Scalar>::max_digits10);
+  const auto view = tracks.view();
+  const auto columns = frame.measurements();
+  for (std::size_t track = 0; track < tracks.size(); ++track) {
+    const auto rows = std::span<const std::uint32_t>{view.clusters[track].index, view.count[track]};
+    const auto good = truth ? study::goodParticle(truth->rows, rows) : study::kNoTrackParticle;
+    const auto particle = good != study::kNoTrackParticle ? good : truth ? study::majorityParticle(truth->rows, rows).particle : study::kNoTrackParticle;
+    const study::ParticleTruth* mc = nullptr;
+    std::uint64_t layerMask = 0U;
+    if (truth) {
+      const auto it = truth->particles.find(particle);
+      if (it != truth->particles.end()) {
+        mc = &it->second;
+      }
+      for (const auto row : rows) {
+        layerMask |= std::uint64_t{1} << truth->rows[row].layer;
+      }
+    }
+    out << track << ',' << static_cast<int>(view.iteration[track]) << ',' << static_cast<int>(view.status[track]) << ',' << rows.size() << ',' << layerMask
+        << ',' << view.chi2[track] << ',' << view.ndf[track] << ',' << static_cast<int>(view.kinks[track]) << ',' << (good != study::kNoTrackParticle) << ',' << particle
+        << ',' << (mc ? mc->pt : 0.F) << ',' << (mc ? mc->eta : 0.F) << ',' << (mc && mc->origin == study::ParticleOrigin::kPhysicalPrimary);
+    for (const auto parameter : view.state[track].par) {
+      out << ',' << parameter;
+    }
+    for (const auto covariance : view.state[track].cov) {
+      out << ',' << covariance;
+    }
+    out << ',';
+    for (const auto row : rows) {
+      out << columns.clusterIndex[row] << ';';
+    }
+    out << '\n';
   }
 }
 
@@ -1920,6 +1973,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       if (!options.tracksOut.empty() && last) {
         writeTracks<Det>(options.tracksOut, deviceTracks, frame);
       }
+      if (!options.fitResults.empty() && last) {
+        writeFitResults<Det>(options.fitResults, deviceTracks, frame, truth ? &*truth : nullptr);
+      }
       std::cout << std::format("\n=== run {}{}: tracks, {}, {}: {} in {:.4f} s (plan {:.4f} s, upload {:.4f} s, iterations", repetition, repetition == 0U ? " (cold)" : "", label, options.backend, deviceTracks.size(), planSeconds + deviceSeconds, planSeconds, deviceRun.uploadSeconds);
       for (const double seconds : deviceRun.iterationSeconds) {
         std::cout << std::format(" {:.4f}", seconds);
@@ -2041,6 +2097,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     std::cout << std::format("digest, tracks in clusters: {:016x}\n", tracksClusterDigest<Det>(*result.tracks, frame));
     if (!options.tracksOut.empty() && last) {
       writeTracks<Det>(options.tracksOut, *result.tracks, frame);
+    }
+    if (!options.fitResults.empty() && last) {
+      writeFitResults<Det>(options.fitResults, *result.tracks, frame, truth ? &*truth : nullptr);
     }
     if (truth && last) {
       writeTruthStudies<Det>(options, *result.tracks, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });

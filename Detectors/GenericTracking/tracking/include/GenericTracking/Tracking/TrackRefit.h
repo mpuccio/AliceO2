@@ -111,7 +111,8 @@ GPUhdi() GPUAlwaysInline() void writeFit(const Tracks& tracks, std::uint32_t tra
 
 /// One element per selected record: the inward pass on its rows from the road
 /// fit's outward state (`fitInward`), and the track's time from their boxes;
-/// the pass may take the iteration's kinks. Its frame, geometry and material
+/// the pass may take the iteration's kinks. Bidirectional reference mode starts
+/// its inward reference from that outward state. Its frame, geometry and material
 /// are pointers, which may be a device's.
 template <DetectorLayout Det, typename Material>
 class TrackRefitElement
@@ -120,7 +121,7 @@ class TrackRefitElement
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using View = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
-  TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator, const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2, const std::uint32_t* selected, View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks)
+  TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator, const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2, const std::uint32_t* selected, View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks, FitReference reference = FitReference::kFilteredState)
     : mFrame(frame),
       mGeometry(geometry),
       mMaterial(material),
@@ -133,7 +134,8 @@ class TrackRefitElement
       mTracks(tracks),
       mOffset(offset),
       mIteration(iteration),
-      mKinks(kinks)
+      mKinks(kinks),
+      mReference(reference)
   {
   }
 
@@ -144,7 +146,8 @@ class TrackRefitElement
     const auto& rows = mClusters[record];
     const std::uint8_t count = mCount[record];
     // The road fit ran the outward pass already and kept its end state.
-    const auto fit = fitInward(mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<int>(count), mOutward[record], mKinks);
+    const auto chain = RowChain<Det>{.frame = mFrame, .rows = rows.index};
+    const auto fit = fitInwardReference(mPropagator, *mGeometry, *mMaterial, chain, static_cast<int>(count), mOutward[record], mReference, mKinks);
     writeFit(mTracks, track, fit, rows, count, trackTimeBox(mFrame->measurements(), rows, count));
     mTracks.outwardChi2[track] = mOutwardChi2[record];
     mTracks.iteration[track] = mIteration;
@@ -166,6 +169,7 @@ class TrackRefitElement
   std::uint32_t mOffset = 0U;
   std::uint8_t mIteration = 0U;
   KinkBudget mKinks;
+  FitReference mReference;
 };
 
 /// The timeframe's tracks: each iteration's appended after the ones before,
@@ -200,7 +204,7 @@ class TrackRefit
       const auto offset = static_cast<std::uint32_t>(mTracks.size());
       mTracks.resize(offset + selected.size());
       const auto records = selection.records();
-      const TrackRefitElement<Det, Material> element{&frame, &geometry, &material, propagator, records.clusters, records.count, records.outwardState, records.chi2, selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters)};
+      const TrackRefitElement<Det, Material> element{&frame, &geometry, &material, propagator, records.clusters, records.count, records.outwardState, records.chi2, selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters), parameters.fitReference};
       forEach(static_cast<std::uint32_t>(selected.size()), element);
       return StageStatus::kComplete;
     });

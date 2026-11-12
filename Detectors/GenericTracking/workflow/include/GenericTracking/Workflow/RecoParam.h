@@ -64,6 +64,12 @@ struct RecoSettings {
   /// scattering, in the windows at pT_min and in the fit, and the fit's energy
   /// loss. The charged pion's by default.
   double massHypothesisGeV = o2::constants::physics::MassPionCharged;
+  /// Linearisation: 0 uses the evolving filtered state both ways (default).
+  /// 1 uses an independent circle reference outward and the filtered state inward.
+  /// 2 uses the circle reference outward and an independent reference seeded
+  /// from the outward fitted parameters inward. References are position-anchored
+  /// to clusters within each pass. Selected tracks reuse the road's outward fit.
+  int fitReference = 0;
   /// The uniform material per layer [X/X0] that sizes the windows and the
   /// grid, and the scattering when no material LUT is given; with a LUT the
   /// tracking takes its budgets.

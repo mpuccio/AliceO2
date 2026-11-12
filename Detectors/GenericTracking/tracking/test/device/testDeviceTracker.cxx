@@ -172,6 +172,7 @@ struct Options {
   /// never both in one iteration.
   double kinkSigma = 1.;
   bool followEnd = false;
+  FitReference reference = FitReference::kFilteredState;
 };
 
 std::string describe(const Options& options) { return std::string{options.source == VertexSource::kBeamLine ? "beam line" : "vertex list"} + ", width " + std::to_string(options.width) + ", shared " + std::to_string(options.sharedInnermost) + (options.extension ? ", follow" : ", no follow") + (options.kinkSigma > 1. ? ", kink allowance " + std::to_string(options.kinkSigma) + " sigma" : "") + (options.followEnd ? ", end again" : ""); }
@@ -182,6 +183,7 @@ std::unique_ptr<Host> makeHost(const Options& options)
   static const UniformMaterial none{};
   auto settings = iterations(options.source);
   for (auto& iteration : settings) {
+    iteration.fitReference = options.reference;
     iteration.sharedInnermost = options.sharedInnermost;
     iteration.follow = options.extension;
   }
@@ -232,7 +234,44 @@ bool sameTracks(const View& host, std::size_t hostRows, const View& device, std:
     std::ranges::sort(result);
     return result;
   };
-  return hostRows == deviceRows && rowsOf(host, hostRows) == rowsOf(device, deviceRows);
+  if (hostRows != deviceRows || rowsOf(host, hostRows) != rowsOf(device, deviceRows)) {
+    return false;
+  }
+  // Check states explicitly: a non-arithmetic memlayout column has no scalar
+  // maxAbsDifference in StageComparison, so matching identities is not a
+  // numerical check of its parameters and covariance.
+  const auto order = [](const View& view, std::size_t rows) {
+    std::vector<std::pair<std::vector<std::uint32_t>, std::size_t>> sorted;
+    for (std::size_t i = 0; i < rows; ++i) {
+      sorted.emplace_back(std::vector<std::uint32_t>{view.clusters[i].index, view.clusters[i].index + view.count[i]}, i);
+    }
+    std::ranges::sort(sorted);
+    return sorted;
+  };
+  const auto lhs = order(host, hostRows);
+  const auto rhs = order(device, deviceRows);
+  const auto closeState = [](const BoundTrackState& a, const BoundTrackState& b) {
+    constexpr Scalar tolerance = 1.e-4F;
+    if (a.surface != b.surface || std::abs(a.surfacePhi - b.surfacePhi) > tolerance) {
+      return false;
+    }
+    for (int i = 0; i < kNBoundParams; ++i) {
+      Scalar delta = a.par[i] - b.par[i];
+      if (i == kPhi) {
+        o2::math_utils::detail::bringToPMPi<Scalar>(delta);
+      }
+      if (!(std::abs(delta) <= tolerance)) {
+        return false;
+      }
+    }
+    return std::ranges::equal(a.cov, b.cov, [=](Scalar x, Scalar y) { return std::abs(x - y) <= tolerance; });
+  };
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    if (!closeState(host.state[lhs[i].second], device.state[rhs[i].second]) || !closeState(host.outwardState[lhs[i].second], device.outwardState[rhs[i].second])) {
+      return false;
+    }
+  }
+  return true;
 #endif
 }
 
@@ -397,22 +436,25 @@ BOOST_AUTO_TEST_CASE(EverySliceAndIterationMatchesTheHostTracker)
   auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   BOOST_TEST(tracker->arenaBytes() == kArenaBytes);
-  for (const auto& options : configurations()) {
-    BOOST_TEST_CONTEXT(describe(options))
-    {
-      const auto totals = compare(*tracker, options);
-      BOOST_TEST(totals.triplets > 0U);
-      BOOST_TEST(totals.neighbours > 0U);
-      BOOST_TEST(totals.chained > 0U);
-      BOOST_TEST(totals.roads > 0U);
-      BOOST_TEST(totals.records > 0U);
-      BOOST_TEST(totals.gathered == totals.records);
-      BOOST_TEST(totals.tracks == kTracks);
-      BOOST_TEST(totals.maskedSlices > 0U);
-      if (options.kinkSigma > 1.) {
-        BOOST_TEST(totals.extended > 0U);
+  for (const auto reference : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    for (auto options : configurations()) {
+      options.reference = reference;
+      BOOST_TEST_CONTEXT(describe(options) << ", reference " << static_cast<int>(reference))
+      {
+        const auto totals = compare(*tracker, options);
+        BOOST_TEST(totals.triplets > 0U);
+        BOOST_TEST(totals.neighbours > 0U);
+        BOOST_TEST(totals.chained > 0U);
+        BOOST_TEST(totals.roads > 0U);
+        BOOST_TEST(totals.records > 0U);
+        BOOST_TEST(totals.gathered == totals.records);
+        BOOST_TEST(totals.tracks == kTracks);
+        BOOST_TEST(totals.maskedSlices > 0U);
+        if (options.kinkSigma > 1.) {
+          BOOST_TEST(totals.extended > 0U);
+        }
+        BOOST_TEST_MESSAGE(device->backend() << " " << describe(options) << ": " << totals.slices << " slices, " << totals.tracklets << " tracklets, " << totals.triplets << " triplets, " << totals.neighbours << " neighbours, " << totals.roads << " roads, " << totals.records << " records, " << totals.rounds << " rounds, " << totals.tracks << " tracks, " << totals.extended << " extended");
       }
-      BOOST_TEST_MESSAGE(device->backend() << " " << describe(options) << ": " << totals.slices << " slices, " << totals.tracklets << " tracklets, " << totals.triplets << " triplets, " << totals.neighbours << " neighbours, " << totals.roads << " roads, " << totals.records << " records, " << totals.rounds << " rounds, " << totals.tracks << " tracks, " << totals.extended << " extended");
     }
   }
 }

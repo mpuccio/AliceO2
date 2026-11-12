@@ -166,6 +166,7 @@ static int run(int argc, char** argv)
     ("fit-inputs", bpo::value(&options.fitInputs)->default_value(""), "write the last run's triplet and neighbour fit inputs here, for o2-gtrk-fit-bench") //
     ("trace", bpo::value(&options.trace)->default_value(""), "write the last run's zones and chunks here, as a Chrome trace")                              //
     ("json", bpo::value(&options.json)->default_value(""), "append one JSON line per run here")                                                            //
+    ("fit-results", bpo::value(&options.fitResults)->default_value(""), "write the last run's fit parameters, covariance, cluster identities and MC labels as CSV, outside timing") //
     ("tracks-out", bpo::value(&options.tracksOut)->default_value(""), "write the last run's tracks here, one line each: iteration, clusters, chi2")        //
     ("follow-steps", bpo::value(&options.followSteps)->default_value(""),
      "write the follow's steps on correct roads against the truth here, replayed after each iteration") //

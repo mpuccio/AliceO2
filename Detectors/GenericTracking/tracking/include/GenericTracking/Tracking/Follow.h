@@ -1429,7 +1429,7 @@ class FollowStage
               // Every lane holds the best so far, each passing row shared as
               // it comes.
               const auto one = follow::shared(group, candidate, from, branch.state);
-              if (++passing == 1U || follow::beats(one.row, one.chi2, {.row = child.row, .chi2 = child.chi2})) {
+              if (++passing == 1U || follow::beats(one.row, one.chi2, follow::Witness{.row = child.row, .chi2 = child.chi2})) {
                 child = one;
               }
               continue;
@@ -1513,7 +1513,7 @@ class FollowStage
     const bool confirmed = confirmation<false>(branch, box, direction, taken, next, witness, WorkCounter::kFollowUpdates, group);
     const Scalar key = confirmed ? taken.chi2 + witness : taken.chi2;
     observe.lookaheadConfirmation(taken.row, taken.chi2, next, witness);
-    const bool better = best.child.row == ClusterList<kMaxClusters>::kNoCluster || (confirmed != best.confirmed ? confirmed : follow::beats(taken.row, key, {.row = best.child.row, .chi2 = best.key}));
+    const bool better = best.child.row == ClusterList<kMaxClusters>::kNoCluster || (confirmed != best.confirmed ? confirmed : follow::beats(taken.row, key, follow::Witness{.row = best.child.row, .chi2 = best.key}));
     if (better) {
       best.child = taken;
       best.confirmed = confirmed;
@@ -1557,7 +1557,7 @@ class FollowStage
               continue;
             }
             const Scalar score = taken.chi2 + witness;
-            if (follow::beats(taken.row, score, {.row = child.row, .chi2 = bestScore})) {
+            if (follow::beats(taken.row, score, follow::Witness{.row = child.row, .chi2 = bestScore})) {
               child = taken;
               bestScore = score;
               onNext = next != ClusterList<kMaxClusters>::kNoCluster;
@@ -1909,7 +1909,7 @@ struct Refit {
   /// followed again with `followEarlier`.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool accept(std::uint32_t track, const ClusterList<kMaxClusters>& list, std::uint8_t n, std::uint8_t outward, std::uint8_t inward) const
   {
-    const auto fit = fitMeasurements<Rule>(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), kinkBudget(*parameters));
+    const auto fit = fitMeasurementsReference<Rule>(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), parameters->fitReference, kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit)) {
       return false;
     }
@@ -2013,7 +2013,7 @@ struct TrimAmbiguous {
     rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
     const auto shorter = static_cast<std::uint8_t>(count - 1U);
     countWork(WorkCounter::kFollowTrimFits);
-    const auto fit = fitMeasurements<Rule>(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
+    const auto fit = fitMeasurementsReference<Rule>(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), parameters->fitReference, kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit) || !keptAfterFollow(*parameters, shorter, fit.state)) {
       return;
     }

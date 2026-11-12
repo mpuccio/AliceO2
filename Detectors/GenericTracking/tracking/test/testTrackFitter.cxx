@@ -216,19 +216,24 @@ BOOST_AUTO_TEST_CASE(ThreePointSeedRemainsFiniteAsCurvatureDiverges)
 
 BOOST_AUTO_TEST_CASE(IndependentPassesFitTheSameNoiselessChain)
 {
-  const SyntheticChain chain;
-  const UniformMaterial material;
-  const auto fit = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+  for (const auto referenceMode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    BOOST_TEST_CONTEXT("reference mode " << static_cast<int>(referenceMode))
+    {
+      const SyntheticChain chain;
+      const UniformMaterial material;
+      const auto fit = fitMeasurementsReference(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()), referenceMode);
 
-  BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
-  BOOST_TEST(fit.ndf == 1);
-  BOOST_TEST(fit.outwardState.surface == chain.truth[2].surface);
-  BOOST_TEST(fit.state.surface == chain.truth[0].surface);
-  BOOST_TEST(std::abs(fit.state.phi() - chain.truth[0].phi()) < 1e-5F);
-  BOOST_TEST(std::abs(fit.state.theta() - chain.truth[0].theta()) < 1e-5F);
-  BOOST_TEST(std::abs(fit.state.qOverP() - chain.truth[0].qOverP()) < 1e-3F);
-  BOOST_TEST(std::abs(fit.chi2) < 1e-4F);
-  BOOST_TEST(std::abs(fit.outwardChi2) < 1e-4F);
+      BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
+      BOOST_TEST(fit.ndf == 1);
+      BOOST_TEST(fit.outwardState.surface == chain.truth[2].surface);
+      BOOST_TEST(fit.state.surface == chain.truth[0].surface);
+      BOOST_TEST(std::abs(fit.state.phi() - chain.truth[0].phi()) < 1e-5F);
+      BOOST_TEST(std::abs(fit.state.theta() - chain.truth[0].theta()) < 1e-5F);
+      BOOST_TEST(std::abs(fit.state.qOverP() - chain.truth[0].qOverP()) < 1e-3F);
+      BOOST_TEST(std::abs(fit.chi2) < 1e-4F);
+      BOOST_TEST(std::abs(fit.outwardChi2) < 1e-4F);
+    }
+  }
 }
 
 /// A primary from a vertex in the diamond's tail crosses the far end of barrel
@@ -239,105 +244,115 @@ BOOST_AUTO_TEST_CASE(IndependentPassesFitTheSameNoiselessChain)
 /// last.
 BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
 {
-  using Mixed = detectors::ToyBarrel4Disc8;
-  const auto detector = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> tracking{detector};
-  const Propagator propagator;
-  const UniformMaterial material;
+  for (const auto referenceMode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    BOOST_TEST_CONTEXT("reference mode " << static_cast<int>(referenceMode))
+    {
+      using Mixed = detectors::ToyBarrel4Disc8;
+      const auto detector = toyGeometry<Mixed>();
+      const TrackingGeometry<Mixed> tracking{detector};
+      const Propagator propagator;
+      const UniformMaterial material;
 
-  SensorID start = firstSensorOfLayer<Mixed>(0);
-  for (SensorID sensor = start; sensor < firstSensorOfLayer<Mixed>(1); ++sensor) {
-    if (tracking.surface(sensor).origin[2] > tracking.surface(start).origin[2]) {
-      start = sensor;
-    }
-  }
-  const auto& first = tracking.surface(start);
-  std::array<BoundTrackState, 5> truth;
-  truth[0].par[kPhi] = std::atan2(first.origin[1], first.origin[0]);
-  truth[0].par[kTheta] = 0.048F;
-  truth[0].par[kQOverP] = 0.05F;
-  truth[0].surface = start;
-  const double cosIncidence = std::sin(0.048) * (std::cos(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[0]) + std::sin(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[1]));
-  BOOST_TEST_REQUIRE(std::abs(cosIncidence) < 0.05);
-  BOOST_TEST_REQUIRE(std::abs(cosIncidence) > static_cast<double>(propagator.minAbsCosIncidence));
-
-  constexpr std::array<LayerID, 4> kDiscs{8, 9, 10, 11};
-  for (std::size_t i = 0; i < kDiscs.size(); ++i) {
-    const auto& from = tracking.surface(truth[i].surface);
-    for (SensorID sensor = firstSensorOfLayer<Mixed>(kDiscs[i]); sensor < firstSensorOfLayer<Mixed>(static_cast<LayerID>(kDiscs[i] + 1U)); ++sensor) {
-      BoundTrackState probe = truth[i];
-      if (propagate(propagator, probe, from, tracking.surface(sensor), PropagationDirection::kForward).status == PropagationStatus::kOk) {
-        truth[i + 1U] = probe;
-        break;
+      SensorID start = firstSensorOfLayer<Mixed>(0);
+      for (SensorID sensor = start; sensor < firstSensorOfLayer<Mixed>(1); ++sensor) {
+        if (tracking.surface(sensor).origin[2] > tracking.surface(start).origin[2]) {
+          start = sensor;
+        }
       }
+      const auto& first = tracking.surface(start);
+      std::array<BoundTrackState, 5> truth;
+      truth[0].par[kPhi] = std::atan2(first.origin[1], first.origin[0]);
+      truth[0].par[kTheta] = 0.048F;
+      truth[0].par[kQOverP] = 0.05F;
+      truth[0].surface = start;
+      const double cosIncidence = std::sin(0.048) * (std::cos(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[0]) + std::sin(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[1]));
+      BOOST_TEST_REQUIRE(std::abs(cosIncidence) < 0.05);
+      BOOST_TEST_REQUIRE(std::abs(cosIncidence) > static_cast<double>(propagator.minAbsCosIncidence));
+
+      constexpr std::array<LayerID, 4> kDiscs{8, 9, 10, 11};
+      for (std::size_t i = 0; i < kDiscs.size(); ++i) {
+        const auto& from = tracking.surface(truth[i].surface);
+        for (SensorID sensor = firstSensorOfLayer<Mixed>(kDiscs[i]); sensor < firstSensorOfLayer<Mixed>(static_cast<LayerID>(kDiscs[i] + 1U)); ++sensor) {
+          BoundTrackState probe = truth[i];
+          if (propagate(propagator, probe, from, tracking.surface(sensor), PropagationDirection::kForward).status == PropagationStatus::kOk) {
+            truth[i + 1U] = probe;
+            break;
+          }
+        }
+        BOOST_TEST_REQUIRE(truth[i + 1U].surface != truth[i].surface);
+      }
+      std::array<Measurement, 5> measurements;
+      for (std::size_t i = 0; i < measurements.size(); ++i) {
+        measurements[i] = measurementFromState(truth[i], static_cast<std::uint32_t>(i));
+      }
+
+      const auto fit = fitMeasurementsReference(propagator, tracking, material, measurements.data(), static_cast<int>(measurements.size()), referenceMode);
+      BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
+      BOOST_TEST(fit.state.surface == start);
+      BOOST_TEST(std::abs(fit.state.theta() - truth[0].theta()) < 1e-5F);
+
+      const Propagator former{.minAbsCosIncidence = 0.05F};
+      const auto failed = fitMeasurementsReference(former, tracking, material, measurements.data(), static_cast<int>(measurements.size()), referenceMode);
+      BOOST_TEST(static_cast<int>(failed.status) == static_cast<int>(PropagationStatus::kGrazing));
+      BOOST_TEST(static_cast<int>(failed.failedPass) == static_cast<int>(FitPass::kInward));
+      BOOST_TEST(failed.failedMeasurement == 0);
     }
-    BOOST_TEST_REQUIRE(truth[i + 1U].surface != truth[i].surface);
   }
-  std::array<Measurement, 5> measurements;
-  for (std::size_t i = 0; i < measurements.size(); ++i) {
-    measurements[i] = measurementFromState(truth[i], static_cast<std::uint32_t>(i));
-  }
-
-  const auto fit = fitMeasurements(propagator, tracking, material, measurements.data(), static_cast<int>(measurements.size()));
-  BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
-  BOOST_TEST(fit.state.surface == start);
-  BOOST_TEST(std::abs(fit.state.theta() - truth[0].theta()) < 1e-5F);
-
-  const Propagator former{.minAbsCosIncidence = 0.05F};
-  const auto failed = fitMeasurements(former, tracking, material, measurements.data(), static_cast<int>(measurements.size()));
-  BOOST_TEST(static_cast<int>(failed.status) == static_cast<int>(PropagationStatus::kGrazing));
-  BOOST_TEST(static_cast<int>(failed.failedPass) == static_cast<int>(FitPass::kInward));
-  BOOST_TEST(failed.failedMeasurement == 0);
 }
 
 BOOST_AUTO_TEST_CASE(SmearedChainsGiveUnbiasedParametersAndUnitPulls)
 {
-  // A fit can be self-consistent and still wrong in
-  // exactly one way that matters here: if the inward pass inherited the
-  // outward pass's covariance it would consume every measurement twice, the
-  // estimate would be too confident by root two, and the pull widths would
-  // come out near 0.707 while every other test in this file still passed.
-  // That number is asserted against explicitly.
-  const SyntheticChain chain;
-  const UniformMaterial material;
-
-  constexpr int kTrials = 3000;
-  const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
-
-  std::mt19937 rng(20260919);
-  std::normal_distribution<double> gauss(0., 1.);
-
-  std::array<std::vector<double>, kNBoundParams> pull;
-
-  for (int trial = 0; trial < kTrials; ++trial) {
-    auto smeared = chain.measurements;
-    for (auto& m : smeared) {
-      m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-      m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-    }
-
-    const auto fit = fitMeasurements(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
-    BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
-
-    collectPulls(trial, fit.state, chain.truth[0], pull);
-  }
-
-  const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    const auto& p = pull[static_cast<std::size_t>(i)];
-    const auto n = static_cast<double>(p.size());
-
-    const auto [meanPull, width] = moments(p);
-
-    BOOST_TEST_CONTEXT("parameter " << names[i] << " pull mean " << meanPull << " width " << width)
+  for (const auto referenceMode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    BOOST_TEST_CONTEXT("reference mode " << static_cast<int>(referenceMode))
     {
-      // The mean of kTrials unit-width pulls has standard error 1/sqrt(N),
-      // which is 0.018 here; four of those is a comfortable band that still
-      // catches any real bias.
-      BOOST_TEST(std::abs(meanPull) < 4. / std::sqrt(n));
-      // The width itself is known to 1/sqrt(2N) = 1.3 %, so 10 % is generous
-      // -- and 0.707 is 29 % low, far outside it.
-      BOOST_TEST(std::abs(width - 1.) < 0.10);
+      // A fit can be self-consistent and still wrong in
+      // exactly one way that matters here: if the inward pass inherited the
+      // outward pass's covariance it would consume every measurement twice, the
+      // estimate would be too confident by root two, and the pull widths would
+      // come out near 0.707 while every other test in this file still passed.
+      // That number is asserted against explicitly.
+      const SyntheticChain chain;
+      const UniformMaterial material;
+
+      constexpr int kTrials = 3000;
+      const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
+
+      std::mt19937 rng(20260919);
+      std::normal_distribution<double> gauss(0., 1.);
+
+      std::array<std::vector<double>, kNBoundParams> pull;
+
+      for (int trial = 0; trial < kTrials; ++trial) {
+        auto smeared = chain.measurements;
+        for (auto& m : smeared) {
+          m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+          m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+        }
+
+        const auto fit = fitMeasurementsReference(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()), referenceMode);
+        BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
+
+        collectPulls(trial, fit.state, chain.truth[0], pull);
+      }
+
+      const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
+      for (int i = 0; i < kNBoundParams; ++i) {
+        const auto& p = pull[static_cast<std::size_t>(i)];
+        const auto n = static_cast<double>(p.size());
+
+        const auto [meanPull, width] = moments(p);
+
+        BOOST_TEST_CONTEXT("parameter " << names[i] << " pull mean " << meanPull << " width " << width)
+        {
+          // The mean of kTrials unit-width pulls has standard error 1/sqrt(N),
+          // which is 0.018 here; four of those is a comfortable band that still
+          // catches any real bias.
+          BOOST_TEST(std::abs(meanPull) < 4. / std::sqrt(n));
+          // The width itself is known to 1/sqrt(2N) = 1.3 %, so 10 % is generous
+          // -- and 0.707 is 29 % low, far outside it.
+          BOOST_TEST(std::abs(width - 1.) < 0.10);
+        }
+      }
     }
   }
 }
@@ -547,63 +562,68 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
 /// is.
 BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
 {
-  constexpr Scalar kQOverP = 2.5F;
-  constexpr Scalar kX2X0PerCm = 1.5e-3F;
-  constexpr std::size_t kLayers = 4;
-  BarrelChain<kLayers> chain(kQOverP);
-  BOOST_REQUIRE(chain.built);
-  const UniformMaterial material{.x2X0PerCm = kX2X0PerCm};
+  for (const auto referenceMode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    BOOST_TEST_CONTEXT("reference mode " << static_cast<int>(referenceMode))
+    {
+      constexpr Scalar kQOverP = 2.5F;
+      constexpr Scalar kX2X0PerCm = 1.5e-3F;
+      constexpr std::size_t kLayers = 4;
+      BarrelChain<kLayers> chain(kQOverP);
+      BOOST_REQUIRE(chain.built);
+      const UniformMaterial material{.x2X0PerCm = kX2X0PerCm};
 
-  constexpr int kTrials = 1000;
-  const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
+      constexpr int kTrials = 1000;
+      const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
 
-  std::mt19937 rng(20260923);
-  std::normal_distribution<double> gauss(0., 1.);
-  std::array<std::vector<double>, kNBoundParams> inwardPull;
-  std::array<std::vector<double>, kNBoundParams> outwardPull;
-  double inwardChi2PerDof = 0.;
-  double outwardChi2PerDof = 0.;
+      std::mt19937 rng(20260923);
+      std::normal_distribution<double> gauss(0., 1.);
+      std::array<std::vector<double>, kNBoundParams> inwardPull;
+      std::array<std::vector<double>, kNBoundParams> outwardPull;
+      double inwardChi2PerDof = 0.;
+      double outwardChi2PerDof = 0.;
 
-  for (int trial = 0; trial < kTrials; ++trial) {
-    // A kink can send the track through the 0.5 mm gap between two modules;
-    // draw again rather than fit a chain with a missing layer.
-    for (int attempt = 0; attempt < 10; ++attempt) {
-      chain.generate(kQOverP, kX2X0PerCm, &rng);
-      if (chain.built) {
-        break;
+      for (int trial = 0; trial < kTrials; ++trial) {
+        // A kink can send the track through the 0.5 mm gap between two modules;
+        // draw again rather than fit a chain with a missing layer.
+        for (int attempt = 0; attempt < 10; ++attempt) {
+          chain.generate(kQOverP, kX2X0PerCm, &rng);
+          if (chain.built) {
+            break;
+          }
+        }
+        BOOST_REQUIRE(chain.built);
+        auto smeared = chain.measurements;
+        for (auto& m : smeared) {
+          m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+          m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+        }
+        const auto fit = fitMeasurementsReference(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()), referenceMode);
+        BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
+        collectPulls(trial, fit.state, chain.truth[0], inwardPull);
+        collectPulls(trial, fit.outwardState, chain.truth[kLayers - 1], outwardPull);
+        inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
+        outwardChi2PerDof += static_cast<double>(fit.outwardChi2) / fit.ndf / kTrials;
       }
-    }
-    BOOST_REQUIRE(chain.built);
-    auto smeared = chain.measurements;
-    for (auto& m : smeared) {
-      m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-      m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-    }
-    const auto fit = fitMeasurements(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
-    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
-    collectPulls(trial, fit.state, chain.truth[0], inwardPull);
-    collectPulls(trial, fit.outwardState, chain.truth[kLayers - 1], outwardPull);
-    inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
-    outwardChi2PerDof += static_cast<double>(fit.outwardChi2) / fit.ndf / kTrials;
-  }
 
-  const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
-  for (const auto* pass : {&inwardPull, &outwardPull}) {
-    for (int i = 0; i < kNBoundParams; ++i) {
-      const auto& p = (*pass)[static_cast<std::size_t>(i)];
-      const auto n = static_cast<double>(p.size());
-      const auto [mean, width] = moments(p);
-      BOOST_TEST_CONTEXT((pass == &inwardPull ? "inward" : "outward") << " parameter " << names[i] << " pull mean " << mean << " width " << width)
+      const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
+      for (const auto* pass : {&inwardPull, &outwardPull}) {
+        for (int i = 0; i < kNBoundParams; ++i) {
+          const auto& p = (*pass)[static_cast<std::size_t>(i)];
+          const auto n = static_cast<double>(p.size());
+          const auto [mean, width] = moments(p);
+          BOOST_TEST_CONTEXT((pass == &inwardPull ? "inward" : "outward") << " parameter " << names[i] << " pull mean " << mean << " width " << width)
+          {
+            BOOST_TEST(std::abs(mean) < 4. / std::sqrt(n));
+            BOOST_TEST(std::abs(width - 1.) < 0.10);
+          }
+        }
+      }
+      BOOST_TEST_CONTEXT("inward chi2 per spatial dof " << inwardChi2PerDof << ", outward " << outwardChi2PerDof)
       {
-        BOOST_TEST(std::abs(mean) < 4. / std::sqrt(n));
-        BOOST_TEST(std::abs(width - 1.) < 0.10);
+        BOOST_TEST(std::abs(inwardChi2PerDof - 1.) < 0.15);
+        BOOST_TEST(std::abs(outwardChi2PerDof - 1.) < 0.15);
       }
     }
-  }
-  BOOST_TEST_CONTEXT("inward chi2 per spatial dof " << inwardChi2PerDof << ", outward " << outwardChi2PerDof)
-  {
-    BOOST_TEST(std::abs(inwardChi2PerDof - 1.) < 0.15);
-    BOOST_TEST(std::abs(outwardChi2PerDof - 1.) < 0.15);
   }
 }
 
@@ -617,60 +637,65 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
 /// the fit's model of where the loss is taken.
 BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
 {
-  constexpr Scalar kQOverP = 2.5F;
-  constexpr Scalar kX2X0PerCm = 1.5e-3F;
-  constexpr Scalar kRho = 0.3F; // about 2.5 % of the momentum over the chain
-  constexpr std::size_t kLayers = 4;
-  BarrelChain<kLayers> chain(kQOverP);
-  BOOST_REQUIRE(chain.built);
-  const UniformMaterial material{.x2X0PerCm = kX2X0PerCm, .rho = kRho};
+  for (const auto referenceMode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    BOOST_TEST_CONTEXT("reference mode " << static_cast<int>(referenceMode))
+    {
+      constexpr Scalar kQOverP = 2.5F;
+      constexpr Scalar kX2X0PerCm = 1.5e-3F;
+      constexpr Scalar kRho = 0.3F; // about 2.5 % of the momentum over the chain
+      constexpr std::size_t kLayers = 4;
+      BarrelChain<kLayers> chain(kQOverP);
+      BOOST_REQUIRE(chain.built);
+      const UniformMaterial material{.x2X0PerCm = kX2X0PerCm, .rho = kRho};
 
-  constexpr int kTrials = 1000;
-  const Scalar sigmaLoc = 1.5811388e-3F;
-  std::mt19937 rng(20261021);
-  std::normal_distribution<double> gauss(0., 1.);
-  std::array<std::vector<double>, kNBoundParams> inwardPull;
-  double inwardChi2PerDof = 0.;
-  double outwardChi2PerDof = 0.;
-  double lostShare = 0.;
-  for (int trial = 0; trial < kTrials; ++trial) {
-    for (int attempt = 0; attempt < 10; ++attempt) {
-      chain.generate(kQOverP, kX2X0PerCm, &rng, kRho);
-      if (chain.built) {
-        break;
+      constexpr int kTrials = 1000;
+      const Scalar sigmaLoc = 1.5811388e-3F;
+      std::mt19937 rng(20261021);
+      std::normal_distribution<double> gauss(0., 1.);
+      std::array<std::vector<double>, kNBoundParams> inwardPull;
+      double inwardChi2PerDof = 0.;
+      double outwardChi2PerDof = 0.;
+      double lostShare = 0.;
+      for (int trial = 0; trial < kTrials; ++trial) {
+        for (int attempt = 0; attempt < 10; ++attempt) {
+          chain.generate(kQOverP, kX2X0PerCm, &rng, kRho);
+          if (chain.built) {
+            break;
+          }
+        }
+        BOOST_REQUIRE(chain.built);
+        lostShare += (1. - static_cast<double>(kQOverP / chain.truth[kLayers - 1].qOverP())) / kTrials;
+        auto smeared = chain.measurements;
+        for (auto& m : smeared) {
+          m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+          m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
+        }
+        const auto fit = fitMeasurementsReference(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()), referenceMode);
+        BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
+        collectPulls(trial, fit.state, chain.truth[0], inwardPull);
+        inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
+        outwardChi2PerDof += static_cast<double>(fit.outwardChi2) / fit.ndf / kTrials;
+      }
+      BOOST_TEST_MESSAGE("momentum lost over the chain " << lostShare << ", chi2 per dof inward " << inwardChi2PerDof << " outward " << outwardChi2PerDof);
+      BOOST_TEST(lostShare > 0.01);
+      for (int i = 0; i < kNBoundParams; ++i) {
+        const auto& p = inwardPull[static_cast<std::size_t>(i)];
+        const bool held = i != o2::gtrk::kQOverP;
+        const auto n = static_cast<double>(p.size());
+        const auto [mean, width] = moments(p);
+        BOOST_TEST_MESSAGE("inward parameter " << i << " pull mean " << mean << " width " << width);
+        BOOST_TEST_CONTEXT("inward parameter " << i << " pull mean " << mean << " width " << width)
+        {
+          BOOST_TEST((!held || std::abs(mean) < 4. / std::sqrt(n)));
+          BOOST_TEST((!held || std::abs(width - 1.) < 0.10));
+        }
+      }
+      BOOST_TEST_CONTEXT("inward chi2 per spatial dof " << inwardChi2PerDof << ", outward " << outwardChi2PerDof)
+      {
+        BOOST_TEST(std::abs(inwardChi2PerDof - 1.) < 0.15);
+        BOOST_TEST(std::abs(outwardChi2PerDof - 1.) < 0.15);
       }
     }
-    BOOST_REQUIRE(chain.built);
-    lostShare += (1. - static_cast<double>(kQOverP / chain.truth[kLayers - 1].qOverP())) / kTrials;
-    auto smeared = chain.measurements;
-    for (auto& m : smeared) {
-      m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-      m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
-    }
-    const auto fit = fitMeasurements(chain.propagator, chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
-    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
-    collectPulls(trial, fit.state, chain.truth[0], inwardPull);
-    inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
-    outwardChi2PerDof += static_cast<double>(fit.outwardChi2) / fit.ndf / kTrials;
-  }
-  BOOST_TEST_MESSAGE("momentum lost over the chain " << lostShare << ", chi2 per dof inward " << inwardChi2PerDof << " outward " << outwardChi2PerDof);
-  BOOST_TEST(lostShare > 0.01);
-  for (int i = 0; i < kNBoundParams; ++i) {
-    const auto& p = inwardPull[static_cast<std::size_t>(i)];
-    const bool held = i != o2::gtrk::kQOverP;
-    const auto n = static_cast<double>(p.size());
-    const auto [mean, width] = moments(p);
-    BOOST_TEST_MESSAGE("inward parameter " << i << " pull mean " << mean << " width " << width);
-    BOOST_TEST_CONTEXT("inward parameter " << i << " pull mean " << mean << " width " << width)
-    {
-      BOOST_TEST((!held || std::abs(mean) < 4. / std::sqrt(n)));
-      BOOST_TEST((!held || std::abs(width - 1.) < 0.10));
-    }
-  }
-  BOOST_TEST_CONTEXT("inward chi2 per spatial dof " << inwardChi2PerDof << ", outward " << outwardChi2PerDof)
-  {
-    BOOST_TEST(std::abs(inwardChi2PerDof - 1.) < 0.15);
-    BOOST_TEST(std::abs(outwardChi2PerDof - 1.) < 0.15);
   }
 }
 

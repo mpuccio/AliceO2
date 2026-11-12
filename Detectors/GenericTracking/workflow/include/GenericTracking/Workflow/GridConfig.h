@@ -108,6 +108,9 @@ namespace o2::gtrk::workflow
 template <DetectorLayout Det>
 inline void checkRecoParam(const RecoSettings& param)
 {
+  if (param.fitReference < 0 || param.fitReference > 2) {
+    throw std::invalid_argument("GTRKReco<DET>.fitReference must be 0 (filtered state), 1 (circle outward), or 2 (circle outward, outward-fit reference inward)");
+  }
   const auto margins = param.frameMarginBC.size();
   if (margins != 0U && margins != static_cast<std::size_t>(Detector<Det>::nLayers)) {
     throw std::invalid_argument(std::format("{}.frameMarginBC has {} entries for {}'s {} layers", RecoParamOf<Det>::type::Instance().getName(), margins, Det::name, Detector<Det>::nLayers));
@@ -253,6 +256,7 @@ inline void checkRecoParam(const RecoSettings& param)
     .vertexSource = entry(param.iterationVertexSource, static_cast<int>(defaults.vertexSource)) == 0 ? VertexSource::kBeamLine : VertexSource::kVertexList,
     .minClusters = entry(param.iterationMinClusters, defaults.minClusters),
     .maxKinks = entry(param.iterationMaxKinks, defaults.maxKinks),
+    .fitReference = static_cast<FitReference>(param.fitReference),
     .kinkSigma = kinkSigma,
     .graphKinkSigma = entryDouble(param.iterationGraphKinkSigma, defaults.graphKinkSigma),
     .skipLinks = flag(param.iterationSkipLinks, defaults.skipLinks),

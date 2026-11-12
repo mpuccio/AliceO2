@@ -1114,7 +1114,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !kinkSteps.allocate(mArena, kinkStepCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
       return StageStatus::kOutOfMemory;
     }
-    const TrackRefitElement<Det, Material> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
+    const TrackRefitElement<Det, Material> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters), hostParameters.fitReference};
     algorithms::forEach(*mRuntime, mStream, trackCount, refit);
 
     // The follow, the host's sequence

@@ -220,23 +220,28 @@ BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
     hit.point.z = global[2];
   }
   const Fixture fixture{hits, 100.};
-  const auto cut = study::roadChi2Cut(parameters(), kLayers);
-  double sum = 0.;
-  std::size_t accepted = 0U;
-  for (std::size_t track = 0; track < kTracks; ++track) {
-    const auto rows = trackRows(fixture, track);
-    const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.data()};
-    const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), kNoCut.data());
-    BOOST_REQUIRE((fit.status == RoadFitStatus::kAccepted));
-    sum += static_cast<double>(fit.chi2);
-    accepted += fit.chi2 <= cut ? 1U : 0U;
+  for (const auto mode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    const auto cut = study::roadChi2Cut(parameters(), kLayers);
+    auto iteration = parameters();
+    iteration.fitReference = mode;
+    std::fill(std::begin(iteration.roadChi2MaxByNdf), std::end(iteration.roadChi2MaxByNdf), std::numeric_limits<Scalar>::infinity());
+    double sum = 0.;
+    std::size_t accepted = 0U;
+    for (std::size_t track = 0; track < kTracks; ++track) {
+      const auto rows = trackRows(fixture, track);
+      const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.data()};
+      const auto fit = fitRoad<false>(iteration, kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers));
+      BOOST_REQUIRE((fit.status == RoadFitStatus::kAccepted));
+      sum += static_cast<double>(fit.chi2);
+      accepted += fit.chi2 <= cut ? 1U : 0U;
+    }
+    const double mean = sum / static_cast<double>(kTracks);
+    BOOST_TEST_MESSAGE("mean chi2 " << mean << " (11), within the cut " << accepted << "/" << kTracks);
+    // The mean's error over 400 fits is sqrt(2 * 11 / 400) = 0.23.
+    BOOST_TEST(mean > 10.F);
+    BOOST_TEST(mean < 12.F);
+    BOOST_TEST(accepted >= 0.99 * kTracks);
   }
-  const double mean = sum / static_cast<double>(kTracks);
-  BOOST_TEST_MESSAGE("mean chi2 " << mean << " (11), within the cut " << accepted << "/" << kTracks);
-  // The mean's error over 400 fits is sqrt(2 * 11 / 400) = 0.23.
-  BOOST_TEST(mean > 10.F);
-  BOOST_TEST(mean < 12.F);
-  BOOST_TEST(accepted >= 0.99 * kTracks);
 }
 
 /// A helix whose direction turns by \a turn on the sensor of layer \a kink --
@@ -572,78 +577,81 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   // fit, the selection, the refit.
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
-  const auto iteration = parameters();
-  const RoadsRun roads{fixture};
-  const auto& run = roads.result;
-  const auto& count = roads.count;
-  const SerialForEach serial{};
-  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
-  RecordOutput records;
-  records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  records.prepare(count.roadCount());
-  BOOST_REQUIRE(runSerial(records, stage) == StageStatus::kComplete);
-  GlobalSelection<kMaxClusters> selection;
-  selection.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  BOOST_REQUIRE(selection.append(records, SerialForEach{}) == StageStatus::kComplete);
-  std::vector<std::uint8_t> mask(fixture.frame->size(), kFree);
-  BOOST_REQUIRE(selection.select(serial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, 0U, mask) == StageStatus::kComplete);
-  BOOST_REQUIRE(selection.selected().size() == kTracks);
+  for (const auto mode : {FitReference::kFilteredState, FitReference::kCircleOutward, FitReference::kIndependentBoth}) {
+    auto iteration = parameters();
+    iteration.fitReference = mode;
+    const RoadsRun roads{fixture};
+    const auto& run = roads.result;
+    const auto& count = roads.count;
+    const SerialForEach serial{};
+    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    RecordOutput records;
+    records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    records.prepare(count.roadCount());
+    BOOST_REQUIRE(runSerial(records, stage) == StageStatus::kComplete);
+    GlobalSelection<kMaxClusters> selection;
+    selection.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    BOOST_REQUIRE(selection.append(records, SerialForEach{}) == StageStatus::kComplete);
+    std::vector<std::uint8_t> mask(fixture.frame->size(), kFree);
+    BOOST_REQUIRE(selection.select(serial, [](std::span<std::uint32_t> indices, const auto& less) { std::ranges::sort(indices, less); }, 0U, mask) == StageStatus::kComplete);
+    BOOST_REQUIRE(selection.selected().size() == kTracks);
 
-  TrackRefit<Det> refit;
-  refit.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  BOOST_REQUIRE(refit.run(serial, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
-  BOOST_REQUIRE(refit.size() == kTracks);
-  const auto tracks = refit.tracks().view();
-  for (std::uint32_t track = 0; track < kTracks; ++track) {
-    const auto& rows = tracks.clusters[track];
-    const auto index = fixture.frame->measurement(rows.index[0]).clusterIndex / kLayers;
-    const auto h = helix(index);
-    BOOST_TEST_CONTEXT("track " << index)
-    {
-      // Both passes, as fitMeasurements gives them on the same rows.
-      BOOST_REQUIRE(tracks.status[track] == PropagationStatus::kOk);
-      BOOST_TEST(tracks.count[track] == kLayers);
-      std::array<Measurement, kLayers> copied{};
-      const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.index};
-      for (std::size_t i = 0; i < kLayers; ++i) {
-        copied[i] = chain[static_cast<int>(i)];
-      }
-      const auto full = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers));
-      BOOST_TEST(tracks.chi2[track] == full.chi2);
-
-      BOOST_TEST(tracks.ndf[track] == (2 * static_cast<int>(kLayers)) - 5);
-      // On the innermost surface, and the generating helix.
-      const auto& state = tracks.state[track];
-      const auto first = fixture.frame->measurement(rows.index[0]);
-      BOOST_TEST(state.surface == first.surface);
-      BOOST_TEST(std::abs(state.loc0() - first.loc0) < 1.e-4F);
-      BOOST_TEST(std::abs(state.loc1() - first.loc1) < 1.e-4F);
-      BOOST_TEST(state.theta() == static_cast<Scalar>(std::atan2(1., h.slope)), boost::test_tools::tolerance(1.e-4F));
-      const double momentum = h.ptGeV * std::hypot(1., h.slope);
-      BOOST_TEST(std::abs(state.qOverP()) == static_cast<Scalar>(1. / momentum), boost::test_tools::tolerance(1.e-3F));
-    }
-  }
-
-  for (const int threads : {1, 2, 4}) {
-    detail::TaskArena cpuArena{threads};
-    CpuStage<TrackOf<kMaxClusters>::template RecordT> cpu{cpuArena};
-    cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    TrackRefit<Det> parallel;
-    parallel.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
-    // Bit for bit.
-    const auto other = parallel.tracks().view();
-    const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };
+    TrackRefit<Det> refit;
+    refit.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    BOOST_REQUIRE(refit.run(serial, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
+    BOOST_REQUIRE(refit.size() == kTracks);
+    const auto tracks = refit.tracks().view();
     for (std::uint32_t track = 0; track < kTracks; ++track) {
-      const auto& a = other.state[track];
-      const auto& b = tracks.state[track];
-      BOOST_TEST(std::ranges::equal(a.par, b.par, {}, bits, bits));
-      BOOST_TEST(std::ranges::equal(a.cov, b.cov, {}, bits, bits));
-      BOOST_TEST(other.timePS[track] == tracks.timePS[track]);
-      BOOST_TEST(other.widthPS[track] == tracks.widthPS[track]);
-      BOOST_TEST(a.surface == b.surface);
-      BOOST_TEST(bits(other.chi2[track]) == bits(tracks.chi2[track]));
-      BOOST_TEST(std::ranges::equal(other.clusters[track].index, tracks.clusters[track].index));
+      const auto& rows = tracks.clusters[track];
+      const auto index = fixture.frame->measurement(rows.index[0]).clusterIndex / kLayers;
+      const auto h = helix(index);
+      BOOST_TEST_CONTEXT("track " << index)
+      {
+        // Both passes, as fitMeasurements gives them on the same rows.
+        BOOST_REQUIRE(tracks.status[track] == PropagationStatus::kOk);
+        BOOST_TEST(tracks.count[track] == kLayers);
+        std::array<Measurement, kLayers> copied{};
+        const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.index};
+        for (std::size_t i = 0; i < kLayers; ++i) {
+          copied[i] = chain[static_cast<int>(i)];
+        }
+        const auto full = fitMeasurementsReference(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers), mode);
+        BOOST_TEST(tracks.chi2[track] == full.chi2);
+
+        BOOST_TEST(tracks.ndf[track] == (2 * static_cast<int>(kLayers)) - 5);
+        // On the innermost surface, and the generating helix.
+        const auto& state = tracks.state[track];
+        const auto first = fixture.frame->measurement(rows.index[0]);
+        BOOST_TEST(state.surface == first.surface);
+        BOOST_TEST(std::abs(state.loc0() - first.loc0) < 1.e-4F);
+        BOOST_TEST(std::abs(state.loc1() - first.loc1) < 1.e-4F);
+        BOOST_TEST(state.theta() == static_cast<Scalar>(std::atan2(1., h.slope)), boost::test_tools::tolerance(1.e-4F));
+        const double momentum = h.ptGeV * std::hypot(1., h.slope);
+        BOOST_TEST(std::abs(state.qOverP()) == static_cast<Scalar>(1. / momentum), boost::test_tools::tolerance(1.e-3F));
+      }
+    }
+
+    for (const int threads : {1, 2, 4}) {
+      detail::TaskArena cpuArena{threads};
+      CpuStage<TrackOf<kMaxClusters>::template RecordT> cpu{cpuArena};
+      cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+      TrackRefit<Det> parallel;
+      parallel.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+      BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
+      // Bit for bit.
+      const auto other = parallel.tracks().view();
+      const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };
+      for (std::uint32_t track = 0; track < kTracks; ++track) {
+        const auto& a = other.state[track];
+        const auto& b = tracks.state[track];
+        BOOST_TEST(std::ranges::equal(a.par, b.par, {}, bits, bits));
+        BOOST_TEST(std::ranges::equal(a.cov, b.cov, {}, bits, bits));
+        BOOST_TEST(other.timePS[track] == tracks.timePS[track]);
+        BOOST_TEST(other.widthPS[track] == tracks.widthPS[track]);
+        BOOST_TEST(a.surface == b.surface);
+        BOOST_TEST(bits(other.chi2[track]) == bits(tracks.chi2[track]));
+        BOOST_TEST(std::ranges::equal(other.clusters[track].index, tracks.clusters[track].index));
+      }
     }
   }
 }

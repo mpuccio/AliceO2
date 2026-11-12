@@ -33,6 +33,7 @@
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/TrackFitter.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/Measurement.h"
@@ -70,6 +71,7 @@ struct IterationSettings {
   int minClusters = 4;
   /// The kinks a fit pass may take; 0 for none.
   int maxKinks = 1;
+  FitReference fitReference = FitReference::kFilteredState;
   /// The triplet and neighbour cuts' kink allowance: the factor on theta0 at pT_min a triplet's middle
   /// point may have scattered by, beyond the nominal cuts, to be kept as a
   /// kinked triplet; 1 for none.
@@ -294,6 +296,7 @@ struct IterationParameters {
   Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
+  FitReference fitReference = FitReference::kFilteredState;
   /// `IterationSettings::followEnd`, `innerTrim`
   /// and `crossingRule`.
   bool followEnd = false;
@@ -568,6 +571,7 @@ template <DetectorLayout Det>
     parameters.roadChi2MaxByNdf[ndf] = static_cast<Scalar>(chiSquareQuantile(ndf, settings.windows.nSigma));
   }
   parameters.maxKinks = static_cast<std::uint8_t>(std::max(settings.maxKinks, 0));
+  parameters.fitReference = settings.fitReference;
   parameters.innerTrim = static_cast<std::uint8_t>(std::clamp(settings.innerTrim, 0, static_cast<int>(maxChainLayers<Det>)));
   parameters.crossingRule = settings.crossingRule;
   parameters.kinkChi2Min = static_cast<Scalar>(chiSquareQuantile(2, settings.windows.nSigma));
