@@ -65,12 +65,18 @@ struct Parameters {
 };
 
 using Predictor = std::function<Prediction(const Track&, const Hit&)>;
+using CandidateRows = std::function<std::span<const std::size_t>(std::size_t)>;
 
 /// Outer first; time-guided inner for outer-matched tracks second; remaining
 /// tracks against unused inner clusters last. Deterministic greedy arbitration
 /// within each pass, ordered by score, input track row, original cluster index.
 /// Exhaustive reference implementation: no approximate spatial preselection.
 std::vector<Match> match(std::span<const Track> tracks, std::span<const Hit> hits, const Predictor& predict, const Parameters& parameters = {});
+
+/// Same global arbitration on externally enumerated candidate hit rows. Rows
+/// must be strictly increasing and in range. The caller is responsible for retaining every
+/// compatible pair; this overload applies all the same exact matching gates.
+std::vector<Match> matchSelected(std::span<const Track> tracks, std::span<const Hit> hits, const Predictor& predict, const CandidateRows& rows, const Parameters& parameters = {});
 
 } // namespace o2::gtrk::tof
 #endif

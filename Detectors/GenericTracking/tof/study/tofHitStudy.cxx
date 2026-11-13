@@ -4,6 +4,8 @@
 
 // Match real reconstructed GTRK states to native TOF clusters and use MC labels
 // only for evaluation. An optional transport-hit proxy mode is kept for diagnostics.
+#include "PredictionCache.h"
+#include "MaterialCache.h"
 #include "GenericTracking/TOF/Clusters.h"
 #include "GenericTracking/TOF/Transport.h"
 #include "GenericTracking/Study/TrackingInput.h"
@@ -51,6 +53,8 @@ struct Selected {
   tof::Track track;
   std::uint64_t particle;
   study::ParticleTruth truth;
+  std::size_t originalRow = 0;
+  bool good = false, clone = false;
 };
 struct Counts {
   std::size_t eligible = 0, matched = 0, correct = 0, wrong = 0, withoutTruthHit = 0, spatial = 0, coarseTime = 0, ambiguous = 0;
@@ -65,10 +69,15 @@ int run(int argc, char** argv)
   namespace bpo = boost::program_options;
   std::string inputFile, geometryFile, materialFile, hitFile, contextFile, clusterFile, output;
   int maxTracks = 20, threads = 5;
-  unsigned seed = 42, firstOrbit = 0;
+  unsigned seed = 42, firstOrbit = 0, predictionShards = 1, predictionShard = 0;
+  bool allTracks = false, skipDiagnostics = false, memoizeMaterial = false;
+  std::string predictionOutput;
+  std::vector<std::string> predictionInputs;
   double minPt = 0.5, maxEta = 1., preselectionNS = 100.;
   bpo::options_description options("TOF matching study with native clusters or a transport-hit proxy");
   options.add_options()("help,h", "show options")("input", bpo::value(&inputFile)->required(), "frozen GTRK tracking input, with .ini and .truth")("geometry", bpo::value(&geometryFile)->required(), "same aligned ALICE3 geometry")("tracking-material", bpo::value(&materialFile)->required(), "frozen tracker LUT; matching uses TGeo")("tof-clusters", bpo::value(&clusterFile), "native TF3 clusters with MC labels; replaces hit model")("tof-hits", bpo::value(&hitFile), "source 0 TF3 transport-hit file")("context", bpo::value(&contextFile), "same timeframe's collision context")("output", bpo::value(&output)->required(), "output prefix for JSON and per-track CSV")("max-tracks", bpo::value(&maxTracks)->default_value(20), "fixed-seed sample of unique good primary tracks")("min-pt", bpo::value(&minPt)->default_value(0.5), "minimum generated pT [GeV]")("max-abs-eta", bpo::value(&maxEta)->default_value(1.), "maximum absolute generated eta")("seed", bpo::value(&seed)->default_value(42), "measurement smearing and track sampling seed")("first-orbit", bpo::value(&firstOrbit)->default_value(0), "timeframe anchor orbit")("threads", bpo::value(&threads)->default_value(5), "tracking CPU threads")("preselection-ns", bpo::value(&preselectionNS)->default_value(100.), "hit-time margin around the track readout interval; truth losses counted");
+  options.add_options()("all-tracks", bpo::bool_switch(&allTracks), "match every reconstructed record, including clones and fakes; no truth/kinematic selection")("skip-truth-diagnostics", bpo::bool_switch(&skipDiagnostics), "omit additional post-match truth propagation; retain association and availability metrics")("prediction-output", bpo::value(&predictionOutput), "write this exact prediction shard and exit before arbitration")("prediction-shard", bpo::value(&predictionShard)->default_value(0), "zero-based prediction shard")("prediction-shards", bpo::value(&predictionShards)->default_value(1), "number of disjoint track prediction shards")("prediction-inputs", bpo::value(&predictionInputs)->multitoken(), "complete same-build prediction shards; one global three-pass arbitration");
+  options.add_options()("memoize-material", bpo::bool_switch(&memoizeMaterial), "reuse bit-identical TGeo material queries within each prediction-shard track");
   bpo::variables_map values;
   bpo::store(bpo::parse_command_line(argc, argv, options), values);
   if (values.contains("help")) {
@@ -81,6 +90,9 @@ int run(int argc, char** argv)
   }
   if (!clusterFile.empty() && (!hitFile.empty() || !contextFile.empty())) {
     throw std::invalid_argument("cluster and transport-hit inputs are mutually exclusive");
+  }
+  if (predictionShards == 0 || predictionShard >= predictionShards || (!predictionOutput.empty() && !predictionInputs.empty())) {
+    throw std::invalid_argument("invalid prediction shard mode");
   }
   if (maxTracks <= 0 || minPt < 0. || maxEta <= 0. || preselectionNS < 0.) {
     throw std::invalid_argument("invalid sample size or kinematic/time selection");
@@ -121,24 +133,31 @@ int run(int argc, char** argv)
   const tof::Timestamp anchor{static_cast<std::uint64_t>(firstOrbit) * o2::constants::lhc::LHCMaxBunches, 0.F};
   for (std::size_t t = 0; t < records.size(); ++t) {
     const auto record = records.read(t);
-    if (record.status != PropagationStatus::kOk) {
-      continue;
-    }
+    const bool valid = record.status == PropagationStatus::kOk;
     const auto id = workflow::goodParticle(truth.rows, {record.clusters.index, record.count});
     const auto found = truth.particles.find(id);
-    if (found == truth.particles.end() || found->second.origin != study::ParticleOrigin::kPhysicalPrimary ||
-        found->second.pt < minPt || std::abs(found->second.eta) >= maxEta || ((id >> 50) & 255U) != 0 || !seen.insert(id).second) {
+    const bool good = found != truth.particles.end();
+    if (!allTracks && (!valid || !good || found->second.origin != study::ParticleOrigin::kPhysicalPrimary ||
+                       found->second.pt < minPt || std::abs(found->second.eta) >= maxEta || ((id >> 50) & 255U) != 0)) {
       continue;
     }
-    selected.push_back({{.state = record.state, .outwardState = record.outwardState, .surface = interface.tracking().planeOf(record.state), .outwardSurface = interface.tracking().planeOf(record.outwardState), .boxStart = tof::shifted(anchor, record.timePS * 1e-3), .boxWidthNS = record.widthPS * 1e-3, .valid = true},
-                        id,
-                        found->second});
+    const bool clone = good && !seen.insert(id).second;
+    if (!allTracks && clone) {
+      continue;
+    }
+    tof::Track track;
+    if (valid) {
+      track = {.state = record.state, .outwardState = record.outwardState, .surface = interface.tracking().planeOf(record.state), .outwardSurface = interface.tracking().planeOf(record.outwardState), .boxStart = tof::shifted(anchor, record.timePS * 1e-3), .boxWidthNS = record.widthPS * 1e-3, .valid = true};
+    }
+    selected.push_back({track, id, good ? found->second : study::ParticleTruth{}, t, good, clone});
   }
   const auto population = selected.size();
   std::mt19937_64 random(seed);
-  std::shuffle(selected.begin(), selected.end(), random);
-  if (selected.size() > static_cast<std::size_t>(maxTracks)) {
-    selected.resize(maxTracks);
+  if (!allTracks) {
+    std::shuffle(selected.begin(), selected.end(), random);
+    if (selected.size() > static_cast<std::size_t>(maxTracks)) {
+      selected.resize(maxTracks);
+    }
   }
   std::cerr << "Tracked " << records.size() << "; population " << population << "; selected " << selected.size() << '\n';
 
@@ -256,6 +275,12 @@ int run(int argc, char** argv)
       }
     }
   }
+  std::unordered_map<std::uint64_t, std::vector<std::size_t>> truthRows;
+  for (std::size_t h = 0; h < hits.size(); ++h) {
+    for (const auto identity : hitTruth[hits[h].index]) {
+      truthRows[identity].push_back(h);
+    }
+  }
   std::vector<tof::Track> tracks;
   for (const auto& item : selected) {
     tracks.push_back(item.track);
@@ -267,29 +292,85 @@ int run(int argc, char** argv)
   };
   std::size_t preselectionLost = 0;
   for (const auto& item : selected) {
-    for (std::size_t h = 0; h < hits.size(); ++h) {
-      preselectionLost += carries(hitTruth[hits[h].index], item.particle) && !acceptsTime(item.track, hits[h]);
+    if (!item.track.valid || !item.good) {
+      continue;
+    }
+    for (const auto h : truthRows[item.particle]) {
+      preselectionLost += !acceptsTime(item.track, hits[h]);
     }
   }
   std::size_t exactCalls = 0;
   std::vector<std::array<bool, 2>> trueSpatial(tracks.size()), trueTime(tracks.size());
   std::vector<std::array<double, 2>> minimumChi2(tracks.size(), {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()});
-  const auto start = std::chrono::steady_clock::now();
-  const auto matches = tof::match(tracks, hits, [&](const tof::Track& track, const tof::Hit& hit) {
-    if (!acceptsTime(track, hit)) {
-      return tof::Prediction{};
+  const auto inputFingerprint = tof::study::fingerprint(tracks, hits, interface.propagator(), parameters, preselectionNS);
+  if (!predictionOutput.empty()) {
+    if (std::filesystem::exists(predictionOutput)) {
+      throw std::runtime_error("prediction output exists");
     }
-    ++exactCalls;
-    return tof::predict(track, hit, interface.propagator(), TGeoMaterial{}, parameters);
-  });
+    const auto partial = predictionOutput + ".part";
+    std::ofstream file(partial, std::ios::binary);
+    tof::study::CacheHeader header;
+    header.fingerprint = inputFingerprint;
+    header.tracks = tracks.size();
+    header.hits = hits.size();
+    header.shard = predictionShard;
+    header.shards = predictionShards;
+    tof::study::write(file, header);
+    const tof::study::TimeIndex index(hits);
+    const auto begin = std::chrono::steady_clock::now();
+    std::size_t done = 0;
+    std::uint64_t materialQueries = 0, materialHits = 0;
+    for (std::size_t t = predictionShard; t < tracks.size(); t += predictionShards) {
+      const tof::study::MaterialCache<TGeoMaterial> material;
+      for (const auto h : index.rows(tracks[t], preselectionNS)) {
+        const auto p = memoizeMaterial ? tof::predict(tracks[t], hits[h], interface.propagator(), material, parameters) : tof::predict(tracks[t], hits[h], interface.propagator(), TGeoMaterial{}, parameters);
+        ++header.exactCalls;
+        if (p.spatialChi2 >= 0.F && p.spatialChi2 <= parameters.maxSpatialChi2 && std::any_of(p.valid.begin(), p.valid.end(), [](bool valid) { return valid; })) {
+          tof::study::write(file, tof::study::CachedPrediction{t, h, p});
+          ++header.records;
+        }
+      }
+      materialQueries += material.queries;
+      materialHits += material.hits;
+      if (++done % 100 == 0) {
+        std::cerr << "Prediction shard " << predictionShard << ": " << done << " tracks, " << header.exactCalls << " exact pairs, " << header.records << " retained\n";
+      }
+    }
+    file.seekp(0);
+    tof::study::write(file, header);
+    file.close();
+    std::filesystem::rename(partial, predictionOutput);
+    JSON report{{"memoize_material", memoizeMaterial}, {"material_queries", materialQueries}, {"material_cache_hits", materialHits}, {"shard", predictionShard}, {"shards", predictionShards}, {"tracks", tracks.size()}, {"measurements", hits.size()}, {"fingerprint", inputFingerprint}, {"retained_pairs", header.records}, {"exact_predictions", header.exactCalls}, {"prediction_seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count()}};
+    std::ofstream(predictionOutput + ".json") << report.dump(2) << '\n';
+    std::cout << report.dump(2) << '\n';
+    return 0;
+  }
+  const auto start = std::chrono::steady_clock::now();
+  std::vector<tof::Match> matches;
+  if (predictionInputs.empty()) {
+    matches = tof::match(tracks, hits, [&](const tof::Track& track, const tof::Hit& hit) {
+      if (!acceptsTime(track, hit)) {
+        return tof::Prediction{};
+      }
+      ++exactCalls;
+      return tof::predict(track, hit, interface.propagator(), TGeoMaterial{}, parameters);
+    });
+  } else {
+    const tof::study::PredictionCache cache(tracks.size(), hits.size(), inputFingerprint, predictionInputs);
+    exactCalls = cache.exactCalls;
+    matches = tof::matchSelected(tracks, hits, [&](const tof::Track& track, const tof::Hit& hit) { return cache.prediction(&track - tracks.data(), &hit - hits.data()); }, [&](std::size_t t) { return cache.rows(t); });
+  }
   const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
   // Truth is consulted only after matching. Evaluate correct-hit compatibility
   // independently of cluster ownership, so arbitration cannot appear as a
   // propagation failure merely because a hit was already claimed.
   std::vector<std::array<bool, 2>> geometric(tracks.size()), inside(tracks.size()), covarianceOK(tracks.size());
-  for (std::size_t t = 0; t < tracks.size(); ++t) {
+  for (std::size_t t = 0; !skipDiagnostics && t < tracks.size(); ++t) {
     const auto& track = tracks[t];
-    for (std::size_t h = 0; h < hits.size(); ++h) {
+    if (!track.valid || !selected[t].good) {
+      continue;
+    }
+    for (const auto h : truthRows[selected[t].particle]) {
       const auto& hit = hits[h];
       if (!carries(hitTruth[hits[h].index], selected[t].particle) || !acceptsTime(track, hit)) {
         continue;
@@ -320,7 +401,7 @@ int run(int argc, char** argv)
   std::array<std::array<std::size_t, 6>, 2> losses{};
   std::size_t bothEligible = 0, bothCorrect = 0, guidedEligible = 0, guidedCorrect = 0;
   std::ofstream csv(output + ".csv");
-  csv << "particle,pt_gen,eta_gen,pdg,inner_available,outer_available,inner_match,outer_match,inner_correct,outer_correct,inner_candidates,outer_candidates,truth_inner_min_chi2,truth_outer_min_chi2,truth_inner_time_candidate,truth_outer_time_candidate,pt_reco,inner_transport,inner_inside,inner_covariance,outer_transport,outer_inside,outer_covariance\n";
+  csv << "particle,pt_gen,eta_gen,pdg,inner_available,outer_available,inner_match,outer_match,inner_correct,outer_correct,inner_candidates,outer_candidates,truth_inner_min_chi2,truth_outer_min_chi2,truth_inner_time_candidate,truth_outer_time_candidate,pt_reco,inner_transport,inner_inside,inner_covariance,outer_transport,outer_inside,outer_covariance,track_row,valid,good_particle,clone,origin,truth_known\n";
   for (std::size_t t = 0; t < tracks.size(); ++t) {
     const auto& item = selected[t];
     const auto& m = matches[t];
@@ -355,12 +436,42 @@ int run(int argc, char** argv)
     guidedEligible += correct[1] && available[0];
     guidedCorrect += correct[1] && available[0] && correct[0];
     csv << item.particle << ',' << item.truth.pt << ',' << item.truth.eta << ',' << item.truth.pdg << ',' << available[0] << ',' << available[1] << ','
-        << m.inner << ',' << m.outer << ',' << correct[0] << ',' << correct[1] << ',' << m.innerCandidates << ',' << m.outerCandidates << ',' << minimumChi2[t][0] << ',' << minimumChi2[t][1] << ',' << trueTime[t][0] << ',' << trueTime[t][1] << ',' << std::sin(item.track.state.theta()) / std::abs(item.track.state.qOverP()) << ',' << geometric[t][0] << ',' << inside[t][0] << ',' << covarianceOK[t][0] << ',' << geometric[t][1] << ',' << inside[t][1] << ',' << covarianceOK[t][1] << '\n';
+        << m.inner << ',' << m.outer << ',' << correct[0] << ',' << correct[1] << ',' << m.innerCandidates << ',' << m.outerCandidates << ',' << minimumChi2[t][0] << ',' << minimumChi2[t][1] << ',' << trueTime[t][0] << ',' << trueTime[t][1] << ',' << std::sin(item.track.state.theta()) / std::abs(item.track.state.qOverP()) << ',' << geometric[t][0] << ',' << inside[t][0] << ',' << covarianceOK[t][0] << ',' << geometric[t][1] << ',' << inside[t][1] << ',' << covarianceOK[t][1] << ',' << item.originalRow << ',' << item.track.valid << ',' << item.good << ',' << item.clone << ',' << (item.good ? static_cast<int>(item.truth.origin) : -1) << ',' << item.good << '\n';
   }
   const auto lossReport = [&](std::size_t layer) {
     return JSON{{"propagation_or_stopped", losses[layer][0]}, {"mean_outside_sensor", losses[layer][1]}, {"covariance_transport", losses[layer][2]}, {"spatial_chi2", losses[layer][3]}, {"flight_or_coarse_time", losses[layer][4]}, {"guided_time_or_assignment", losses[layer][5]}};
   };
-  JSON report{{"kind", clusterFile.empty() ? "hit-based matching diagnostic; not digitized-cluster efficiency" : "native TOF cluster matching; sampled reconstructed-track competition"},
+  if (allTracks) {
+    struct ParticleResult {
+      std::size_t records = 0, valid = 0;
+      bool inner = false, outer = false;
+    };
+    std::unordered_map<std::uint64_t, ParticleResult> particleResults;
+    for (std::size_t t = 0; t < tracks.size(); ++t) {
+      if (!selected[t].good) {
+        continue;
+      }
+      auto& r = particleResults[selected[t].particle];
+      ++r.records;
+      r.valid += tracks[t].valid;
+      r.inner = r.inner || (matches[t].inner >= 0 && carries(hitTruth[matches[t].inner], selected[t].particle));
+      r.outer = r.outer || (matches[t].outer >= 0 && carries(hitTruth[matches[t].outer], selected[t].particle));
+    }
+    std::vector<std::uint64_t> identities;
+    for (const auto& [id, _] : truth.particles) {
+      identities.push_back(id);
+    }
+    std::sort(identities.begin(), identities.end());
+    std::ofstream particles(output + ".particles.csv");
+    particles << "particle,pt_gen,eta_gen,pdg,origin,inner_available,outer_available,good_reco_records,valid_good_reco_records,inner_correct,outer_correct\n";
+    for (const auto id : identities) {
+      const auto& p = truth.particles.at(id);
+      const auto a = availability[id];
+      const auto r = particleResults[id];
+      particles << id << ',' << p.pt << ',' << p.eta << ',' << p.pdg << ',' << static_cast<int>(p.origin) << ',' << a[0] << ',' << a[1] << ',' << r.records << ',' << r.valid << ',' << r.inner << ',' << r.outer << '\n';
+    }
+  }
+  JSON report{{"kind", clusterFile.empty() ? "hit-based matching diagnostic; not digitized-cluster efficiency" : (allTracks ? "native TOF cluster matching; all reconstructed records compete" : "native TOF cluster matching; sampled reconstructed-track competition")},
               {"input", inputFile},
               {"geometry", geometryFile},
               {"tof_hits", hitFile},
@@ -371,7 +482,10 @@ int run(int argc, char** argv)
               {"context", contextFile},
               {"tracking_material", materialFile},
               {"matching_material", "TGeo mean material on each bounded step"},
-              {"competition", "sampled reconstructed tracks only; complete measurement clutter"},
+              {"competition", allTracks ? "all reconstructed records; complete measurement clutter" : "sampled reconstructed tracks only; complete measurement clutter"},
+              {"all_tracks", allTracks},
+              {"prediction_shards", predictionInputs.size()},
+              {"prediction_fingerprint", inputFingerprint},
               {"timing_input", clusterFile.empty() ? "20 ps Gaussian added to transport hits" : "native cluster BC/fine time, no added smearing"},
               {"timing_sigma_ps", 20.0},
               {"tracking_seconds", tracked.seconds},
@@ -390,8 +504,9 @@ int run(int argc, char** argv)
               {"true_hits_lost_by_preselection", preselectionLost},
               {"inner", counts[0].json()},
               {"outer", counts[1].json()},
-              {"inner_losses", lossReport(0)},
-              {"outer_losses", lossReport(1)},
+              {"truth_propagation_diagnostics", !skipDiagnostics},
+              {"inner_losses", skipDiagnostics ? JSON(nullptr) : lossReport(0)},
+              {"outer_losses", skipDiagnostics ? JSON(nullptr) : lossReport(1)},
               {"both_eligible", bothEligible},
               {"both_correct", bothCorrect},
               {"guided_inner_eligible", guidedEligible},

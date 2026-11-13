@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <tuple>
 #include <unordered_set>
@@ -84,6 +85,13 @@ bool inBox(const Track& track, const Hit& hit, double flight, double margin)
 
 std::vector<Match> match(std::span<const Track> tracks, std::span<const Hit> hits, const Predictor& predict, const Parameters& parameters)
 {
+  std::vector<std::size_t> rows(hits.size());
+  std::iota(rows.begin(), rows.end(), 0);
+  return matchSelected(tracks, hits, predict, [&](std::size_t) { return std::span<const std::size_t>(rows); }, parameters);
+}
+
+std::vector<Match> matchSelected(std::span<const Track> tracks, std::span<const Hit> hits, const Predictor& predict, const CandidateRows& rows, const Parameters& parameters)
+{
   if (!(parameters.maxSpatialChi2 > 0.) || !(parameters.maxTimeChi2 > 0.) || !(parameters.timeMarginNS >= 0.)) {
     throw std::invalid_argument("invalid TOF matching cuts");
   }
@@ -106,7 +114,17 @@ std::vector<Match> match(std::span<const Track> tracks, std::span<const Hit> hit
       if (!track.valid || !(track.boxWidthNS > 0.) || (pass == 1 && result[t].outer < 0) || (pass == 2 && result[t].outer >= 0)) {
         continue;
       }
-      for (std::size_t h = 0; h < hits.size(); ++h) {
+      std::size_t previous = 0;
+      bool first = true;
+      for (const auto h : rows(t)) {
+        if (!first && h <= previous) {
+          throw std::invalid_argument("TOF candidate rows must be strictly increasing");
+        }
+        previous = h;
+        first = false;
+        if (h >= hits.size()) {
+          throw std::out_of_range("TOF candidate hit row outside the input");
+        }
         const auto& hit = hits[h];
         if (used[h] || hit.layer != (pass == 0 ? Layer::Outer : Layer::Inner)) {
           continue;

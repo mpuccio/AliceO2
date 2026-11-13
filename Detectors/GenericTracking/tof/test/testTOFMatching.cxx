@@ -20,6 +20,11 @@
 #include "IOTOFBase/GeometryTGeo.h"
 #include "IOTOFBase/IOTOFBaseParam.h"
 #include "GenericTracking/TOF/Workflow.h"
+#include "../study/PredictionCache.h"
+#include "../study/MaterialCache.h"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include "UniformMaterial.h"
 #include "CommonConstants/LHCConstants.h"
 #include <TMemFile.h>
@@ -355,4 +360,104 @@ BOOST_AUTO_TEST_CASE(OuterTimingDoesNotRepeatTheSpatialBoundsGate)
   BOOST_TEST(prediction.spatialChi2 < 1e-5F);
   BOOST_REQUIRE(prediction.valid[pion]);
   BOOST_TEST(std::abs(prediction.flightNS[pion] - flight.flightNS) < 1e-7);
+}
+
+BOOST_AUTO_TEST_CASE(SelectedCandidatesPreserveGlobalArbitration)
+{
+  const std::vector<Track> tracks{coarseTrack(0), coarseTrack(1)};
+  const std::vector<Hit> hits{timedHit(7, Layer::Outer, 8.), timedHit(11, Layer::Inner, 6.), timedHit(19, Layer::Inner, 6.3), timedHit(23, Layer::Outer, 200.)};
+  const auto predictor = [](const Track& t, const Hit& h) {
+    Prediction p;
+    if (h.index == 23 || (h.layer == Layer::Outer && t.state.surface != 0)) {
+      return p;
+    }
+    p.spatialChi2 = t.state.surface == 0 ? 2.F : 0.F;
+    p.flightNS[pion] = h.layer == Layer::Outer ? 3. : 1.;
+    p.valid[pion] = true;
+    return p;
+  };
+  const auto exhaustive = match(tracks, hits, predictor);
+  const std::array<std::vector<std::size_t>, 2> rows{{{0, 1, 2}, {1, 2}}};
+  const auto selected = matchSelected(tracks, hits, predictor, [&](auto t) { return std::span<const std::size_t>(rows[t]); });
+  for (std::size_t t = 0; t < tracks.size(); ++t) {
+    BOOST_TEST(selected[t].inner == exhaustive[t].inner);
+    BOOST_TEST(selected[t].outer == exhaustive[t].outer);
+    BOOST_TEST(selected[t].innerCandidates == exhaustive[t].innerCandidates);
+    BOOST_TEST(selected[t].outerCandidates == exhaustive[t].outerCandidates);
+    BOOST_TEST(selected[t].hypotheses[pion].time.bc == exhaustive[t].hypotheses[pion].time.bc);
+    BOOST_TEST(selected[t].hypotheses[pion].time.fineNS == exhaustive[t].hypotheses[pion].time.fineNS);
+  }
+  const std::vector<std::size_t> bad{hits.size()}, duplicate{0, 0};
+  BOOST_CHECK_THROW(matchSelected(tracks, hits, predictor, [&](auto) { return std::span<const std::size_t>(bad); }), std::out_of_range);
+  BOOST_CHECK_THROW(matchSelected(tracks, hits, predictor, [&](auto) { return std::span<const std::size_t>(duplicate); }), std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(TimeIndexRetainsInclusiveBoundariesAndOriginalRows)
+{
+  auto track = coarseTrack(0);
+  track.boxWidthNS = 50.;
+  const std::vector<Hit> hits{timedHit(0, Layer::Inner, 151.), timedHit(1, Layer::Outer, -100.), timedHit(2, Layer::Inner, 150.), timedHit(3, Layer::Inner, 0.), timedHit(4, Layer::Inner, -101.)};
+  const o2::gtrk::tof::study::TimeIndex index(hits);
+  const auto rows = index.rows(track, 100.);
+  const std::vector<std::size_t> expected{1, 2, 3};
+  BOOST_CHECK_EQUAL_COLLECTIONS(rows.begin(), rows.end(), expected.begin(), expected.end());
+  track.valid = false;
+  BOOST_TEST(index.rows(track, 100.).empty());
+}
+
+BOOST_AUTO_TEST_CASE(PredictionShardsRequireCompleteConsistentInputs)
+{
+  const auto directory = std::filesystem::temp_directory_path() / ("gtrk-tof-shards-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  std::vector<std::string> paths;
+  for (unsigned shard = 0; shard < 2; ++shard) {
+    paths.push_back((directory / std::to_string(shard)).string());
+    std::ofstream file(paths.back(), std::ios::binary);
+    o2::gtrk::tof::study::CacheHeader header;
+    header.fingerprint = 123;
+    header.tracks = 2;
+    header.hits = 3;
+    header.shard = shard;
+    header.shards = 2;
+    header.records = 1;
+    o2::gtrk::tof::study::write(file, header);
+    Prediction p;
+    p.spatialChi2 = 1.F;
+    p.valid[pion] = true;
+    o2::gtrk::tof::study::write(file, o2::gtrk::tof::study::CachedPrediction{shard, 2 - shard, p});
+  }
+  const o2::gtrk::tof::study::PredictionCache cache(2, 3, 123, paths);
+  BOOST_TEST(cache.rows(0).front() == 2U);
+  BOOST_TEST(cache.rows(1).front() == 1U);
+  BOOST_TEST(cache.prediction(1, 1).spatialChi2 == 1.F);
+  BOOST_CHECK_THROW((o2::gtrk::tof::study::PredictionCache(2, 3, 124, paths)), std::runtime_error);
+  BOOST_CHECK_THROW((o2::gtrk::tof::study::PredictionCache(2, 3, 123, {paths.front()})), std::runtime_error);
+  BOOST_CHECK_THROW((o2::gtrk::tof::study::PredictionCache(2, 3, 123, {paths.front(), paths.front()})), std::runtime_error);
+  std::filesystem::remove_all(directory);
+}
+
+BOOST_AUTO_TEST_CASE(MaterialCacheReusesOnlyBitIdenticalSegmentsAndBoundsMemory)
+{
+  struct CountingMaterial {
+    int* calls;
+    float getMatBudget(float, float, float, float x1, float, float) const
+    {
+      ++*calls;
+      return x1;
+    }
+  };
+  int calls = 0;
+  const o2::gtrk::tof::study::MaterialCache<CountingMaterial> material({&calls}, 1);
+  BOOST_TEST(material.getMatBudget(0.F, 0.F, 0.F, 1.F, 0.F, 0.F) == 1.F);
+  BOOST_TEST(material.getMatBudget(0.F, 0.F, 0.F, 1.F, 0.F, 0.F) == 1.F);
+  BOOST_TEST(calls == 1);
+  const auto adjacent = std::nextafter(1.F, 2.F);
+  BOOST_TEST(material.getMatBudget(0.F, 0.F, 0.F, adjacent, 0.F, 0.F) == adjacent);
+  BOOST_TEST(material.getMatBudget(0.F, 0.F, 0.F, adjacent, 0.F, 0.F) == adjacent);
+  BOOST_TEST(calls == 3); // cache is full; the distinct key uses the provider
+  material.getMatBudget(-0.F, 0.F, 0.F, 1.F, 0.F, 0.F);
+  BOOST_TEST(calls == 4); // signed-zero endpoint bits are kept distinct
+  material.getMatBudget(0.F, 0.F, 0.F, 1.F, 0.F, 0.F);
+  BOOST_TEST(calls == 4);
+  BOOST_TEST(material.hits == 2U);
 }

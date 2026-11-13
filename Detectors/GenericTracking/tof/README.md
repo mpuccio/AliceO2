@@ -228,3 +228,75 @@ the study's time preselection. The guided-inner result was 71/75. These are
 conditional efficiencies among tracks with an available cluster, in a sample
 of 100 reconstructed primary tracks. Only those 100 tracks compete for the
 complete timeframe's clusters; this remains a preliminary efficiency probe.
+
+## Full-sample studies
+
+Use `--all-tracks` to pass every reconstructed record to matching in its
+original order, including clones, secondaries, fake/unlabelled tracks and
+invalid refits. Invalid refits retain an unmatched output row. This mode
+ignores the sampling and generated-kinematic selections; `--max-tracks`,
+`--min-pt` and `--max-abs-eta` apply only to the sampled diagnostic mode.
+Report populations and kinematic slices after matching.
+
+The per-track CSV includes the original record row, refit validity, good-label
+status, clone status and origin. A good particle is a single MC identity shared
+by every tracking cluster. The additional `.particles.csv` contains each
+particle of the frozen tracking truth table once, its available TOF clusters,
+its good/valid reconstructed-record counts, and whether any record obtained a
+correct match. This table includes particles without a reconstructed record;
+its population consists of particles carried by a TRK/FT3 cluster, rather than
+all generated particles. For conditional matching efficiency, require a valid
+good reconstructed record and an available own cluster, and count a particle
+once even if several clones competed. Count wrong associations and assignments
+to fake/unlabelled tracker records separately.
+
+Exact predictions can be computed in independent processes. Each shard handles
+disjoint track rows, using only the existing study time preselection. It stores
+pairs that pass the spatial gate with a valid flight-time hypothesis. After
+all shards finish, the study validates their input fingerprints and coverage,
+and runs the original three-pass arbitration once over the complete track and
+cluster arrays. No cluster ownership is decided inside a shard. This changes
+neither the exact propagation nor the assignment cuts; there is no approximate
+spatial search. Prediction shards are temporary, same-build binary artifacts.
+
+For each timeframe, keep the same input/geometry/cluster/material arguments,
+field, anchor orbit and selections in all commands. For example, add these
+options to four independent invocations with shard indices 0 through 3:
+
+```sh
+--all-tracks --threads 1 --memoize-material --skip-truth-diagnostics \
+  --prediction-shard 0 --prediction-shards 4 --prediction-output predictions/0.bin
+```
+
+Then run one final invocation with those same inputs and:
+
+```sh
+--all-tracks --threads 1 --memoize-material --skip-truth-diagnostics \
+  --prediction-inputs predictions/0.bin predictions/1.bin \
+                      predictions/2.bin predictions/3.bin --output full-tf1
+```
+
+The output directories must exist for prediction shards. Missing, duplicate,
+truncated or incompatible shards are rejected. Use a new directory when
+changing the binary, conditions, input or propagation parameters. The unit
+tests cover global arbitration with enumerated candidates, time boundaries,
+and incomplete/inconsistent shards. The native-cluster 100-track check also
+reproduces every exhaustive per-track CSV field through two prediction shards.
+
+`--skip-truth-diagnostics` omits the extra post-match truth propagation probes;
+it retains MC association, availability and time-preselection-loss evaluation
+for every record. Propagation-loss fields are unavailable in this mode. The
+final `matching_seconds` includes cache reading and global arbitration, and
+excludes the independent propagation stage. Each shard reports its propagation
+time separately. Record campaign wall time, process count and the repeated
+tracking/I/O overhead when reporting the total cost. Combine all timeframes
+with timeframe identity in addition to the packed MC particle word.
+
+`--memoize-material` reuses bit-identical six-coordinate material queries within
+one shard track. Bounded-step transports to different sensor planes share many
+identical prefixes. Cache keys retain every float bit, without coordinate
+rounding; after 65,536 distinct segments per track, additional segments use
+TGeo directly. The cache is reset between tracks. It changes neither material
+values nor candidate gates. The tests include one-ULP endpoint differences and
+bounded-memory fallback; native MC checks compare every retained prediction
+value bitwise with the uncached calculation.
