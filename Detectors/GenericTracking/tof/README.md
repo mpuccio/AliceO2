@@ -121,7 +121,7 @@ variance generated along the material path is not yet included. Mass
 hypotheses share the input fitted momentum rather than refitting tracking for
 each species. First-crossing transport and the path limit constrain loopers.
 
-Pile-up MC studies of matching efficiency, purity and time pulls, cut tuning,
+Further pile-up MC studies of matching efficiency, purity and time pulls, cut tuning,
 material-step convergence on real tracks, and indexing performance remain
 necessary before production use. Synthetic and geometry tests do not establish
 those results.
@@ -300,3 +300,61 @@ TGeo directly. The cache is reset between tracks. It changes neither material
 values nor candidate gates. The tests include one-ULP endpoint differences and
 bounded-memory fallback; native MC checks compare every retained prediction
 value bitwise with the uncached calculation.
+
+## Full pp MC baseline
+
+A subsequent native-cluster study processed the complete 5,000-event pp sample
+at 24 MHz: 2,055, 2,041 and 904 events in three timeframes. All 192,516
+reconstructed records competed against all 573,820 native TOF clusters.
+There were 184,185 good records, representing 180,840 unique particles, and
+8,331 fake/unlabelled records. The 3,345 extra good records were retained as
+competitors. All returned records had valid refits. No own-MC clusters were
+excluded by the 100 ns study time preselection.
+
+The following efficiencies count unique particles with a valid good
+reconstructed record and an available own TOF cluster; any correct clone
+counts the particle once. All reconstructed records compete before these
+reporting selections.
+
+| Reporting population | Outer correct / eligible | Inner correct / eligible |
+| --- | ---: | ---: |
+| All origins, all pT/eta | 60,680/80,129 (75.73%) | 94,274/106,310 (88.68%) |
+| Physical primaries, pT >= 0.1 GeV/c, abs(eta) < 1 | 31,750/37,739 (84.13%) | 47,861/52,154 (91.77%) |
+| Physical primaries, pT >= 0.5 GeV/c, abs(eta) < 1 | 21,478/23,339 (92.03%) | 24,034/25,007 (96.11%) |
+
+| Assignment metric, all records | Outer | Inner |
+| --- | ---: | ---: |
+| Correct assignments | 61,006 | 95,253 |
+| Wrong assignments on good tracks | 873 | 3,839 |
+| Assignments to fake/unlabelled tracks | 497 | 3,398 |
+| Correct / all assigned | 97.80% | 92.94% |
+| Correct / assigned on good tracks | 98.59% | 96.13% |
+
+Assignment counts include clones; the efficiency table counts unique
+particles. The 222 multi-particle clusters were retained, with 17 outer and
+24 inner assignments to such clusters. The correct-label test accepts a
+cluster containing the track's good particle among its labels.
+
+For the original 100 diagnostic track rows, full competition retained 77
+correct outer matches and 87 inner matches (previously 77 and 88). Counting
+any clone of those same particles gave 78 outer and 88 inner correct matches.
+Broader-population efficiencies above also include lower pT and forward
+tracks; they should not be attributed to competition alone.
+
+The full run retained the production geometry, field, tracking inputs and
+native flat-response TOF settings. Matching used TGeo material; extra
+post-match truth propagation diagnostics were disabled. Independent shard
+predictions and one global assignment per timeframe took 1,086.8 seconds
+of campaign wall time with up to 24 processes and 16 shards per timeframe.
+This includes repeated tracking and I/O. The study evaluated 590,179,912
+exact track/cluster predictions. The material cache reused 97.79% of
+39,082,748,370 segment queries without coordinate rounding.
+
+All 17 tests passed, and every retained prediction value in the available
+uncached prefixes agreed bitwise: 33,580 predictions on 18,982 distinct
+timeframe/track rows. Full output checks verified record coverage, cluster
+exclusivity, shard coverage and pT/eta histogram totals. The median reconstructed
+over generated pT of central primary pions was within 0.01% of unity in all
+three timeframes (0.5 <= generated pT < 5 GeV/c). This is an initial full-sample
+baseline with the model limitations above; additional occupancies and time-pull
+validation remain to be studied.
