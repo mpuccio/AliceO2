@@ -137,21 +137,45 @@ Supply the chip partition from the production's TOF geometry; do not infer it
 from a different layout. It writes a per-track CSV, a JSON summary and pT plots.
 The Python requirements are numpy, uproot and matplotlib (no awkward needed).
 
+`o2-gtrk-prepare-tof-clusters` runs the native IOTOF digitizer and clusterer
+on an existing production's source-0 hits and collision context. It loads
+`IOTOFBase`, `ChipSpecificsParam` and `TF3DigitizerParam` from the production INI,
+preserves MC labels, and writes `tf3digits.root`, `tf3clusters.root`, a topology
+map, effective settings and a preparation summary in a new output directory.
+Response maps are disabled, matching the native workflow default; the flat
+response uses the production settings. The driver requires continuous readout
+and unique source-0 events. Use the full production workflow for other sources,
+reused events or calibrated response maps.
+
+```sh
+o2-gtrk-prepare-tof-clusters --production-config sgn_configuration.ini \
+  --geometry o2sim_geometry-aligned.root --context collisioncontext.root \
+  --tof-hits sgn_HitsTF3.root --output-dir /path/to/new/tof-output --seed 42
+```
+
 `o2-gtrk-tof-hit-study` reruns GTRK on a frozen tracking-input dump and samples
-unique good physical-primary tracks using a fixed seed. It converts all
-source-0 TOF transport hits into single-pixel measurements, adds 20 ps Gaussian
-timing, and runs the actual three-pass matcher with TGeo material queries. The
-tracker retains its original LUT and configuration. All source-0 hit clutter
-is present; reconstructed-track competition is limited to the sampled tracks.
-It does not model detection efficiency, multi-pixel response or cluster merging,
-and therefore is not a digitized-cluster efficiency measurement.
+unique good physical-primary tracks using a fixed seed. With `--tof-clusters`,
+it reads native TF3 clusters and their MC labels, converts them through the
+same adapter as the matching workflow, and runs the actual three-pass matcher.
+It uses the stored BC/fine times without added smearing. Truth is used only for
+evaluation after matching; a correct match carries the particle's MC identity.
+Clusters with multiple distinct identities and assignments to them are counted
+separately. The tracker retains its original LUT and configuration; matching
+uses TGeo material queries. All cluster clutter is present; reconstructed-track
+competition is limited to the sampled tracks.
 
 ```sh
 o2-gtrk-tof-hit-study --input TRK_tf1.input \
   --geometry o2sim_geometry-aligned.root --tracking-material tracker_matlut.root \
-  --tof-hits sgn_HitsTF3.root --context collisioncontext.root \
-  --max-tracks 100 --min-pt 0.5 --max-abs-eta 1 --output study/probe
+  --tof-clusters /path/to/tof-output/tf3clusters.root \
+  --max-tracks 100 --min-pt 0.5 --max-abs-eta 1 --output study/clusters
 ```
+
+The optional transport-hit proxy mode replaces `--tof-clusters` with
+`--tof-hits sgn_HitsTF3.root --context collisioncontext.root`. It converts all
+source-0 transport hits into single-pixel measurements and adds 20 ps Gaussian
+timing. It does not model detection efficiency, multi-pixel response or cluster
+merging, and therefore does not measure digitized-cluster efficiency.
 
 Keep `.ini` and `.truth` beside the frozen input. Set `ALICE3_MAGFIELD_MACRO`
 to the production's field, and `--first-orbit` to the timeframe anchor.
@@ -170,9 +194,9 @@ coarse-time compatibility are also tested after matching, independently of
 cluster ownership, to distinguish transport/gate losses from assignment losses.
 These diagnostic gates use the forward crossing for the selected primary sample.
 
-Before quoting production efficiency, repeat with digitized TF3 clusters and
-labels, all reconstructed competitors, representative pile-up and held-out
-samples, and validate time pulls at the explicitly defined track reference.
+Before quoting production efficiency, repeat with all reconstructed
+competitors, representative pile-up and held-out samples, and validate time
+pulls at the explicitly defined track reference.
 
 An initial local pp-TF check used 100 fixed-seed sampled primary refits out of
 11,138 eligible reconstructed particles, generated pT >= 0.5 GeV/c and |eta| < 1,
@@ -186,3 +210,21 @@ Outer losses after this fix were six spatial means outside active bounds,
 four spatial-chi2 rejections and one flight/coarse-time rejection. These are
 small-sample diagnostic results under the approximations above, not production
 efficiencies or tuned defaults.
+
+The same 100 tracks were subsequently matched to native digitized TF3 clusters
+from the same hits, context and production settings (20 ps resolution, 10 ps
+TDC bins, 98% flat efficiency, native dead-time handling). Native clustering
+produced 238,845 usable clusters; 91 carried multiple distinct particle labels.
+There was no extra timing smearing or truth-based candidate pruning.
+
+| Layer | Tracks with own cluster | Correct matches | Wrong matches, all tracks | Purity |
+| --- | ---: | ---: | ---: | ---: |
+| Outer | 88 | 77 (87.5%) | 1 | 77/78 (98.7%) |
+| Inner | 94 | 88 (93.6%) | 1 | 88/89 (98.9%) |
+
+The wrong outer match belonged to a track without its own outer cluster.
+There were no assignments to ambiguous clusters and no true clusters lost by
+the study's time preselection. The guided-inner result was 71/75. These are
+conditional efficiencies among tracks with an available cluster, in a sample
+of 100 reconstructed primary tracks. Only those 100 tracks compete for the
+complete timeframe's clusters; this remains a preliminary efficiency probe.

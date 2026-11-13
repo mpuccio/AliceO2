@@ -32,3 +32,9 @@ o2_add_executable(tof-hit-study
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkTOF O2::GTrkStudy O2::ITSMFTSimulation
                                         Boost::program_options ROOT::RIO ROOT::Tree)
+
+o2_add_executable(prepare-tof-clusters
+                  SOURCES study/prepareTOFClusters.cxx
+                  COMPONENT_NAME gtrk
+                  PUBLIC_LINK_LIBRARIES O2::IOTOFReconstruction O2::IOTOFSimulation O2::DetectorsBase
+                                        Boost::program_options ROOT::RIO ROOT::Tree nlohmann_json::nlohmann_json)
