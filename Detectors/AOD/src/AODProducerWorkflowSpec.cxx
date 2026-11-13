@@ -718,9 +718,13 @@ void AODProducerWorkflowDPL::fillTrackTablesPerCollision(int collisionID,
   }
   /// Add strangeness tracks to the table
   auto sTracks = data.getStrangeTracks();
-  tracksCursor.reserve(mVertexStrLUT[collisionID + 1] + tracksCursor.lastIndex() + 1);
-  tracksCovCursor.reserve(mVertexStrLUT[collisionID + 1] + tracksCovCursor.lastIndex() + 1);
-  tracksExtraCursor.reserve(mVertexStrLUT[collisionID + 1] + tracksExtraCursor.lastIndex() + 1);
+  // All three families append aligned rows to the common track tables.
+  const int nStrangenessTracks = mVertexStrLUT[collisionID + 1] - mVertexStrLUT[collisionID] +
+                                mVertexExtendedStrLUT[collisionID + 1] - mVertexExtendedStrLUT[collisionID] +
+                                mVertexITSShortLUT[collisionID + 1] - mVertexITSShortLUT[collisionID];
+  tracksCursor.reserve(nStrangenessTracks + tracksCursor.lastIndex() + 1);
+  tracksCovCursor.reserve(nStrangenessTracks + tracksCovCursor.lastIndex() + 1);
+  tracksExtraCursor.reserve(nStrangenessTracks + tracksExtraCursor.lastIndex() + 1);
   for (int iS{mVertexStrLUT[collisionID]}; iS < mVertexStrLUT[collisionID + 1]; ++iS) {
     auto& collStrTrk = mCollisionStrTrk[iS];
     auto& sTrk = sTracks[collStrTrk.second];
@@ -1390,6 +1394,7 @@ void AODProducerWorkflowDPL::fillMCTrackLabelsTable(MCTrackLabelCursorType& mcTr
     if (vertexId < 0 || vertexId + 1 >= lut.size()) {
       return;
     }
+    mcTrackLabelCursor.reserve(lut[vertexId + 1] - lut[vertexId] + mcTrackLabelCursor.lastIndex() + 1);
     for (int i = lut[vertexId]; i < lut[vertexId + 1]; ++i) {
       const int ref = refs[i].second;
       const auto& label = labels[ref];
