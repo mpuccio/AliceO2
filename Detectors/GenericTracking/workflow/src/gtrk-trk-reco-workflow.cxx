@@ -21,6 +21,7 @@
 /// No adaptor: ALICE 3 has no O2 track format yet.
 
 #include "RecoWorkflow.h"
+#include "GenericTracking/TOF/Workflow.h"
 
 #include "CommonUtils/ConfigurableParam.h"
 #include "Framework/CallbacksPolicy.h"
@@ -33,7 +34,13 @@ using namespace o2::framework;
 void customize(std::vector<o2::framework::CallbacksPolicy>& policies) { o2::raw::HBFUtilsInitializer::addNewTimeSliceCallback(policies); }
 
 // NOLINTNEXTLINE(misc-use-internal-linkage)
-void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions) { o2::gtrk::workflow::addRecoOptions(workflowOptions, false); }
+void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
+{
+  o2::gtrk::workflow::addRecoOptions(workflowOptions, false);
+  workflowOptions.push_back({"tof-matching", VariantType::Bool, false, {"match TOF clusters and estimate track times"}});
+  workflowOptions.push_back({"tof-clusters-from-upstream", VariantType::Bool, false, {"TF3/CLUSTERS from upstream instead of a ROOT reader"}});
+  workflowOptions.push_back({"disable-root-output", VariantType::Bool, false, {"disable the TOF match writer"}});
+}
 
 #include "GenericTracking/Detectors/TRKFT3.h"
 
@@ -49,6 +56,16 @@ WorkflowSpec defineDataProcessing(const ConfigContext& context)
 
   const bool useMC = !context.options().get<bool>("disable-mc");
   auto specs = o2::gtrk::workflow::trackingChain<o2::gtrk::detectors::TRKFT3>(context, {o2::trk::getTRKClusterReaderSpec(useMC), o2::trk::getFT3ClusterReaderSpec(useMC)});
+
+  if (context.options().get<bool>("tof-matching")) {
+    if (!context.options().get<bool>("tof-clusters-from-upstream")) {
+      specs.push_back(o2::gtrk::tof::getClusterReaderSpec());
+    }
+    specs.push_back(o2::gtrk::tof::getMatcherSpec());
+    if (!context.options().get<bool>("disable-root-output")) {
+      specs.push_back(o2::gtrk::tof::getMatchWriterSpec());
+    }
+  }
 
   const o2::raw::HBFUtilsInitializer hbfIni(context, specs);
 

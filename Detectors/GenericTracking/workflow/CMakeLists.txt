@@ -63,7 +63,7 @@ if(ENABLE_UPGRADES)
   o2_add_executable(trk-reco-workflow
                     SOURCES src/gtrk-trk-reco-workflow.cxx
                     COMPONENT_NAME gtrk
-                    PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DetectorsRaw O2::TRKWorkflow)
+                    PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DetectorsRaw O2::TRKWorkflow O2::GTrkTOF)
 endif()
 
 add_subdirectory(test)
