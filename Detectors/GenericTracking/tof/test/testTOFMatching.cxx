@@ -335,3 +335,24 @@ BOOST_AUTO_TEST_CASE(InnerTOFCanPrecedeTheTrackReferencePoint)
   BOOST_TEST(p.flightNS[pion] < 0.);
   BOOST_TEST(std::abs(p.flightNS[pion] + 0.5 * std::sqrt(1. + kMassGeV[pion] * kMassGeV[pion] / 4.) / kLightSpeedCMNS) < 1e-7);
 }
+
+BOOST_AUTO_TEST_CASE(OuterTimingDoesNotRepeatTheSpatialBoundsGate)
+{
+  auto track = physicalTrack(0.F);
+  // The outward fit correctly predicts the outer sensor. The independently
+  // fitted inward state has a different direction; its long flight-time
+  // projection can fall outside that chip after crossing the tracker.
+  track.state.par[kPhi] = 0.01F;
+  auto hit = timedHit(0, Layer::Outer, 8.);
+  hit.surface = plane(92.F);
+  hit.surface.bounds = {0.1F, 0.1F};
+  hit.varLoc0 = hit.varLoc1 = 1e-4F;
+  const Propagator prop{.bzKiloGauss = 0.F};
+  const auto flight = transport(track.state, track.surface, hit.surface, prop, UniformMaterial{}, PropagationDirection::kForward, Parameters{});
+  BOOST_REQUIRE(flight.ok);
+  BOOST_CHECK(!flight.inside);
+  const auto prediction = predict(track, hit, prop, UniformMaterial{});
+  BOOST_TEST(prediction.spatialChi2 < 1e-5F);
+  BOOST_REQUIRE(prediction.valid[pion]);
+  BOOST_TEST(std::abs(prediction.flightNS[pion] - flight.flightNS) < 1e-7);
+}

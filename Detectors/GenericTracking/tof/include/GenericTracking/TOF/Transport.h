@@ -175,7 +175,11 @@ Prediction predict(const Track& track, const Hit& hit, Propagator prop, const Ma
   for (std::size_t mass = 0; mass < kHypotheses; ++mass) {
     prop.massGeV = static_cast<float>(kMassGeV[mass]);
     const auto central = transport(track.state, track.surface, hit.surface, prop, material, direction, parameters);
-    if (!central.ok || !central.inside) {
+    // Sensor acceptance was checked with the spatial fit above. The
+    // independent inward-state trajectory used for timing can reach this
+    // plane outside the chip, especially after traversing the tracker.
+    // That is not another spatial veto on an already compatible outer hit.
+    if (!central.ok) {
       continue;
     }
     prediction.flightNS[mass] = central.flightNS;
