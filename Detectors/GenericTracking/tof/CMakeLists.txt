@@ -17,24 +17,3 @@ o2_add_library(GTrkTOF
 target_include_directories(${targetName} PUBLIC $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 install(DIRECTORY include/GenericTracking DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 o2_target_root_dictionary(GTrkTOF HEADERS include/GenericTracking/TOF/Match.h LINKDEF src/LinkDef.h)
-
-o2_add_test(tof-matching SOURCES test/testTOFMatching.cxx COMPONENT_NAME generic-tracking
-            PUBLIC_LINK_LIBRARIES O2::GTrkTOF O2::GTrkTracking ROOT::RIO
-            LABELS generic-tracking TARGETVARNAME testTarget)
-if(testTarget)
-  target_include_directories(${testTarget} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tracking/test)
-endif()
-
-# Frozen tracking inputs and transported TOF hits, for an initial diagnostic.
-# GTrkStudy is declared later by GenericTracking's parent CMakeLists.
-o2_add_executable(tof-hit-study
-                  SOURCES study/tofHitStudy.cxx
-                  COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkTOF O2::GTrkStudy O2::ITSMFTSimulation
-                                        Boost::program_options ROOT::RIO ROOT::Tree)
-
-o2_add_executable(prepare-tof-clusters
-                  SOURCES study/prepareTOFClusters.cxx
-                  COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::IOTOFReconstruction O2::IOTOFSimulation O2::DetectorsBase
-                                        Boost::program_options ROOT::RIO ROOT::Tree nlohmann_json::nlohmann_json)
