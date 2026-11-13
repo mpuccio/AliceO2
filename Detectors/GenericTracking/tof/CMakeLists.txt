@@ -24,3 +24,11 @@ o2_add_test(tof-matching SOURCES test/testTOFMatching.cxx COMPONENT_NAME generic
 if(testTarget)
   target_include_directories(${testTarget} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tracking/test)
 endif()
+
+# Frozen tracking inputs and transported TOF hits, for an initial diagnostic.
+# GTrkStudy is declared later by GenericTracking's parent CMakeLists.
+o2_add_executable(tof-hit-study
+                  SOURCES study/tofHitStudy.cxx
+                  COMPONENT_NAME gtrk
+                  PUBLIC_LINK_LIBRARIES O2::GTrkTOF O2::GTrkStudy O2::ITSMFTSimulation
+                                        Boost::program_options ROOT::RIO ROOT::Tree)

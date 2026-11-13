@@ -42,7 +42,10 @@ Outer spatial matching starts from the outward fit; inner matching starts from
 the inward fit. Flight-time derivatives with respect to the inward state give
 the shared track error. This correlation is included in the inner/outer timing
 gate and in the combined time, rather than counting it twice as independent
-noise. No TOF spatial measurement is added to the tracker fit.
+noise. Active-area acceptance is checked by the spatial prediction. The
+independent trajectory used to integrate flight time may cross the same plane
+outside the chip; it does not apply a second active-area veto. No TOF spatial
+measurement is added to the tracker fit.
 
 ## Inputs and running
 
@@ -122,3 +125,64 @@ Pile-up MC studies of matching efficiency, purity and time pulls, cut tuning,
 material-step convergence on real tracks, and indexing performance remain
 necessary before production use. Synthetic and geometry tests do not establish
 those results.
+
+## Initial efficiency studies
+
+`study/tofCoverage.py` joins a single timeframe's tracking QA with a source's
+TF3 transport hits by source/event/track identity. It reports hit availability
+among good, non-clone, valid refits, with generated pT/eta cuts and a separate
+physical-primary selection. It rejects multi-timeframe QA files and duplicate
+identities. This is a denominator/reach check, not matching efficiency.
+Supply the chip partition from the production's TOF geometry; do not infer it
+from a different layout. It writes a per-track CSV, a JSON summary and pT plots.
+The Python requirements are numpy, uproot and matplotlib (no awkward needed).
+
+`o2-gtrk-tof-hit-study` reruns GTRK on a frozen tracking-input dump and samples
+unique good physical-primary tracks using a fixed seed. It converts all
+source-0 TOF transport hits into single-pixel measurements, adds 20 ps Gaussian
+timing, and runs the actual three-pass matcher with TGeo material queries. The
+tracker retains its original LUT and configuration. All source-0 hit clutter
+is present; reconstructed-track competition is limited to the sampled tracks.
+It does not model detection efficiency, multi-pixel response or cluster merging,
+and therefore is not a digitized-cluster efficiency measurement.
+
+```sh
+o2-gtrk-tof-hit-study --input TRK_tf1.input \
+  --geometry o2sim_geometry-aligned.root --tracking-material tracker_matlut.root \
+  --tof-hits sgn_HitsTF3.root --context collisioncontext.root \
+  --max-tracks 100 --min-pt 0.5 --max-abs-eta 1 --output study/probe
+```
+
+Keep `.ini` and `.truth` beside the frozen input. Set `ALICE3_MAGFIELD_MACRO`
+to the production's field, and `--first-orbit` to the timeframe anchor.
+Source events reused in several collision occurrences are explicitly rejected.
+The default 100 ns hit-time preselection is an additional study selection;
+correct hits excluded by it are counted and cause a nonzero study status.
+The default kinematic selection is intended for an initial barrel probe.
+
+The denominator for each layer is sampled reconstructed tracks with at least
+one usable measurement of their own MC particle in that layer. Correct matches,
+wrong matches and purity are separate. The guided-inner denominator is tracks
+with a correct outer association and an available inner measurement. The CSV
+keeps each truth identity and the per-track decisions. Correct-hit propagation,
+mean position inside active bounds, covariance transport, spatial chi2 and
+coarse-time compatibility are also tested after matching, independently of
+cluster ownership, to distinguish transport/gate losses from assignment losses.
+These diagnostic gates use the forward crossing for the selected primary sample.
+
+Before quoting production efficiency, repeat with digitized TF3 clusters and
+labels, all reconstructed competitors, representative pile-up and held-out
+samples, and validate time pulls at the explicitly defined track reference.
+
+An initial local pp-TF check used 100 fixed-seed sampled primary refits out of
+11,138 eligible reconstructed particles, generated pT >= 0.5 GeV/c and |eta| < 1,
+with 243,605 usable synthetic measurements from 264,401 transported hits.
+On identical inputs, removing the second chip-bounds veto from the independent
+flight-time projection changed correct outer associations from 63/89 to 78/89:
+15 recovered identities, none lost. Correct inner associations stayed 90/97,
+with one wrong inner association and no wrong outer association observed.
+The guided-inner result was 73/77; the remaining-track pass found 17/20.
+Outer losses after this fix were six spatial means outside active bounds,
+four spatial-chi2 rejections and one flight/coarse-time rejection. These are
+small-sample diagnostic results under the approximations above, not production
+efficiencies or tuned defaults.
