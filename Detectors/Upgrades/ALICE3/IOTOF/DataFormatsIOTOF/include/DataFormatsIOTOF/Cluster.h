@@ -113,17 +113,18 @@ class Cluster
   static constexpr uint16_t InvalidPatternID = static_cast<uint16_t>(ClusterInfo::MaskPattern);
 
   Cluster() = default;
-  Cluster(UShort_t row, UShort_t col, UShort_t rowSpan, UShort_t colSpan, UShort_t patt, UShort_t topo, UShort_t chipID = 0, time_t time = 0.0f)
-    : mChipID(chipID), mTime(time)
+  Cluster(UShort_t row, UShort_t col, UShort_t rowSpan, UShort_t colSpan, UShort_t patt, UShort_t topo, UShort_t chipID = 0, float time = 0.0f, uint64_t bc = 0)
+    : mChipID(chipID), mTime(time), mBc(bc)
   {
     mClusterInfo.data = ClusterInfo::pack(row, col, rowSpan, colSpan, patt, topo);
   }
 
-  void set(UShort_t row, UShort_t col, UShort_t rowSpan, UShort_t colSpan, UShort_t patt, UShort_t topo, UShort_t chipID, time_t time)
+  void set(UShort_t row, UShort_t col, UShort_t rowSpan, UShort_t colSpan, UShort_t patt, UShort_t topo, UShort_t chipID, float time, uint64_t bc = 0)
   {
     mClusterInfo.data = ClusterInfo::pack(row, col, rowSpan, colSpan, patt, topo);
     mChipID = chipID;
     mTime = time;
+    mBc = bc;
   }
 
   // Unpack Getters
@@ -148,7 +149,9 @@ class Cluster
   // BaseCluster / Interface Compatibility Getters
   uint32_t getChipID() const { return mChipID; }
   uint32_t getSensorID() const { return mChipID; }
-  time_t getTime() const { return mTime; }
+  /// Fine time in ns relative to getBc(), not an absolute timestamp.
+  float getTime() const { return mTime; }
+  uint64_t getBc() const { return mBc; }
   uint64_t getPackedData() const { return mClusterInfo.data; }
 
   // Setters
@@ -159,12 +162,13 @@ class Cluster
   void setPatternID(UShort_t p) { mClusterInfo.setPattern(p); }
   void setTopology(UShort_t t) { mClusterInfo.setTopology(t); }
   void setChipID(UShort_t c) { mChipID = c; }
-  void setTime(time_t t) { mTime = t; }
+  void setTime(float t) { mTime = t; }
+  void setBc(uint64_t bc) { mBc = bc; }
 
   // Operators & Debugging
   bool operator==(const Cluster& cl) const
   {
-    return mClusterInfo.data == cl.mClusterInfo.data && mChipID == cl.mChipID && mTime == cl.mTime;
+    return mClusterInfo.data == cl.mClusterInfo.data && mChipID == cl.mChipID && mBc == cl.mBc && mTime == cl.mTime;
   }
 
   void print() const;
@@ -173,11 +177,12 @@ class Cluster
  private:
   ClusterInfo mClusterInfo{}; ///< 64-bit packed structure containing geometry/topology
   UShort_t mChipID{0};        ///< Chip / Sensor ID
-  float mTime{0.0f};          ///< Hit timing information
+  float mTime{0.0f};          ///< Fine time [ns] from the start of mBc
+  uint64_t mBc{0};           ///< Absolute bunch-crossing counter
 
   void sanityCheck();
 
-  ClassDefNV(Cluster, 2);
+  ClassDefNV(Cluster, 3);
 };
 
 } // namespace iotof

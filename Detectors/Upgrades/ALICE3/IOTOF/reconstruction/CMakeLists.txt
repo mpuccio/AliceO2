@@ -28,3 +28,8 @@ o2_target_root_dictionary(
           include/IOTOFReconstruction/ClustererParam.h
           include/IOTOFReconstruction/TopologyClassifier.h
           )
+
+# Temporary BC/fine-time bridge: replace together with Mario's cluster changes.
+o2_add_test(cluster-timing SOURCES test/testClusterTiming.cxx COMPONENT_NAME iotof
+            PUBLIC_LINK_LIBRARIES O2::IOTOFReconstruction ROOT::RIO
+            LABELS iotof)

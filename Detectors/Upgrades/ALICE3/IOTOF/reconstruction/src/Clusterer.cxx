@@ -16,11 +16,46 @@
 
 #include "IOTOFReconstruction/Clusterer.h"
 
+#include "CommonConstants/LHCConstants.h"
+
 #include <algorithm>
+#include <cmath>
 #include <numeric>
+#include <tuple>
 
 namespace o2::iotof
 {
+namespace
+{
+// Temporary timing bridge until the upstream BC/fine-time cluster implementation
+// is available. Read the digit's BC/TDC pair without flattening the absolute time.
+double fineTimeNS(const Digit& digit)
+{
+  return digit.getTdc() * static_cast<double>(DPLDigitizerParam::Instance().tdcBin);
+}
+
+double relativeTimeNS(const Digit& digit, uint64_t referenceBC)
+{
+  const auto bc = digit.getBc();
+  const double deltaBC = bc >= referenceBC ? static_cast<double>(bc - referenceBC) : -static_cast<double>(referenceBC - bc);
+  return deltaBC * o2::constants::lhc::LHCBunchSpacingNS + fineTimeNS(digit);
+}
+
+void setClusterTime(Cluster& cluster, uint64_t referenceBC, double timeNS)
+{
+  constexpr double spacing = o2::constants::lhc::LHCBunchSpacingNS;
+  const auto shift = static_cast<int64_t>(std::floor(timeNS / spacing));
+  auto bc = shift >= 0 ? referenceBC + static_cast<uint64_t>(shift) : referenceBC - static_cast<uint64_t>(-shift);
+  auto fine = static_cast<float>(timeNS - shift * spacing);
+  // Rounding the fine time to float can put it onto the following BC.
+  if (fine >= spacing) {
+    ++bc;
+    fine = 0.F;
+  }
+  cluster.setBc(bc);
+  cluster.setTime(fine);
+}
+} // namespace
 
 //__________________________________________________
 void Clusterer::process(gsl::span<const Digit> digits,
@@ -67,7 +102,7 @@ void Clusterer::process(gsl::span<const Digit> digits,
       if (da.getColumn() != db.getColumn()) {
         return da.getColumn() < db.getColumn();
       }
-      return da.getTime() < db.getTime();
+      return std::tuple{da.getBc(), da.getTdc()} < std::tuple{db.getBc(), db.getTdc()};
     });
     LOG(debug) << "Found " << nDigits << " digits for ROF " << iROF;
 
@@ -174,7 +209,7 @@ void Clusterer::ClustererThread::findClustersSingleHit(gsl::span<const Digit> di
   const uint16_t chipID = digit.getChipIndex();
   const uint16_t row = digit.getRow();
   const uint16_t col = digit.getColumn();
-  const time_t time = digit.getTime();
+  const double time = fineTimeNS(digit);
 
   if (labelsClusPtr) {
     int nStoredLabels = 0;
@@ -192,7 +227,8 @@ void Clusterer::ClustererThread::findClustersSingleHit(gsl::span<const Digit> di
   constexpr uint16_t firedDigitsMask = (1U << 0); // 0x0001 (1)
   mClsTopoClassifier.getTopology(firedDigitsMask, minRow, rowSpan, minCol, colSpan, clsTopology);
   // Bit 0 corresponds to (rowOffset=0, colOffset=0) in row-major order
-  Cluster cluster(row, col, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, time);
+  Cluster cluster(row, col, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, 0.F);
+  setClusterTime(cluster, digit.getBc(), time);
 
   LOG(debug) << "Pushing back cluster with row: " << row << ", col: " << col
              << ", rowSpan: " << static_cast<int>(rowSpan) << ", colSpan: " << static_cast<int>(colSpan)
@@ -211,7 +247,7 @@ std::vector<std::vector<uint32_t>> Clusterer::ClustererThread::buildPreclusters(
   auto areNeighbours = [&](const Digit& a, const Digit& b) {
     return std::abs(static_cast<int>(a.getRow()) - static_cast<int>(b.getRow())) <= 1 &&
            std::abs(static_cast<int>(a.getColumn()) - static_cast<int>(b.getColumn())) <= 1 &&
-           std::abs(a.getTime() - b.getTime()) <= maxTimeDiffNSigma * timeResolution;
+           std::abs(relativeTimeNS(a, b.getBc()) - fineTimeNS(b)) <= maxTimeDiffNSigma * timeResolution;
   };
 
   for (size_t i = 0; i < digitIdxs.size(); ++i) {
@@ -270,7 +306,7 @@ void Clusterer::ClustererThread::findClustersMultipleHits(gsl::span<const Digit>
       const auto& digit = digits[precluster[0]];
       const uint16_t row = digit.getRow();
       const uint16_t col = digit.getColumn();
-      const time_t time = digit.getTime();
+      const double time = fineTimeNS(digit);
 
       if (labelsClusPtr) {
         int nMcLabels = 0;
@@ -288,7 +324,8 @@ void Clusterer::ClustererThread::findClustersMultipleHits(gsl::span<const Digit>
       constexpr uint16_t firedDigitsMask = (1U << 0); // 0x0001 (1)
       mClsTopoClassifier.getTopology(firedDigitsMask, minRow, rowSpan, minCol, colSpan, clsTopology);
       // Bit 0 corresponds to (rowOffset=0, colOffset=0) in row-major order
-      Cluster cluster(minRow, minCol, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, time);
+      Cluster cluster(minRow, minCol, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, 0.F);
+      setClusterTime(cluster, digit.getBc(), time);
 
       LOG(debug) << "Pushing back cluster with row: " << row << ", col: " << col
                  << ", rowSpan: " << static_cast<int>(rowSpan) << ", colSpan: " << static_cast<int>(colSpan)
@@ -307,14 +344,15 @@ void Clusterer::ClustererThread::findClustersMultipleHits(gsl::span<const Digit>
       int nMcLabels = 0;
 
       // Compute average time for digits in the precluster
-      time_t clsTime = 0.0;
+      const auto referenceBC = digits[precluster.front()].getBc();
+      double clsTime = 0.;
       for (const auto& idx : precluster) {
         const auto& digit = digits[idx];
         minRow = std::min(minRow, digit.getRow());
         minCol = std::min(minCol, digit.getColumn());
         maxRow = std::max(maxRow, digit.getRow());
         maxCol = std::max(maxCol, digit.getColumn());
-        clsTime += digit.getTime();
+        clsTime += relativeTimeNS(digit, referenceBC);
         fetchMCLabels(idx, labelsDigPtr, nMcLabels);
       }
       clsTime /= precluster.size();
@@ -326,7 +364,8 @@ void Clusterer::ClustererThread::findClustersMultipleHits(gsl::span<const Digit>
 
       if (rowSpan * colSpan > maxFiredDigitsForCls) {
         // Overflow precluster: pass InvalidPatternID (or 0) and kHuge topology flag
-        Cluster cluster(minRow, minCol, rowSpan, colSpan, Cluster::InvalidPatternID, Topologies::kHuge, chipID, clsTime);
+        Cluster cluster(minRow, minCol, rowSpan, colSpan, Cluster::InvalidPatternID, Topologies::kHuge, chipID, 0.F);
+        setClusterTime(cluster, referenceBC, clsTime);
         mClusters.emplace_back(cluster);
         mPatterns.emplace_back(Cluster::InvalidPatternID);
         continue;
@@ -354,7 +393,8 @@ void Clusterer::ClustererThread::findClustersMultipleHits(gsl::span<const Digit>
       for (int i = 0; i < nMcLabels; i++) {
         mLabels.addElement(nStoredCls, mLabelsBuff[i]);
       }
-      Cluster cluster(minRow, minCol, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, clsTime);
+      Cluster cluster(minRow, minCol, rowSpan, colSpan, firedDigitsMask, clsTopology, chipID, 0.F);
+      setClusterTime(cluster, referenceBC, clsTime);
       LOG(debug) << "Pushing back cluster with row: " << minRow << ", col: " << minCol
                  << ", rowSpan: " << static_cast<int>(rowSpan) << ", colSpan: " << static_cast<int>(colSpan)
                  << ", pattern: " << firedDigitsMask << ", topology: " << static_cast<int>(clsTopology)
