@@ -434,7 +434,7 @@ DECLARE_SOA_DYNAMIC_COLUMN(HasTPCSideCOnly, hasTPCSideCOnly, //! Run 3: Has this
 DECLARE_SOA_DYNAMIC_COLUMN(HasTPCBothSides, hasTPCBothSides, //! Run 3: Has this track TPC clusters from both side A and C?
                            [](uint8_t flags) -> bool { return (flags & (o2::aod::track::TPCSideA | o2::aod::track::TPCSideC)) == (o2::aod::track::TPCSideA | o2::aod::track::TPCSideC); });
 DECLARE_SOA_DYNAMIC_COLUMN(PIDForTracking, pidForTracking, //! PID hypothesis used during tracking. See the constants in the class PID in PID.h
-                           [](uint32_t flags) -> uint32_t { return flags >> 28; });
+                           [](uint32_t flags) -> uint32_t { return o2::aod::track::decodePIDForTracking(flags); });
 DECLARE_SOA_DYNAMIC_COLUMN(TPCNClsFound, tpcNClsFound, //! Number of found TPC clusters
                            [](uint8_t tpcNClsFindable, int8_t tpcNClsFindableMinusFound) -> int16_t {
                              return fixTPCNClsFindable(tpcNClsFindable, tpcNClsFindableMinusFound) - tpcNClsFindableMinusFound;

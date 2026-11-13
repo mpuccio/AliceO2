@@ -40,22 +40,36 @@ enum CollisionFlagsRun2 : uint16_t {
 namespace o2::aod::track
 {
 enum TrackTypeEnum : uint8_t {
-  TrackIU = 0,      // track at point of innermost update (not propagated)
-  Track = 1,        // propagated track
-  StrangeTrack = 2, // track found by strangeness tracking at point of innermost update
+  TrackIU = 0,              // track at point of innermost update (not propagated)
+  Track = 1,                // propagated track
+  StrangeTrack = 2,         // track found by strangeness tracking at point of innermost update
+  ExtendedStrangeTrack = 3, // charged decay mother extended with unused ITS clusters
+  TripletITS = 4,           // PV-selected ITS inner-barrel three-hit track
   Run2Track = 254,
   Run2Tracklet = 255
 };
 enum TrackFlags : uint32_t {
-  TrackTimeResIsRange = 0x1, // Gaussian or range
-  PVContributor = 0x2,       // This track has contributed to the collision vertex fit
-  OrphanTrack = 0x4,         // Track has no association with any collision vertex
-  TrackTimeAsym = 0x8,       // track with an asymmetric time range
-  TPCdEdxAlt = 0x10,         // TPCSignal and tpcNClsFindableMinusPID correspond for alternative dEdx since the nominal was 0
-  TPCSideA = 0x20,           // TPC track has A-side clusters (if any)
-  TPCSideC = 0x40,           // TPC track has C-side clusters (if any)
-  // NOTE Highest 4 (29..32) bits reserved for PID hypothesis
+  TrackTimeResIsRange = 0x1,          // Gaussian or range
+  PVContributor = 0x2,                // This track has contributed to the collision vertex fit
+  OrphanTrack = 0x4,                  // Track has no association with any collision vertex
+  TrackTimeAsym = 0x8,                // track with an asymmetric time range
+  TPCdEdxAlt = 0x10,                  // TPCSignal and tpcNClsFindableMinusPID correspond for alternative dEdx since the nominal was 0
+  TPCSideA = 0x20,                    // TPC track has A-side clusters (if any)
+  TPCSideC = 0x40,                    // TPC track has C-side clusters (if any)
+  TrackingAbsChargeTwo = 0x04000000, // actual absolute charge 2 for ExtendedStrangeTrack/TripletITS; unit charge if unset for these types
+  PIDForTrackingHighBit = 0x08000000, // bit 4 of the tracking PID; low nibble remains in bits 28..31
+  // The legacy PID nibble stays unchanged; bit 27 extends it to five bits.
 };
+// Preserve the legacy high-nibble encoding while supporting derived-particle PID IDs >= 16.
+constexpr uint32_t encodePIDForTracking(uint32_t pid)
+{
+  return ((pid & 0xfu) << 28) | ((pid & 0x10u) << 23);
+}
+constexpr uint32_t decodePIDForTracking(uint32_t flags)
+{
+  return (flags >> 28) | ((flags & PIDForTrackingHighBit) >> 23);
+}
+
 enum TrackFlagsRun2Enum {
   ITSrefit = 0x1,
   FreeClsSPDTracklet = 0x1, // for SPD tracklets, tracklet from cluster not used in tracking

@@ -28,6 +28,7 @@ namespace strangeness_tracking
 bool StrangenessTracker::loadData(const o2::globaltracking::RecoContainer& recoData)
 {
   clear();
+  mClusterTrackingData = &recoData;
 
   mInputV0tracks = recoData.getV0s();
   mInputV0Indices = recoData.getV0sIdx();
@@ -136,7 +137,7 @@ void StrangenessTracker::prepareITStracks() // sort tracks by eta and phi and se
   mTracksIdxTable[mUtils.mPhiBins * mUtils.mEtaBins] = mSortedITStracks.size();
 }
 
-void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, int iThread)
+void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, int iThread, int extensionPV)
 {
   if (mStrParams->mSkipTPC && ((v0Idx.getProngID(kV0DauNeg).getSource() == GIndex::TPC) || (v0Idx.getProngID(kV0DauPos).getSource() == GIndex::TPC))) {
     return;
@@ -159,6 +160,23 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
   V0 correctedV0; // recompute V0 for Hypertriton
   if (!recreateV0(posTrack, negTrack, correctedV0, iThread)) {
     return;
+  }
+  if (mStrParams->enableDecayFollowing) {
+    StrangeTrack source{};
+    source.mMother = correctedV0;
+    source.mPartType = dataformats::kStrkV0;
+    source.mDecayRef = iv0;
+    source.mITSRef = -1u;
+    source.mMatchChi2 = -1.f;
+    v0.getXYZGlo(source.mDecayVtx);
+    v0.getPxPyPzGlo(source.mDecayMom);
+    std::array<float, 3> posMom, negMom;
+    correctedV0.getProng(0).getPxPyPzGlo(posMom);
+    correctedV0.getProng(1).getPxPyPzGlo(negMom);
+    source.mMasses = alphaV0 > 0 ?
+      std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Helium3, PID::Pion)), float(calcMotherMass(posMom, negMom, PID::Alpha, PID::Pion))} :
+      std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Pion, PID::Helium3)), float(calcMotherMass(posMom, negMom, PID::Pion, PID::Alpha))};
+    mExtensionSeeds[iThread].push_back({source, extensionPV >= 0 ? extensionPV : v0Idx.getVertexID(), {v0Idx.getProngID(0).getRawWOFlags(), v0Idx.getProngID(1).getRawWOFlags(), 0, 2u}});
   }
   StrangeTrack strangeTrack;
   strangeTrack.mPartType = dataformats::kStrkV0;
@@ -208,8 +226,23 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
   }
 }
 
-void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const CascadeIndex& cascIdx, const V0& cascV0, int iThread)
+void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const CascadeIndex& cascIdx, const V0& cascV0, int iThread, const V0Index* cascV0Idx)
 {
+  if (mStrParams->enableDecayFollowing) {
+    if (!cascV0Idx) {
+      throw std::runtime_error("Decay extension needs the cascade V0 daughter identities");
+    }
+    StrangeTrack source{};
+    source.mMother = casc;
+    source.mPartType = dataformats::kStrkCascade;
+    source.mDecayRef = iCasc;
+    source.mITSRef = -1u;
+    source.mMatchChi2 = -1.f;
+    casc.getXYZGlo(source.mDecayVtx);
+    casc.getPxPyPzGlo(source.mDecayMom);
+    source.mMasses = {std::sqrt(casc.calcMass2AsXiMinus()), std::sqrt(casc.calcMass2AsOmegaMinus())};
+    mExtensionSeeds[iThread].push_back({source, cascIdx.getVertexID(), {cascV0Idx->getProngID(0).getRawWOFlags(), cascV0Idx->getProngID(1).getRawWOFlags(), cascIdx.getBachelorID().getRawWOFlags(), 3u}});
+  }
   ClusAttachments structClus;
   auto& daughterTracks = mDaughterTracks[iThread];
   daughterTracks.resize(3); // resize to 3 prongs: first bachelor, second V0 pos, third V0 neg
@@ -270,6 +303,24 @@ void StrangenessTracker::process3Body(int i3Body, const Decay3Body& dec3body, co
     auto& daughterTracks = mDaughterTracks[iThread];
     daughterTracks.resize(3); // resize to 3 prongs
 
+    if (mStrParams->enableDecayFollowing) {
+      StrangeTrack source{};
+      source.mMother = dec3body;
+      source.mPartType = dataformats::kStrkThreeBody;
+      source.mDecayRef = i3Body;
+      source.mITSRef = -1u;
+      source.mMatchChi2 = -1.f;
+      dec3body.getXYZGlo(source.mDecayVtx);
+      dec3body.getPxPyPzGlo(source.mDecayMom);
+      std::array<float, 3> p0, p1, p2;
+      dec3body.getProng(kV0DauPos).getPxPyPzGlo(p0);
+      dec3body.getProng(kV0DauNeg).getPxPyPzGlo(p1);
+      dec3body.getProng(kBach).getPxPyPzGlo(p2);
+      // Preserve the existing matching flow's p/pi/d mass interpretation at
+      // the source seed; do not invoke a shared mass helper with other semantics.
+      source.mMasses = {float(dec3body.getProng(kBach).getCharge() > 0 ? calcMotherMass3body(p0, p1, p2, PID::Proton, PID::Pion, PID::Deuteron) : calcMotherMass3body(p0, p1, p2, PID::Pion, PID::Proton, PID::Deuteron)), 0.f};
+      mExtensionSeeds[iThread].push_back({source, dec3bodyIdx.getVertexID(), {dec3bodyIdx.getProngID(0).getRawWOFlags(), dec3bodyIdx.getProngID(1).getRawWOFlags(), dec3bodyIdx.getProngID(2).getRawWOFlags(), 3u}});
+    }
     StrangeTrack strangeTrack;
     strangeTrack.mPartType = dataformats::kStrkThreeBody;
     auto dec3bodyR = std::sqrt(dec3body.calcR2());
@@ -335,7 +386,7 @@ void StrangenessTracker::process()
   // Loop over Cascades
   for (int iCasc{0}; iCasc < mInputCascadeTracks.size(); iCasc++) {
     LOG(debug) << "Analysing Cascade: " << iCasc + 1 << "/" << mInputCascadeTracks.size();
-    processCascade(iCasc, mInputCascadeTracks[iCasc], mInputCascadeIndices[iCasc], mInputV0tracks[mInputCascadeIndices[iCasc].getV0ID()]);
+    processCascade(iCasc, mInputCascadeTracks[iCasc], mInputCascadeIndices[iCasc], mInputV0tracks[mInputCascadeIndices[iCasc].getV0ID()], 0, &mInputV0Indices[mInputCascadeIndices[iCasc].getV0ID()]);
   }
 
   // Loop over 3bodys
@@ -345,6 +396,7 @@ void StrangenessTracker::process()
       process3Body(i3Body, mInput3BodyTracks[i3Body], mInput3BodyIndices[i3Body]);
     }
   }
+  finishClusterTracking();
 }
 
 bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strangeTrack, ClusAttachments& structClus, const TrackITS& itsTrack, std::vector<o2::track::TrackParCovF>& daughterTracks, int iThread)

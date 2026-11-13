@@ -13,6 +13,8 @@
 
 o2_add_library(StrangenessTracking
                SOURCES src/StrangenessTracker.cxx
+                       src/StrangenessTrackerClusters.cxx
+                       src/ITSShortTrackFit.cxx
                        src/StrangenessTrackingConfigParam.cxx
                PUBLIC_LINK_LIBRARIES O2::MathUtils
                                              O2::ITSBase
