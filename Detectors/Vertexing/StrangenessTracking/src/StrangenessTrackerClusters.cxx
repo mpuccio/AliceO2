@@ -5,6 +5,8 @@
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "StrangenessTracking/ITSShortTrackFit.h"
 #include "StrangenessTracking/ITSShortTrackCorridor.h"
+#include "StrangenessTracking/ITSShortTrackSearch.h"
+#include "Framework/Logger.h"
 #include "ITStracking/Configuration.h"
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/GlobalParams.h"
@@ -17,6 +19,7 @@
 #include "DataFormatsITSMFT/TrkClusRef.h"
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <map>
 #include <limits>
@@ -590,29 +593,40 @@ void StrangenessTracker::finishClusterTracking()
     return;
   }
   std::vector<ClusterCandidate> triplets;
+  shorttrack::VisitedShortTriplets visited;
   const std::array<float, 3> material{itsParams.LayerxX0[0], itsParams.LayerxX0[1], itsParams.LayerxX0[2]};
-  // Match the pion material hypothesis and Gaussian angular variance used by
-  // the ITS fit. Only material before an anchor measurement bends its bridge;
-  // the L2 measurement's own material is not part of either search bridge.
-  const double minPt = cfg.shortTrackMinPt;
-  const double scatteringScale = .0136 / minPt * std::sqrt(1. + PID::getMass2(PID::Pion) / (minPt * minPt));
-  const shorttrack::Settings corridorSettings{
-    std::abs(mBz * o2::constants::math::B2C) / minPt, cfg.clusterSearchNSigma,
-    scatteringScale * std::sqrt(std::max(0.f, material[0] + material[1])),
-    scatteringScale * std::sqrt(std::max(0.f, material[0]))};
+  const double fieldToCurvature = std::abs(mBz * o2::constants::math::B2C);
+  const double pionMass2 = PID::getMass2(PID::Pion);
   std::array<shorttrack::Layer, 2> corridorLayers;
   for (int layer = 0; layer < 2; ++layer) {
     corridorLayers[layer] = {radiusMin[layer], radiusMax[layer], std::sqrt(maxErrY[layer]), std::sqrt(maxErrZ[layer]), itsParams.LayerZ[layer]};
   }
   auto point = [&](const Hit& h) {
-    return shorttrack::Point{h.x, h.y, h.z, std::sqrt(maxErrY[h.layer]), std::sqrt(maxErrZ[h.layer])};
+    const auto& cluster = mInputITSclusters[h.ref];
+    const auto& transform = geom->getMatrixT2G(cluster.getSensorID());
+    const auto yAxis = transform(o2::math_utils::Vector3D<double>{0., 1., 0.});
+    const auto zAxis = transform(o2::math_utils::Vector3D<double>{0., 0., 1.});
+    const std::array<double, 3> y{yAxis.X(), yAxis.Y(), yAxis.Z()}, z{zAxis.X(), zAxis.Y(), zAxis.Z()};
+    shorttrack::Point result{h.x, h.y, h.z};
+    int index = 0;
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col <= row; ++col) {
+        result.covariance[index++] = y[row] * y[col] * cluster.getSigmaY2() +
+                                     (y[row] * z[col] + z[row] * y[col]) * cluster.getSigmaYZ() +
+                                     z[row] * z[col] * cluster.getSigmaZ2();
+      }
+    }
+    result.sigmaXY = std::sqrt(std::max(0., result.covariance[0] + result.covariance[2]));
+    result.sigmaZ = std::sqrt(std::max(0., result.covariance[5]));
+    result.hasCovariance = true; // a planar hit's rank-two covariance is valid
+    return result;
   };
   auto queryCorridor = [&](int layer, const shorttrack::Corridor& corridor, double lo, double hi) {
     if (corridor.empty) {
       return std::vector<int>{};
     }
-    // Lookup takes floats. Expand only by their conversion error so exact
-    // double corridor support is not lost before the post-bin spatial gate.
+    // Expand float lookup arguments only by their conversion error, then
+    // apply the double-precision spatial gate to the original hit position.
     const float phi = corridor.phi, z = corridor.z;
     const float dPhi = std::nextafter(float(corridor.dPhi + std::abs(double(phi) - corridor.phi)), std::numeric_limits<float>::max());
     const float dZ = std::nextafter(float(corridor.dZ + std::abs(double(z) - corridor.z)), std::numeric_limits<float>::max());
@@ -623,60 +637,87 @@ void StrangenessTracker::finishClusterTracking()
     });
     return result;
   };
-  // PV+L2 first bounds L1. Each chosen L1 then refines the signed curvature
-  // and longitudinal bridge before L0 lookup; no independent L1xL0 product.
-  // The PV guides construction/selection but never updates the three-hit fit.
-  for (int pv = 0; pv < vertices.size(); ++pv) {
-    const auto [lo, hi] = pvTime(pv);
-    if (!(hi > lo)) {
-      continue;
-    }
-    const auto& vertex = vertices[pv];
-    if (!(vertex.getSigmaX2() > 0.f) || !(vertex.getSigmaY2() > 0.f) || !(vertex.getSigmaZ2() > 0.f)) {
-      continue; // the existing final pointing fit requires positive PV covariance
-    }
-    const shorttrack::Point origin{vertex.getX(), vertex.getY(), vertex.getZ(),
-                                   std::sqrt(vertex.getSigmaX2() + vertex.getSigmaY2()), std::sqrt(vertex.getSigmaZ2())};
-    const auto outer = query(2, 0.f, 0.f, float(M_PI), itsParams.LayerZ[2], lo, hi);
-    for (int flat2 : outer) {
-      const auto& h2 = hits[flat2];
-      const auto p2 = point(h2);
-      const double lower2 = std::max(lo, h2.lower), upper2 = std::min(hi, h2.upper);
-      const auto middleCorridor = shorttrack::makeL1Corridor(origin, p2, corridorLayers[1], corridorSettings);
-      const auto middle = queryCorridor(1, middleCorridor, lower2, upper2);
-      for (int flat1 : middle) {
-        const auto& h1 = hits[flat1];
-        const double lower1 = std::max(lower2, h1.lower), upper1 = std::min(upper2, h1.upper);
-        const auto innerCorridor = shorttrack::makeL0Corridor(origin, p2, point(h1), corridorLayers[0], corridorSettings);
-        const auto inner = queryCorridor(0, innerCorridor, lower1, upper1);
-        for (int flat0 : inner) {
-          const auto& h0 = hits[flat0];
-          const double lower = std::max(lower1, h0.lower), upper = std::min(upper1, h0.upper);
-          if (!(upper > lower)) {
-            continue;
+  // Search high-to-low hypotheses without claiming clusters or limiting work.
+  // The conditioned search state is discarded. Every final fit starts afresh
+  // from only its three ITS hits and uses the same configured final floor.
+  for (float searchMinPt : shorttrack::progressiveSearchMinPt(cfg.shortTrackMinPt)) {
+    const auto passStarted = std::chrono::steady_clock::now();
+    const double scatteringScale = .0136 / searchMinPt * std::sqrt(1. + pionMass2 / (searchMinPt * searchMinPt));
+    shorttrack::Settings corridorSettings{
+      fieldToCurvature / searchMinPt, cfg.clusterSearchNSigma,
+      scatteringScale * std::sqrt(std::max(0.f, material[0] + material[1])),
+      scatteringScale * std::sqrt(std::max(0.f, material[0]))};
+    corridorSettings.curvatureToQPt = 1. / fieldToCurvature;
+    corridorSettings.mass = std::sqrt(pionMass2);
+    corridorSettings.layerxX0 = {material[0], material[1]};
+    const auto fitsBefore = mStrangenessTrackingStats.nTripletProposals;
+    const auto candidatesBefore = triplets.size();
+    uint64_t pairs = 0, repeated = 0, fallback = 0;
+    for (int pv = 0; pv < vertices.size(); ++pv) {
+      const auto [lo, hi] = pvTime(pv);
+      if (!(hi > lo)) {
+        continue;
+      }
+      const auto& vertex = vertices[pv];
+      if (!(vertex.getSigmaX2() > 0.f) || !(vertex.getSigmaY2() > 0.f) || !(vertex.getSigmaZ2() > 0.f)) {
+        continue;
+      }
+      shorttrack::Point origin{vertex.getX(), vertex.getY(), vertex.getZ(),
+                               std::sqrt(vertex.getSigmaX2() + vertex.getSigmaY2()), std::sqrt(vertex.getSigmaZ2())};
+      origin.covariance = {vertex.getSigmaX2(), vertex.getSigmaXY(), vertex.getSigmaY2(),
+                           vertex.getSigmaXZ(), vertex.getSigmaYZ(), vertex.getSigmaZ2()};
+      origin.hasCovariance = true;
+      const auto outer = query(2, 0.f, 0.f, float(M_PI), itsParams.LayerZ[2], lo, hi);
+      for (int flat2 : outer) {
+        const auto& h2 = hits[flat2];
+        const auto p2 = point(h2);
+        const double lower2 = std::max(lo, h2.lower), upper2 = std::min(hi, h2.upper);
+        const auto middleCorridor = shorttrack::makeL1Corridor(origin, p2, corridorLayers[1], corridorSettings);
+        const auto middle = queryCorridor(1, middleCorridor, lower2, upper2);
+        for (int flat1 : middle) {
+          const auto& h1 = hits[flat1];
+          const double lower1 = std::max(lower2, h1.lower), upper1 = std::min(upper2, h1.upper);
+          shorttrack::ConditionalDiagnostics diagnostic;
+          const auto innerCorridor = shorttrack::makeL0Corridor(origin, p2, point(h1), corridorLayers[0], corridorSettings, &diagnostic);
+          ++pairs;
+          fallback += !diagnostic.valid;
+          const auto inner = queryCorridor(0, innerCorridor, lower1, upper1);
+          for (int flat0 : inner) {
+            const auto& h0 = hits[flat0];
+            const double lower = std::max(lower1, h0.lower), upper = std::min(upper1, h0.upper);
+            if (!(upper > lower)) {
+              continue;
+            }
+            if (!visited.markTested(pv, h0.ref, h1.ref, h2.ref)) {
+              ++repeated;
+              continue;
+            }
+            ++mStrangenessTrackingStats.nTripletProposals;
+            ClusterCandidate tr;
+            tr.isShort = true;
+            tr.mPVRef = pv;
+            tr.mTimeMinBC = lower;
+            tr.mTimeMaxBC = upper;
+            const std::array<ITSCluster, 3> clusters{mInputITSclusters[h0.ref], mInputITSclusters[h1.ref], mInputITSclusters[h2.ref]};
+            std::array<float, 2> preDCA;
+            if (!fitITSShortTrack(clusters, vertex, mBz, mCorrType, material, cfg.shortTrackMinPt, cfg.shortTrackMaxPointingChi2,
+                                  cfg.shortTrackMaxChi2NDF, tr.mTrack, tr.mHitChi2, tr.mPVChi2, tr.mNDF, &preDCA, &tr.mOuter)) {
+              continue;
+            }
+            if (!valid(tr.mTrack)) {
+              continue;
+            }
+            attach(tr, flat0);
+            attach(tr, flat1);
+            attach(tr, flat2);
+            triplets.push_back(tr);
           }
-          ++mStrangenessTrackingStats.nTripletProposals;
-          ClusterCandidate tr;
-          tr.isShort = true;
-          tr.mPVRef = pv;
-          tr.mTimeMinBC = lower;
-          tr.mTimeMaxBC = upper;
-          const std::array<ITSCluster, 3> clusters{mInputITSclusters[h0.ref], mInputITSclusters[h1.ref], mInputITSclusters[h2.ref]};
-          std::array<float, 2> preDCA;
-          if (!fitITSShortTrack(clusters, vertex, mBz, mCorrType, material, cfg.shortTrackMinPt, cfg.shortTrackMaxPointingChi2,
-                                cfg.shortTrackMaxChi2NDF, tr.mTrack, tr.mHitChi2, tr.mPVChi2, tr.mNDF, &preDCA, &tr.mOuter)) {
-            continue;
-          }
-          if (!valid(tr.mTrack)) {
-            continue;
-          }
-          attach(tr, flat0);
-          attach(tr, flat1);
-          attach(tr, flat2);
-          triplets.push_back(tr);
         }
       }
     }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - passStarted).count();
+    LOGP(info, "ITS short search >= {} MeV/c: {} PV/L2/L1 pairs, {} unique fits, {} repeated triplets, {} passing candidates, {} fallback corridors in {} s",
+         1000.f * searchMinPt, pairs, mStrangenessTrackingStats.nTripletProposals - fitsBefore, repeated, triplets.size() - candidatesBefore, fallback, seconds);
   }
   std::sort(triplets.begin(), triplets.end(), [](const auto& a, const auto& b) {
     const auto qa = a.mHitChi2 / a.mNDF, qb = b.mHitChi2 / b.mNDF;

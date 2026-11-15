@@ -45,7 +45,7 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
   float extensionMaxHitChi2 = 25.f;
   float shortTrackMaxPointingChi2 = 25.f;
   float shortTrackMaxChi2NDF = 10.f;
-  float shortTrackMinPt = 0.02f;
+  float shortTrackMinPt = 0.01f;
 
   O2ParamDef(StrangenessTrackingParamConfig, "strtracker");
 };
