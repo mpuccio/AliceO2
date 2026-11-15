@@ -41,14 +41,11 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
   bool itsOnly = false; // explicit input profile without an ITS-TPC afterburner
   int extensionMinHits = 2;
   int extensionMaxMissing = 1;
-  int extensionMaxBranches = 8;
   float clusterSearchNSigma = 5.f;
   float extensionMaxHitChi2 = 25.f;
   float shortTrackMaxPointingChi2 = 25.f;
   float shortTrackMaxChi2NDF = 10.f;
   float shortTrackMinPt = 0.02f;
-  int shortTrackMaxPerPV = 4096;
-  int shortTrackMaxPerTF = 100000;
 
   O2ParamDef(StrangenessTrackingParamConfig, "strtracker");
 };

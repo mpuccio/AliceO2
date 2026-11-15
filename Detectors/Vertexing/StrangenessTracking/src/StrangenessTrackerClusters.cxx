@@ -131,7 +131,6 @@ void StrangenessTracker::finishClusterTracking()
   const auto& data = *mClusterTrackingData;
   const auto& cfg = *mStrParams;
   if (cfg.extensionMinHits < 2 || cfg.extensionMinHits > 7 || cfg.extensionMaxMissing < 0 || cfg.extensionMaxMissing > 1 ||
-      cfg.extensionMaxBranches < 1 || cfg.shortTrackMaxPerPV < 1 || cfg.shortTrackMaxPerTF < 1 ||
       mPVTimeMargin < 0 || !(cfg.shortTrackMinPt > 0) || !(cfg.clusterSearchNSigma > 0) || !(cfg.extensionMaxHitChi2 > 0) ||
       !(cfg.shortTrackMaxPointingChi2 > 0) || !(cfg.shortTrackMaxChi2NDF > 0)) {
     throw std::runtime_error("Invalid ITS extension/short tracking configuration");
@@ -465,10 +464,6 @@ void StrangenessTracker::finishClusterTracking()
         }
       }
       std::sort(next.begin(), next.end(), better);
-      if (next.size() > cfg.extensionMaxBranches) {
-        mStrangenessTrackingStats.nMotherTruncated += next.size() - cfg.extensionMaxBranches;
-        next.resize(cfg.extensionMaxBranches);
-      }
       branches.swap(next);
     }
     for (auto& tr : branches) {
@@ -642,22 +637,14 @@ void StrangenessTracker::finishClusterTracking()
     }
     const shorttrack::Point origin{vertex.getX(), vertex.getY(), vertex.getZ(),
                                    std::sqrt(vertex.getSigmaX2() + vertex.getSigmaY2()), std::sqrt(vertex.getSigmaZ2())};
-    int perPV = 0;
-    bool capped = false;
     const auto outer = query(2, 0.f, 0.f, float(M_PI), itsParams.LayerZ[2], lo, hi);
     for (int flat2 : outer) {
-      if (capped) {
-        break;
-      }
       const auto& h2 = hits[flat2];
       const auto p2 = point(h2);
       const double lower2 = std::max(lo, h2.lower), upper2 = std::min(hi, h2.upper);
       const auto middleCorridor = shorttrack::makeL1Corridor(origin, p2, corridorLayers[1], corridorSettings);
       const auto middle = queryCorridor(1, middleCorridor, lower2, upper2);
       for (int flat1 : middle) {
-        if (capped) {
-          break;
-        }
         const auto& h1 = hits[flat1];
         const double lower1 = std::max(lower2, h1.lower), upper1 = std::min(upper2, h1.upper);
         const auto innerCorridor = shorttrack::makeL0Corridor(origin, p2, point(h1), corridorLayers[0], corridorSettings);
@@ -668,12 +655,6 @@ void StrangenessTracker::finishClusterTracking()
           if (!(upper > lower)) {
             continue;
           }
-          if (perPV >= cfg.shortTrackMaxPerPV || mStrangenessTrackingStats.nTripletProposals >= cfg.shortTrackMaxPerTF) {
-            ++mStrangenessTrackingStats.nTripletTruncated;
-            capped = true;
-            break;
-          }
-          ++perPV;
           ++mStrangenessTrackingStats.nTripletProposals;
           ClusterCandidate tr;
           tr.isShort = true;
