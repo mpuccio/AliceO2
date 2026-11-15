@@ -4,6 +4,7 @@
 
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "StrangenessTracking/ITSShortTrackFit.h"
+#include "StrangenessTracking/ITSShortTrackCorridor.h"
 #include "ITStracking/Configuration.h"
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/GlobalParams.h"
@@ -595,83 +596,75 @@ void StrangenessTracker::finishClusterTracking()
   }
   std::vector<ClusterCandidate> triplets;
   const std::array<float, 3> material{itsParams.LayerxX0[0], itsParams.LayerxX0[1], itsParams.LayerxX0[2]};
-  // Build spatially bounded PV-pointing pairs before fitting exactly 0-1-2.
-  // The low pT floor bounds curvature only; momentum never orders proposals.
+  // Match the pion material hypothesis and Gaussian angular variance used by
+  // the ITS fit. Only material before an anchor measurement bends its bridge;
+  // the L2 measurement's own material is not part of either search bridge.
+  const double minPt = cfg.shortTrackMinPt;
+  const double scatteringScale = .0136 / minPt * std::sqrt(1. + PID::getMass2(PID::Pion) / (minPt * minPt));
+  const shorttrack::Settings corridorSettings{
+    std::abs(mBz * o2::constants::math::B2C) / minPt, cfg.clusterSearchNSigma,
+    scatteringScale * std::sqrt(std::max(0.f, material[0] + material[1])),
+    scatteringScale * std::sqrt(std::max(0.f, material[0]))};
+  std::array<shorttrack::Layer, 2> corridorLayers;
+  for (int layer = 0; layer < 2; ++layer) {
+    corridorLayers[layer] = {radiusMin[layer], radiusMax[layer], std::sqrt(maxErrY[layer]), std::sqrt(maxErrZ[layer]), itsParams.LayerZ[layer]};
+  }
+  auto point = [&](const Hit& h) {
+    return shorttrack::Point{h.x, h.y, h.z, std::sqrt(maxErrY[h.layer]), std::sqrt(maxErrZ[h.layer])};
+  };
+  auto queryCorridor = [&](int layer, const shorttrack::Corridor& corridor, double lo, double hi) {
+    if (corridor.empty) {
+      return std::vector<int>{};
+    }
+    // Lookup takes floats. Expand only by their conversion error so exact
+    // double corridor support is not lost before the post-bin spatial gate.
+    const float phi = corridor.phi, z = corridor.z;
+    const float dPhi = std::nextafter(float(corridor.dPhi + std::abs(double(phi) - corridor.phi)), std::numeric_limits<float>::max());
+    const float dZ = std::nextafter(float(corridor.dZ + std::abs(double(z) - corridor.z)), std::numeric_limits<float>::max());
+    auto result = query(layer, phi, z, dPhi, dZ, lo, hi);
+    std::erase_if(result, [&](int flat) {
+      const auto& hit = hits[flat];
+      return !corridor.contains(std::atan2(hit.y, hit.x), hit.z);
+    });
+    return result;
+  };
+  // PV+L2 first bounds L1. Each chosen L1 then refines the signed curvature
+  // and longitudinal bridge before L0 lookup; no independent L1xL0 product.
+  // The PV guides construction/selection but never updates the three-hit fit.
   for (int pv = 0; pv < vertices.size(); ++pv) {
     const auto [lo, hi] = pvTime(pv);
     if (!(hi > lo)) {
       continue;
     }
+    const auto& vertex = vertices[pv];
+    if (!(vertex.getSigmaX2() > 0.f) || !(vertex.getSigmaY2() > 0.f) || !(vertex.getSigmaZ2() > 0.f)) {
+      continue; // the existing final pointing fit requires positive PV covariance
+    }
+    const shorttrack::Point origin{vertex.getX(), vertex.getY(), vertex.getZ(),
+                                   std::sqrt(vertex.getSigmaX2() + vertex.getSigmaY2()), std::sqrt(vertex.getSigmaZ2())};
     int perPV = 0;
     bool capped = false;
-    const auto inner = query(0, 0.f, 0.f, float(M_PI), itsParams.LayerZ[0], lo, hi);
-    for (int flat0 : inner) {
+    const auto outer = query(2, 0.f, 0.f, float(M_PI), itsParams.LayerZ[2], lo, hi);
+    for (int flat2 : outer) {
       if (capped) {
         break;
       }
-      const auto& h0 = hits[flat0];
-      if (used[flat0] || h0.layer != 0 || h0.upper <= lo || h0.lower >= hi) {
-        continue;
-      }
-      const auto& vertex = vertices[pv];
-      const float dx = h0.x - vertex.getX(), dy = h0.y - vertex.getY();
-      const float r0 = std::hypot(dx, dy);
-      if (r0 < 1.e-6f) {
-        continue;
-      }
-      const float ux = dx / r0, uy = dy / r0;
-      const float dot = vertex.getX() * ux + vertex.getY() * uy;
-      const float pvR2 = vertex.getX() * vertex.getX() + vertex.getY() * vertex.getY();
-      const float slope = (h0.z - vertex.getZ()) / r0;
-      std::array<std::vector<int>, 2> outer;
-      for (int layer = 1; layer <= 2; ++layer) {
-        const float r = itsParams.LayerRadii[layer];
-        const float discriminant = dot * dot + r * r - pvR2;
-        if (discriminant <= 0) {
-          continue;
-        }
-        const float distance = -dot + std::sqrt(discriminant);
-        if (distance <= r0) {
-          continue;
-        }
-        const float phi = std::atan2(vertex.getY() + distance * uy, vertex.getX() + distance * ux);
-        const float curvature = std::abs(mBz * o2::constants::math::B2C) / cfg.shortTrackMinPt;
-        float dphi = std::min(float(M_PI), curvature * (r + radiusMax[0]) + cfg.clusterSearchNSigma * std::sqrt(maxErrY[0] + maxErrY[layer] + vertex.getSigmaX2() + vertex.getSigmaY2()) / r0);
-        float dz = cfg.clusterSearchNSigma * std::sqrt(maxErrZ[layer] + maxErrZ[0] * r * r / (r0 * r0) + vertex.getSigmaZ2()) +
-                   std::abs(slope) * (radiusMax[layer] - radiusMin[layer] + curvature * curvature * r * r * r);
-        const float ratio = distance / r0;
-        const float pvWeight = std::abs(1.f - ratio);
-        const float rayCos = std::abs((dot + distance) / r);
-        // Extrapolation is PV + ratio*(L0-PV), not r/r0 for a displaced PV.
-        // PV XY uncertainty changes the ray length and therefore Z at nonzero
-        // slope. Sum-of-SD bounds include that term and arbitrary PV/cluster
-        // coordinate correlations; these widths only enlarge candidate lookup.
-        if (rayCos < 1.e-3f) {
-          dphi = float(M_PI);
-          dz = std::max(dz, itsParams.LayerZ[layer] + std::abs(vertex.getZ() + slope * distance));
-        } else {
-          const float sigmaPVXY = std::sqrt(vertex.getSigmaX2() + vertex.getSigmaY2());
-          const float transverseSigma = std::sqrt(maxErrY[layer]) + ratio * std::sqrt(maxErrY[0]) + pvWeight * sigmaPVXY;
-          const float radialSpan = radiusMax[layer] - radiusMin[layer];
-          dphi = std::min(float(M_PI), std::max(dphi, curvature * (r + radiusMax[0]) +
-                                                        (cfg.clusterSearchNSigma * transverseSigma + radialSpan) / (r * rayCos)));
-          const float sigmaZ = std::sqrt(maxErrZ[layer]) + ratio * std::sqrt(maxErrZ[0]) + pvWeight * std::sqrt(vertex.getSigmaZ2()) +
-                               std::abs(slope) * transverseSigma / rayCos;
-          dz = std::max(dz, cfg.clusterSearchNSigma * sigmaZ + std::abs(slope) *
-                                                                 (radialSpan / rayCos + curvature * curvature * r * r * r));
-        }
-        outer[layer - 1] = query(layer, phi, vertex.getZ() + slope * distance, dphi, dz,
-                                 std::max(lo, h0.lower), std::min(hi, h0.upper));
-      }
-      for (int flat1 : outer[0]) {
+      const auto& h2 = hits[flat2];
+      const auto p2 = point(h2);
+      const double lower2 = std::max(lo, h2.lower), upper2 = std::min(hi, h2.upper);
+      const auto middleCorridor = shorttrack::makeL1Corridor(origin, p2, corridorLayers[1], corridorSettings);
+      const auto middle = queryCorridor(1, middleCorridor, lower2, upper2);
+      for (int flat1 : middle) {
         if (capped) {
           break;
         }
-        for (int flat2 : outer[1]) {
-          const auto& h1 = hits[flat1];
-          const auto& h2 = hits[flat2];
-          const double lower = std::max({lo, h0.lower, h1.lower, h2.lower});
-          const double upper = std::min({hi, h0.upper, h1.upper, h2.upper});
+        const auto& h1 = hits[flat1];
+        const double lower1 = std::max(lower2, h1.lower), upper1 = std::min(upper2, h1.upper);
+        const auto innerCorridor = shorttrack::makeL0Corridor(origin, p2, point(h1), corridorLayers[0], corridorSettings);
+        const auto inner = queryCorridor(0, innerCorridor, lower1, upper1);
+        for (int flat0 : inner) {
+          const auto& h0 = hits[flat0];
+          const double lower = std::max(lower1, h0.lower), upper = std::min(upper1, h0.upper);
           if (!(upper > lower)) {
             continue;
           }
