@@ -8,26 +8,14 @@
 #include <array>
 #include <cstddef>
 #include <set>
-#include <vector>
 
 namespace o2::strangeness_tracking::shorttrack
 {
-// Search hypotheses, in GeV/c, not cuts on a track's fitted momentum. Always
-// finish at the configured final floor; custom floors never create a gap.
-inline std::vector<float> progressiveSearchMinPt(float finalMinPt)
+// Search hypotheses, in GeV/c, not cuts on a track's fitted momentum.
+// Keep this schedule independent of the configured final-fit momentum floor.
+inline constexpr std::array<float, 3> progressiveSearchMinPt()
 {
-  std::vector<float> result;
-  if (!(finalMinPt > 0.f)) {
-    return result;
-  }
-  constexpr std::array<float, 5> nominal{.150f, .100f, .050f, .025f, .010f};
-  for (float threshold : nominal) {
-    if (threshold > finalMinPt) {
-      result.push_back(threshold);
-    }
-  }
-  result.push_back(finalMinPt);
-  return result;
+  return {.150f, .100f, .050f};
 }
 
 // Final fitting depends on the PV, original hits and fixed final cuts, never

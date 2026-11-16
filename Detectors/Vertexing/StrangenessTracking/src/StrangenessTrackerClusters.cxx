@@ -640,7 +640,7 @@ void StrangenessTracker::finishClusterTracking()
   // Search high-to-low hypotheses without claiming clusters or limiting work.
   // The conditioned search state is discarded. Every final fit starts afresh
   // from only its three ITS hits and uses the same configured final floor.
-  for (float searchMinPt : shorttrack::progressiveSearchMinPt(cfg.shortTrackMinPt)) {
+  for (float searchMinPt : shorttrack::progressiveSearchMinPt()) {
     const auto passStarted = std::chrono::steady_clock::now();
     const double scatteringScale = .0136 / searchMinPt * std::sqrt(1. + pionMass2 / (searchMinPt * searchMinPt));
     shorttrack::Settings corridorSettings{
