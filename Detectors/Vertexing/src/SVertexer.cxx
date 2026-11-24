@@ -199,13 +199,17 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
       if (params.enableDecayFollowing) {
         pc.outputs().snapshot(o2f::Output{"GLO", "EXTSTRTRACKS", 0}, mStrTracker->getExtendedStrangeTracks());
         pc.outputs().snapshot(o2f::Output{"GLO", "EXTSTRTIMES", 0}, mStrTracker->getExtendedStrangeTrackTimes());
-        if (mStrTracker->getMCTruthOn()) { pc.outputs().snapshot(o2f::Output{"GLO", "EXTSTRTRACKS_MC", 0}, mStrTracker->getExtendedStrangeTrackLabels()); }
+        if (mStrTracker->getMCTruthOn()) {
+          pc.outputs().snapshot(o2f::Output{"GLO", "EXTSTRTRACKS_MC", 0}, mStrTracker->getExtendedStrangeTrackLabels());
+        }
       }
       if (params.enableShortIB) {
         pc.outputs().snapshot(o2f::Output{"GLO", "ITSSHORTTRACKS", 0}, mStrTracker->getITSShortTracks());
         pc.outputs().snapshot(o2f::Output{"GLO", "ITSSHORTPV", 0}, mStrTracker->getITSShortTrackPVRefs());
         pc.outputs().snapshot(o2f::Output{"GLO", "ITSSHORTCLREF", 0}, mStrTracker->getITSShortTrackClusterRefs());
-        if (mStrTracker->getMCTruthOn()) { pc.outputs().snapshot(o2f::Output{"GLO", "ITSSHORTMC", 0}, mStrTracker->getITSShortTrackLabels()); }
+        if (mStrTracker->getMCTruthOn()) {
+          pc.outputs().snapshot(o2f::Output{"GLO", "ITSSHORTMC", 0}, mStrTracker->getITSShortTrackLabels());
+        }
       }
       pc.outputs().snapshot(o2f::Output{"GLO", "STRTRACKSTATS", 0}, mStrTracker->getStrangenessTrackingStats());
     }

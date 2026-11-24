@@ -720,8 +720,8 @@ void AODProducerWorkflowDPL::fillTrackTablesPerCollision(int collisionID,
   auto sTracks = data.getStrangeTracks();
   // All three families append aligned rows to the common track tables.
   const int nStrangenessTracks = mVertexStrLUT[collisionID + 1] - mVertexStrLUT[collisionID] +
-                                mVertexExtendedStrLUT[collisionID + 1] - mVertexExtendedStrLUT[collisionID] +
-                                mVertexITSShortLUT[collisionID + 1] - mVertexITSShortLUT[collisionID];
+                                 mVertexExtendedStrLUT[collisionID + 1] - mVertexExtendedStrLUT[collisionID] +
+                                 mVertexITSShortLUT[collisionID + 1] - mVertexITSShortLUT[collisionID];
   tracksCursor.reserve(nStrangenessTracks + tracksCursor.lastIndex() + 1);
   tracksCovCursor.reserve(nStrangenessTracks + tracksCovCursor.lastIndex() + 1);
   tracksExtraCursor.reserve(nStrangenessTracks + tracksExtraCursor.lastIndex() + 1);

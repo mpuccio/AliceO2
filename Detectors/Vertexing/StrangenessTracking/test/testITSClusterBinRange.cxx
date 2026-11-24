@@ -42,7 +42,7 @@ std::vector<int> phiBins(const BinRange& bins)
   BOOST_CHECK_EQUAL(std::set<int>(result.begin(), result.end()).size(), result.size());
   return result;
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_CASE(PeriodicLookupTerminatesAndPreservesSupport)
 {

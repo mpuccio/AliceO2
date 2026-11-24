@@ -43,7 +43,7 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
   int extensionMaxMissing = 1;
   float clusterSearchNSigma = 5.f;
   float extensionMaxHitChi2 = 25.f;
-  int extensionMaxBranches = 4;   // per-seed cap on live decay-following hypotheses after each layer
+  int extensionMaxBranches = 4;    // per-seed cap on live decay-following hypotheses after each layer
   bool decayFollowingOnly = false; // Skip legacy matching and let decay following use all ITS clusters.
   O2ParamDef(StrangenessTrackingParamConfig, "strtracker");
 };

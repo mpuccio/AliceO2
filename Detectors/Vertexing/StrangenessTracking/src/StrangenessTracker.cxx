@@ -183,9 +183,7 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
     std::array<float, 3> posMom, negMom;
     correctedV0.getProng(0).getPxPyPzGlo(posMom);
     correctedV0.getProng(1).getPxPyPzGlo(negMom);
-    source.mMasses = alphaV0 > 0 ?
-      std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Helium3, PID::Pion)), float(calcMotherMass(posMom, negMom, PID::Alpha, PID::Pion))} :
-      std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Pion, PID::Helium3)), float(calcMotherMass(posMom, negMom, PID::Pion, PID::Alpha))};
+    source.mMasses = alphaV0 > 0 ? std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Helium3, PID::Pion)), float(calcMotherMass(posMom, negMom, PID::Alpha, PID::Pion))} : std::array<float, 2>{float(calcMotherMass(posMom, negMom, PID::Pion, PID::Helium3)), float(calcMotherMass(posMom, negMom, PID::Pion, PID::Alpha))};
     mExtensionSeeds[iThread].push_back({source, extensionPV >= 0 ? extensionPV : v0Idx.getVertexID(), {v0Idx.getProngID(0).getRawWOFlags(), v0Idx.getProngID(1).getRawWOFlags(), 0, uint32_t(source.mPartType)}});
   }
   if (mStrParams->decayFollowingOnly) {
